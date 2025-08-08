@@ -1,28 +1,35 @@
 import { useAppStore } from "../store/useAppStore";
+import ShareModal from "../components/ShareModal";
 import { useState } from "react";
-import EditorWrapper from "../components/Editor/EditorWrapper";
+import LiveEditor from "../components/Editor/LiveEditor";
 
 export default function EditorPage() {
-  const { pages, currentPageId, addPage, setCurrentPageId } = useAppStore();
-  const [newPageName, setNewPageName] = useState("");
+  const { currentProjectId, currentPageId } = useAppStore();
+  const [showShare, setShowShare] = useState(false);
 
   return (
-    <div>
-      <div className="flex gap-4 mb-4">
-        {pages.map(p => (
-          <button key={p.id}
-            className={`px-3 py-1 rounded ${currentPageId === p.id ? "bg-blue-600 text-white" : "bg-gray-200"}`}
-            onClick={() => setCurrentPageId(p.id)}
+    <div className="h-screen w-full flex flex-col">
+      <div className="p-4 flex justify-between items-center border-b bg-white">
+        <h2 className="font-bold text-lg">Éditeur UInova</h2>
+        <div className="space-x-2">
+          <button
+            onClick={() => setShowShare(true)}
+            className="px-4 py-1 bg-blue-600 text-white rounded"
           >
-            {p.name}
+            🔗 Partager
           </button>
-        ))}
-        <form onSubmit={e => { e.preventDefault(); addPage(newPageName); setNewPageName(""); }}>
-          <input value={newPageName} onChange={e => setNewPageName(e.target.value)} placeholder="Nom page" className="border px-2 py-1 rounded mr-2" />
-          <button type="submit" className="bg-green-600 text-white px-2 py-1 rounded">+</button>
-        </form>
+          <a
+            href={`/export/${currentProjectId}/${currentPageId}`}
+            target="_blank"
+            className="px-4 py-1 bg-green-600 text-white rounded"
+            rel="noreferrer"
+          >
+            ⬇️ Exporter
+          </a>
+        </div>
       </div>
-      <EditorWrapper />
+      <LiveEditor />
+      {showShare && <ShareModal onClose={() => setShowShare(false)} />}
     </div>
   );
 }
