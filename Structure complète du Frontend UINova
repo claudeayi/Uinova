@@ -1,0 +1,46 @@
+uinova-frontend/
+├─ public/
+│   ├─ index.html
+│   └─ ...
+├─ src/
+│   ├─ assets/                  # Images, logos, icônes custom
+│   ├─ components/
+│   │   ├─ common/              # Composants réutilisables (Button, Modal, Toast...)
+│   │   └─ Editor/
+│   │       ├─ EditorWrapper.tsx
+│   │       ├─ LivePreview.tsx
+│   │       ├─ LiveEditor.tsx
+│   │       ├─ TreeView.tsx
+│   │       ├─ Inspector.tsx
+│   │       ├─ SectionLibrary.tsx
+│   │       ├─ ImportExportModal.tsx
+│   │       └─ ...autres outils de l’éditeur
+│   ├─ layouts/
+│   │   ├─ Navbar.tsx
+│   │   ├─ DarkModeToggle.tsx
+│   │   └─ ... (footer, sidebar si besoin)
+│   ├─ pages/
+│   │   ├─ Dashboard.tsx
+│   │   ├─ LoginPage.tsx
+│   │   ├─ RegisterPage.tsx
+│   │   ├─ EditorPage.tsx
+│   │   ├─ MarketplacePage.tsx
+│   │   ├─ PricingPage.tsx
+│   │   ├─ PaymentPage.tsx
+│   │   ├─ PreviewPage.tsx
+│   │   ├─ ExportPage.tsx
+│   │   └─ NotFoundPage.tsx
+│   ├─ store/
+│   │   └─ useAppStore.ts        # Zustand global app state/collab/undo/redo
+│   ├─ utils/
+│   │   └─ exporters.ts          # Tous les exports/imports multi-formats + zip
+│   ├─ App.tsx                   # Root App (avec Toaster global + Routes)
+│   ├─ index.tsx                 # Entrée ReactDOM
+│   ├─ index.css                 # Style global (mode sombre, transitions, tailwind, ...)
+│   └─ vite-env.d.ts             # Types Vite si besoin
+├─ .env                          # Config API (ex: REACT_APP_API_URL=...)
+├─ package.json
+├─ tailwind.config.js            # (si tailwind utilisé)
+├─ tsconfig.json                 # TypeScript config
+├─ vite.config.ts                # (ou craco.config.js/webpack.config.js selon setup)
+└─ README.md
