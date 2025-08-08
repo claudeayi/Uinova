@@ -9,29 +9,14 @@ import TreeView from "./TreeView";
 import Inspector from "./Inspector";
 import SectionLibrary from "./SectionLibrary";
 import ImportExportModal from "./ImportExportModal";
-import ToolbarPro from "./ToolbarPro"; //   import ToolbarPro from "./ToolbarPro";
-
-// ...
-<ToolbarPro
-  canUndo={canUndo}
-  canRedo={canRedo}
-  hasSelection={!!selectedPath}
-  onUndo={handleUndo}
-  onRedo={handleRedo}
-  onDuplicate={handleDuplicate}
-  onDelete={handleDelete}
-  onPreview={handlePreview}
-  onExportHTML={handleExportHTML}
-  onOpenImportExport={() => setShowImportExport(true)} // si tu veux lier ta modale
-/>
-👉 si tu ne l’as pas, dis-moi et je te fournis une version inline
+import ToolbarPro from "./ToolbarPro";
 
 import { useAppStore, ElementData } from "../../store/useAppStore";
 import { toHTML, download } from "../../utils/exporters";
 
-// ---------------------------
-// Drag helpers
-// ---------------------------
+/* ---------------------------
+ * Drag helpers
+ * --------------------------- */
 function DraggableItem({ id, children }: any) {
   const { attributes, listeners, setNodeRef } = useDraggable({ id });
   return (
@@ -50,25 +35,14 @@ function DroppableCanvas({ children }: any) {
   );
 }
 
-// ---------------------------
-// Data helpers (path utils)
-// path = tableau d'index (ex: [2,1] = 2e element -> 1er enfant)
-// ---------------------------
+/* ---------------------------
+ * Data helpers (path utils)
+ * path = tableau d'index (ex: [2,1] = 2e element -> 1er enfant)
+ * --------------------------- */
 function getByPath(tree: ElementData[], path: number[]): ElementData {
   if (path.length === 1) return tree[path[0]];
   const [h, ...r] = path;
   return getByPath((tree[h].children || []), r);
-}
-
-function setByPath(tree: ElementData[], path: number[], newNode: ElementData): ElementData[] {
-  const copy = structuredClone(tree) as ElementData[];
-  if (path.length === 1) {
-    copy[path[0]] = newNode;
-    return copy;
-  }
-  const [h, ...r] = path;
-  copy[h].children = setByPath(copy[h].children || [], r, newNode);
-  return copy;
 }
 
 function removeByPath(tree: ElementData[], path: number[]): ElementData[] {
@@ -92,9 +66,9 @@ function cloneWithNewIds(node: ElementData): ElementData {
   return cloned;
 }
 
-// ---------------------------
-// Palette de base
-// ---------------------------
+/* ---------------------------
+ * Palette de base
+ * --------------------------- */
 const palette = [
   { type: "button", label: "Button" },
   { type: "input", label: "Input" },
@@ -128,17 +102,17 @@ export default function EditorWrapper() {
   const [selectedPath, setSelectedPath] = useState<number[] | null>(null);
   const [showImportExport, setShowImportExport] = useState(false);
 
-  // collaboration
+  // Collaboration
   useEffect(() => {
     listenElements();
   }, [listenElements]);
 
-  // -------- Pro indicators pour la Toolbar (undo/redo states)
+  // Indicateurs pour la Toolbar
   const canUndo = (page?.history?.length || 0) > 1;
   const canRedo = (page?.future?.length || 0) > 0;
   const hasSelection = !!selectedPath;
 
-  // -------- Helpers mutation (avec snapshot avant modif)
+  // Mutations (avec snapshot)
   function applyElements(next: ElementData[], msg?: string) {
     try {
       if (saveSnapshot) saveSnapshot();
@@ -150,7 +124,7 @@ export default function EditorWrapper() {
     }
   }
 
-  // -------- Patch props d'un élément sélectionné
+  // Patch props d'un élément sélectionné
   function patchProps(path: number[], patch: Partial<ElementData["props"]>) {
     const updated = structuredClone(page.elements) as ElementData[];
     const el = getByPath(updated, path);
@@ -158,7 +132,7 @@ export default function EditorWrapper() {
     applyElements(updated);
   }
 
-  // -------- Ajouts / insertion
+  // Ajouts / insertion
   function addElementAtRoot(type: string, label: string) {
     applyElements(
       [
@@ -178,7 +152,7 @@ export default function EditorWrapper() {
     applyElements([...page.elements, el], "Section insérée !");
   }
 
-  // -------- Actions Pro: Undo / Redo
+  // Actions Pro: Undo / Redo
   function handleUndo() {
     if (undo) undo();
   }
@@ -186,15 +160,13 @@ export default function EditorWrapper() {
     if (redo) redo();
   }
 
-  // -------- Actions Pro: Duplicate / Delete
+  // Actions Pro: Duplicate / Delete
   function handleDuplicate() {
     if (!selectedPath) return;
     const node = getByPath(page.elements, selectedPath);
     const duplicated = cloneWithNewIds(node);
 
-    // Insère le clone à côté de l’original
     const updated = structuredClone(page.elements) as ElementData[];
-    // On descend jusqu'au parent
     if (selectedPath.length === 1) {
       updated.splice(selectedPath[0] + 1, 0, duplicated);
     } else {
@@ -214,7 +186,7 @@ export default function EditorWrapper() {
     setSelectedPath(null);
   }
 
-  // -------- Actions Pro: Aperçu / Export
+  // Actions Pro: Aperçu / Export
   function handlePreview() {
     window.open(`/preview/${proj.id}/${page.id}`, "_blank", "noopener,noreferrer");
   }
@@ -225,13 +197,13 @@ export default function EditorWrapper() {
     toast.success("Export HTML généré");
   }
 
-  // -------- Raccourcis clavier pro
+  // Raccourcis clavier pro
   useHotkeys("ctrl+z, cmd+z", (e) => { e.preventDefault(); handleUndo(); }, {}, [page?.history]);
   useHotkeys("ctrl+y, cmd+y, ctrl+shift+z, cmd+shift+z", (e) => { e.preventDefault(); handleRedo(); }, {}, [page?.future]);
   useHotkeys("ctrl+d, cmd+d", (e) => { e.preventDefault(); hasSelection && handleDuplicate(); }, {}, [hasSelection, selectedPath, page?.elements]);
   useHotkeys("del, backspace", (e) => { if (hasSelection) { e.preventDefault(); handleDelete(); } }, {}, [hasSelection, selectedPath, page?.elements]);
 
-  // -------- Palette pour drag source
+  // Palette (drag source)
   const paletteView = (
     <div className="mb-3 flex gap-2">
       {palette.map((c) => (
@@ -260,7 +232,7 @@ export default function EditorWrapper() {
 
         {/* Centre : Canvas + Preview + Actions */}
         <div className="flex-1 p-6 bg-gray-100 dark:bg-gray-900">
-          {/* ✅ Toolbar Pro (fusion) */}
+          {/* Toolbar Pro */}
           <ToolbarPro
             canUndo={canUndo}
             canRedo={canRedo}
@@ -271,15 +243,16 @@ export default function EditorWrapper() {
             onDelete={handleDelete}
             onPreview={handlePreview}
             onExportHTML={handleExportHTML}
+            onOpenImportExport={() => setShowImportExport(true)}
           />
 
-          {/* ✅ Live Preview (garde ta version qui prend elements) */}
+          {/* Live Preview */}
           <LivePreview elements={page.elements} />
 
-          {/* ✅ Palette drag source au-dessus du canvas */}
+          {/* Palette drag source */}
           {paletteView}
 
-          {/* ✅ Canvas */}
+          {/* Canvas */}
           <DroppableCanvas>
             {page.elements.map((el, idx) => (
               <div key={el.id} className="mb-2" onClick={() => setSelectedPath([idx])}>
@@ -357,7 +330,7 @@ export default function EditorWrapper() {
         )}
       </div>
 
-      {/* ✅ Toasts globaux */}
+      {/* Toasts globaux */}
       <Toaster position="top-right" />
     </DndContext>
   );
