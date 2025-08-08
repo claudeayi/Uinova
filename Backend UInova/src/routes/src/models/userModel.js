@@ -1,16 +1,25 @@
-import pool from "../config/db.js";
+import prisma from '../utils/prisma';
 
-export async function findByEmail(email) {
-  const [rows] = await pool.query("SELECT * FROM users WHERE email = ?", [email]);
-  return rows[0];
+export async function getAllUsers() {
+  return prisma.user.findMany();
 }
 
-export async function createUser({ email, password, role = "user" }) {
-  const [res] = await pool.query("INSERT INTO users (email, password, role) VALUES (?, ?, ?)", [email, password, role]);
-  return res.insertId;
+export async function getUserById(id: number) {
+  return prisma.user.findUnique({ where: { id } });
 }
 
-export async function getUserById(id) {
-  const [rows] = await pool.query("SELECT id, email, role FROM users WHERE id = ?", [id]);
-  return rows[0];
+export async function getUserByEmail(email: string) {
+  return prisma.user.findUnique({ where: { email } });
+}
+
+export async function createUser(data: { email: string; password: string; role?: string }) {
+  return prisma.user.create({ data });
+}
+
+export async function updateUser(id: number, data: Partial<{ email: string; password: string; role: string }>) {
+  return prisma.user.update({ where: { id }, data });
+}
+
+export async function deleteUser(id: number) {
+  return prisma.user.delete({ where: { id } });
 }
