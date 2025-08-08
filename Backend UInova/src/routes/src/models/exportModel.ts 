@@ -1,0 +1,17 @@
+import prisma from '../utils/prisma';
+
+export async function getExportsByPage(pageId: number) {
+  return prisma.export.findMany({ where: { pageId } });
+}
+
+export async function createExport(data: { type: string; content: string; projectId: number; pageId?: number }) {
+  return prisma.export.create({ data });
+}
+
+export async function getExportById(id: number) {
+  return prisma.export.findUnique({ where: { id } });
+}
+
+export async function deleteExport(id: number) {
+  return prisma.export.delete({ where: { id } });
+}
