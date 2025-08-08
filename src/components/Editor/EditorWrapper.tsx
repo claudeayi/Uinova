@@ -1,22 +1,22 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
 import { v4 as uuid } from "uuid";
-import toast from "react-hot-toast";
+import toast, { Toaster } from "react-hot-toast";
+import { useHotkeys } from "react-hotkeys-hook";
+
 import LivePreview from "./LivePreview";
-import { useAppStore, ElementData } from "../../store/useAppStore";
 import TreeView from "./TreeView";
 import Inspector from "./Inspector";
 import SectionLibrary from "./SectionLibrary";
-import { toHTML, download } from "../../utils/exporters";
 import ImportExportModal from "./ImportExportModal";
+import ToolbarPro from "./ToolbarPro"; // 👉 si tu ne l’as pas, dis-moi et je te fournis une version inline
 
-const palette = [
-  { type: "button", label: "Button" },
-  { type: "input", label: "Input" },
-  { type: "card", label: "Card" },
-  { type: "group", label: "Groupe" },
-];
+import { useAppStore, ElementData } from "../../store/useAppStore";
+import { toHTML, download } from "../../utils/exporters";
 
+// ---------------------------
+// Drag helpers
+// ---------------------------
 function DraggableItem({ id, children }: any) {
   const { attributes, listeners, setNodeRef } = useDraggable({ id });
   return (
@@ -35,55 +35,197 @@ function DroppableCanvas({ children }: any) {
   );
 }
 
+// ---------------------------
+// Data helpers (path utils)
+// path = tableau d'index (ex: [2,1] = 2e element -> 1er enfant)
+// ---------------------------
 function getByPath(tree: ElementData[], path: number[]): ElementData {
   if (path.length === 1) return tree[path[0]];
   const [h, ...r] = path;
   return getByPath((tree[h].children || []), r);
 }
 
+function setByPath(tree: ElementData[], path: number[], newNode: ElementData): ElementData[] {
+  const copy = structuredClone(tree) as ElementData[];
+  if (path.length === 1) {
+    copy[path[0]] = newNode;
+    return copy;
+  }
+  const [h, ...r] = path;
+  copy[h].children = setByPath(copy[h].children || [], r, newNode);
+  return copy;
+}
+
+function removeByPath(tree: ElementData[], path: number[]): ElementData[] {
+  const copy = structuredClone(tree) as ElementData[];
+  if (path.length === 1) {
+    copy.splice(path[0], 1);
+    return copy;
+  }
+  const [h, ...r] = path;
+  copy[h].children = removeByPath(copy[h].children || [], r);
+  return copy;
+}
+
+function cloneWithNewIds(node: ElementData): ElementData {
+  const cloned: ElementData = structuredClone(node);
+  const reassign = (n: ElementData) => {
+    n.id = uuid();
+    if (n.children && n.children.length) n.children.forEach(reassign);
+  };
+  reassign(cloned);
+  return cloned;
+}
+
+// ---------------------------
+// Palette de base
+// ---------------------------
+const palette = [
+  { type: "button", label: "Button" },
+  { type: "input", label: "Input" },
+  { type: "card", label: "Card" },
+  { type: "group", label: "Groupe" },
+];
+
 export default function EditorWrapper() {
   const {
     projects,
     currentProjectId,
     currentPageId,
+    // collaboration
     emitElements,
     listenElements,
+    // historique (si présents dans ton store avancé)
+    saveSnapshot,
+    undo,
+    redo,
   } = useAppStore();
-  const proj = projects.find((p) => p.id === currentProjectId) || projects[0];
-  const page = proj.pages.find((p) => p.id === currentPageId) || proj.pages[0];
+
+  const proj = useMemo(
+    () => projects.find((p) => p.id === currentProjectId) || projects[0],
+    [projects, currentProjectId]
+  );
+  const page = useMemo(
+    () => proj.pages.find((p) => p.id === currentPageId) || proj.pages[0],
+    [proj, currentPageId]
+  );
 
   const [selectedPath, setSelectedPath] = useState<number[] | null>(null);
   const [showImportExport, setShowImportExport] = useState(false);
 
+  // collaboration
   useEffect(() => {
     listenElements();
   }, [listenElements]);
 
-  // Patch props d'un élément sélectionné
+  // -------- Pro indicators pour la Toolbar (undo/redo states)
+  const canUndo = (page?.history?.length || 0) > 1;
+  const canRedo = (page?.future?.length || 0) > 0;
+  const hasSelection = !!selectedPath;
+
+  // -------- Helpers mutation (avec snapshot avant modif)
+  function applyElements(next: ElementData[], msg?: string) {
+    try {
+      if (saveSnapshot) saveSnapshot();
+      emitElements(next);
+      if (msg) toast.success(msg);
+    } catch (e) {
+      toast.error("Une erreur est survenue");
+      console.error(e);
+    }
+  }
+
+  // -------- Patch props d'un élément sélectionné
   function patchProps(path: number[], patch: Partial<ElementData["props"]>) {
     const updated = structuredClone(page.elements) as ElementData[];
     const el = getByPath(updated, path);
     el.props = { ...(el.props || {}), ...patch };
-    emitElements(updated);
+    applyElements(updated);
   }
 
+  // -------- Ajouts / insertion
   function addElementAtRoot(type: string, label: string) {
-    emitElements([
-      ...page.elements,
-      {
-        id: uuid(),
-        type,
-        props: { label },
-        children: type === "group" ? [] : undefined,
-      },
-    ]);
-    toast.success("Composant ajouté !");
+    applyElements(
+      [
+        ...page.elements,
+        {
+          id: uuid(),
+          type,
+          props: { label },
+          children: type === "group" ? [] : undefined,
+        },
+      ],
+      "Composant ajouté !"
+    );
   }
 
   function insertSection(el: ElementData) {
-    emitElements([...page.elements, el]);
-    toast.success("Section insérée !");
+    applyElements([...page.elements, el], "Section insérée !");
   }
+
+  // -------- Actions Pro: Undo / Redo
+  function handleUndo() {
+    if (undo) undo();
+  }
+  function handleRedo() {
+    if (redo) redo();
+  }
+
+  // -------- Actions Pro: Duplicate / Delete
+  function handleDuplicate() {
+    if (!selectedPath) return;
+    const node = getByPath(page.elements, selectedPath);
+    const duplicated = cloneWithNewIds(node);
+
+    // Insère le clone à côté de l’original
+    const updated = structuredClone(page.elements) as ElementData[];
+    // On descend jusqu'au parent
+    if (selectedPath.length === 1) {
+      updated.splice(selectedPath[0] + 1, 0, duplicated);
+    } else {
+      const parentPath = selectedPath.slice(0, -1);
+      const idx = selectedPath[selectedPath.length - 1];
+      const parent = getByPath(updated, parentPath);
+      parent.children = parent.children || [];
+      parent.children.splice(idx + 1, 0, duplicated);
+    }
+    applyElements(updated, "Élément dupliqué");
+  }
+
+  function handleDelete() {
+    if (!selectedPath) return;
+    const updated = removeByPath(page.elements, selectedPath);
+    applyElements(updated, "Élément supprimé");
+    setSelectedPath(null);
+  }
+
+  // -------- Actions Pro: Aperçu / Export
+  function handlePreview() {
+    window.open(`/preview/${proj.id}/${page.id}`, "_blank", "noopener,noreferrer");
+  }
+
+  function handleExportHTML() {
+    const html = toHTML(page.elements);
+    download(`${page.name || "page"}.html`, html);
+    toast.success("Export HTML généré");
+  }
+
+  // -------- Raccourcis clavier pro
+  useHotkeys("ctrl+z, cmd+z", (e) => { e.preventDefault(); handleUndo(); }, {}, [page?.history]);
+  useHotkeys("ctrl+y, cmd+y, ctrl+shift+z, cmd+shift+z", (e) => { e.preventDefault(); handleRedo(); }, {}, [page?.future]);
+  useHotkeys("ctrl+d, cmd+d", (e) => { e.preventDefault(); hasSelection && handleDuplicate(); }, {}, [hasSelection, selectedPath, page?.elements]);
+  useHotkeys("del, backspace", (e) => { if (hasSelection) { e.preventDefault(); handleDelete(); } }, {}, [hasSelection, selectedPath, page?.elements]);
+
+  // -------- Palette pour drag source
+  const paletteView = (
+    <div className="mb-3 flex gap-2">
+      {palette.map((c) => (
+        <DraggableItem key={c.type} id={c.type}>
+          <div className="px-3 py-2 bg-gray-200 dark:bg-gray-700 rounded shadow">{c.label}</div>
+        </DraggableItem>
+      ))}
+    </div>
+  );
 
   return (
     <DndContext
@@ -103,41 +245,26 @@ export default function EditorWrapper() {
 
         {/* Centre : Canvas + Preview + Actions */}
         <div className="flex-1 p-6 bg-gray-100 dark:bg-gray-900">
-          {/* Barre d'outils */}
-          <div className="flex items-center gap-3 mb-4 flex-wrap">
-            <button
-              className="bg-blue-600 text-white px-4 py-2 rounded"
-              onClick={() => download("export.html", toHTML(page.elements))}
-            >
-              Export HTML
-            </button>
-            <a
-              className="bg-gray-800 text-white px-4 py-2 rounded"
-              href={`/preview/${proj.id}/${page.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
-              🔗 Aperçu
-            </a>
-            <button
-              className="bg-purple-600 text-white px-4 py-2 rounded"
-              onClick={() => setShowImportExport(true)}
-            >
-              Import / Export
-            </button>
-          </div>
+          {/* ✅ Toolbar Pro (fusion) */}
+          <ToolbarPro
+            canUndo={canUndo}
+            canRedo={canRedo}
+            hasSelection={hasSelection}
+            onUndo={handleUndo}
+            onRedo={handleRedo}
+            onDuplicate={handleDuplicate}
+            onDelete={handleDelete}
+            onPreview={handlePreview}
+            onExportHTML={handleExportHTML}
+          />
 
+          {/* ✅ Live Preview (garde ta version qui prend elements) */}
           <LivePreview elements={page.elements} />
 
-          {/* Palette légère en haut du Canvas (drag source) */}
-          <div className="mb-3 flex gap-2">
-            {palette.map((c) => (
-              <DraggableItem key={c.type} id={c.type}>
-                <div className="px-3 py-2 bg-gray-200 dark:bg-gray-700 rounded shadow">{c.label}</div>
-              </DraggableItem>
-            ))}
-          </div>
+          {/* ✅ Palette drag source au-dessus du canvas */}
+          {paletteView}
 
+          {/* ✅ Canvas */}
           <DroppableCanvas>
             {page.elements.map((el, idx) => (
               <div key={el.id} className="mb-2" onClick={() => setSelectedPath([idx])}>
@@ -214,6 +341,9 @@ export default function EditorWrapper() {
           <ImportExportModal onClose={() => setShowImportExport(false)} />
         )}
       </div>
+
+      {/* ✅ Toasts globaux */}
+      <Toaster position="top-right" />
     </DndContext>
   );
 }
