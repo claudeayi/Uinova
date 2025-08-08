@@ -9,7 +9,22 @@ import TreeView from "./TreeView";
 import Inspector from "./Inspector";
 import SectionLibrary from "./SectionLibrary";
 import ImportExportModal from "./ImportExportModal";
-import ToolbarPro from "./ToolbarPro"; // 👉 si tu ne l’as pas, dis-moi et je te fournis une version inline
+import ToolbarPro from "./ToolbarPro"; //   import ToolbarPro from "./ToolbarPro";
+
+// ...
+<ToolbarPro
+  canUndo={canUndo}
+  canRedo={canRedo}
+  hasSelection={!!selectedPath}
+  onUndo={handleUndo}
+  onRedo={handleRedo}
+  onDuplicate={handleDuplicate}
+  onDelete={handleDelete}
+  onPreview={handlePreview}
+  onExportHTML={handleExportHTML}
+  onOpenImportExport={() => setShowImportExport(true)} // si tu veux lier ta modale
+/>
+👉 si tu ne l’as pas, dis-moi et je te fournis une version inline
 
 import { useAppStore, ElementData } from "../../store/useAppStore";
 import { toHTML, download } from "../../utils/exporters";
