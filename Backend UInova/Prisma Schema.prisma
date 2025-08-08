@@ -1,0 +1,66 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "mysql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  email     String   @unique
+  password  String
+  role      String   @default("user") // "user", "premium", "admin"
+  badges    Badge[]
+  notifications Notification[]
+  projects  Project[]
+  createdAt DateTime @default(now())
+}
+
+model Project {
+  id        Int      @id @default(autoincrement())
+  name      String
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  pages     Page[]
+  exports   Export[]
+  createdAt DateTime @default(now())
+}
+
+model Page {
+  id        Int      @id @default(autoincrement())
+  name      String
+  data      Json
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId Int
+  exports   Export[]
+  createdAt DateTime @default(now())
+}
+
+model Export {
+  id        Int      @id @default(autoincrement())
+  type      String   // html, json, flutter, zip...
+  content   String
+  project   Project  @relation(fields: [projectId], references: [id])
+  projectId Int
+  page      Page?    @relation(fields: [pageId], references: [id])
+  pageId    Int?
+  createdAt DateTime @default(now())
+}
+
+model Badge {
+  id        Int      @id @default(autoincrement())
+  type      String
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+  message   String
+  user      User     @relation(fields: [userId], references: [id])
+  userId    Int
+  createdAt DateTime @default(now())
+}
