@@ -1,4 +1,4 @@
-import { Undo2, Redo2, Copy, Trash2, Eye, Download } from "lucide-react";
+import React from "react";
 
 type Props = {
   canUndo?: boolean;
@@ -10,45 +10,138 @@ type Props = {
   onDelete: () => void;
   onPreview: () => void;
   onExportHTML: () => void;
+  onOpenImportExport?: () => void; // optionnel
 };
 
 export default function ToolbarPro({
-  canUndo, canRedo, hasSelection,
-  onUndo, onRedo, onDuplicate, onDelete,
-  onPreview, onExportHTML
+  canUndo = false,
+  canRedo = false,
+  hasSelection = false,
+  onUndo,
+  onRedo,
+  onDuplicate,
+  onDelete,
+  onPreview,
+  onExportHTML,
+  onOpenImportExport,
 }: Props) {
-  const Btn = (p: any) => (
-    <button
-      {...p}
-      className={`px-3 py-1 rounded border border-gray-300 dark:border-gray-700
-                 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700
-                 disabled:opacity-50 disabled:cursor-not-allowed`}
-    />
-  );
+  const wrapStyle: React.CSSProperties = {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+    padding: 8,
+    marginBottom: 16,
+    borderRadius: 8,
+    border: "1px solid var(--border, #e5e7eb)",
+    background: "var(--bg, #f3f4f6)",
+  };
+
+  const btnStyle: React.CSSProperties = {
+    padding: "6px 10px",
+    fontSize: 14,
+    borderRadius: 6,
+    background: "var(--btn-bg, #fff)",
+    color: "var(--btn-fg, #111827)",
+    border: "1px solid var(--btn-border, #d1d5db)",
+    cursor: "pointer",
+  };
+
+  const btnDisabled: React.CSSProperties = {
+    opacity: 0.5,
+    cursor: "not-allowed",
+  };
+
+  const sepStyle: React.CSSProperties = {
+    width: 1,
+    height: 24,
+    background: "var(--sep, #d1d5db)",
+    marginInline: 4,
+  };
 
   return (
-    <div className="flex items-center gap-2 p-2 mb-3 rounded
-                    bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-800">
-      <Btn onClick={onUndo} disabled={!canUndo} title="Annuler (Ctrl+Z)"><Undo2 className="inline mr-1" size={16}/>Undo</Btn>
-      <Btn onClick={onRedo} disabled={!canRedo} title="Rétablir (Ctrl+Y)"><Redo2 className="inline mr-1" size={16}/>Redo</Btn>
+    <div style={wrapStyle} role="toolbar" aria-label="Barre d'outils UInova">
+      {/* Undo / Redo */}
+      <button
+        style={{ ...btnStyle, ...(canUndo ? {} : btnDisabled) }}
+        onClick={onUndo}
+        disabled={!canUndo}
+        title="Annuler (Ctrl/Cmd + Z)"
+        aria-label="Annuler"
+      >
+        ↩️ Undo
+      </button>
+      <button
+        style={{ ...btnStyle, ...(canRedo ? {} : btnDisabled) }}
+        onClick={onRedo}
+        disabled={!canRedo}
+        title="Rétablir (Ctrl/Cmd + Y / Shift+Z)"
+        aria-label="Rétablir"
+      >
+        ↪️ Redo
+      </button>
 
-      <span className="w-px h-6 bg-gray-300 dark:bg-gray-700 mx-1" />
+      <span style={sepStyle} />
 
-      <Btn onClick={onDuplicate} disabled={!hasSelection} title="Dupliquer (Ctrl+D)">
-        <Copy className="inline mr-1" size={16}/>Dupliquer
-      </Btn>
-      <Btn onClick={onDelete} disabled={!hasSelection} title="Supprimer (Del)">
-        <Trash2 className="inline mr-1" size={16}/>Supprimer
-      </Btn>
+      {/* Dupliquer / Supprimer */}
+      <button
+        style={{ ...btnStyle, ...(hasSelection ? {} : btnDisabled) }}
+        onClick={onDuplicate}
+        disabled={!hasSelection}
+        title="Dupliquer (Ctrl/Cmd + D)"
+        aria-label="Dupliquer"
+      >
+        📄 Dupliquer
+      </button>
+      <button
+        style={{ ...btnStyle, ...(hasSelection ? {} : btnDisabled) }}
+        onClick={onDelete}
+        disabled={!hasSelection}
+        title="Supprimer (Del)"
+        aria-label="Supprimer"
+      >
+        🗑️ Supprimer
+      </button>
 
-      <span className="w-px h-6 bg-gray-300 dark:bg-gray-700 mx-1" />
+      <span style={sepStyle} />
 
-      <Btn onClick={onPreview} title="Aperçu live">
-        <Eye className="inline mr-1" size={16}/>Aperçu
-      </Btn>
-      <Btn onClick={onExportHTML} title="Exporter HTML">
-        <Download className="inline mr-1" size={16}/>Export HTML
-      </Btn>
+      {/* Aperçu / Export */}
+      <button
+        style={btnStyle}
+        onClick={onPreview}
+        title="Aperçu live"
+        aria-label="Aperçu"
+      >
+        👁️ Aperçu
+      </button>
+      <button
+        style={btnStyle}
+        onClick={onExportHTML}
+        title="Exporter en HTML"
+        aria-label="Exporter HTML"
+      >
+        ⬇️ Export HTML
+      </button>
+
+      {onOpenImportExport && (
+        <>
+          <span style={sepStyle} />
+          <button
+            style={btnStyle}
+            onClick={onOpenImportExport}
+            title="Importer / Exporter (JSON, ZIP...)"
+            aria-label="Importer / Exporter"
+          >
+            🔁 Import/Export
+          </button>
+        </>
+      )}
+
+      {/* Push le reste à droite si besoin */}
+      <div style={{ flex: 1 }} />
+
+      {/* Slot futur (IA, thème, etc.) */}
+      {/* <button style={btnStyle} onClick={...}>✨ IA</button> */}
     </div>
   );
 }
