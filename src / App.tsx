@@ -25,3 +25,7 @@ function App() {
   );
 }
 export default App;
+
+import PreviewPage from "./pages/PreviewPage";
+// ...
+<Route path="/preview/:projectId/:pageId" element={<PreviewPage />} />
