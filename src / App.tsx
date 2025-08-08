@@ -7,6 +7,7 @@ import EditorPage from './pages/EditorPage';
 import MarketplacePage from './pages/MarketplacePage';
 import PricingPage from './pages/PricingPage';
 import PaymentPage from './pages/PaymentPage';
+import PreviewPage from './pages/PreviewPage'; // ✅ import ici
 
 function App() {
   return (
@@ -20,12 +21,12 @@ function App() {
         <Route path="/marketplace" element={<MarketplacePage />} />
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/payment" element={<PaymentPage />} />
+
+        {/* ✅ Ajout de PreviewPage ici, à la fin du bloc Routes */}
+        <Route path="/preview/:projectId/:pageId" element={<PreviewPage />} />
       </Routes>
     </div>
   );
 }
-export default App;
 
-import PreviewPage from "./pages/PreviewPage";
-// ...
-<Route path="/preview/:projectId/:pageId" element={<PreviewPage />} />
+export default App;
