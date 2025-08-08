@@ -10,10 +10,12 @@ import PaymentPage from './pages/PaymentPage';
 import PreviewPage from './pages/PreviewPage';
 import ExportPage from './pages/ExportPage';
 import NotFoundPage from './pages/NotFoundPage';
+import { Toaster } from "react-hot-toast"; // <--- Ajout ici
 
 function App() {
   return (
-    <div className="min-h-screen bg-gray-100">
+    <div className="min-h-screen bg-gray-100 dark:bg-gray-900">
+      <Toaster position="top-center" toastOptions={{ duration: 2500 }} /> {/* <--- Toaster global */}
       <Navbar />
       <Routes>
         <Route path="/" element={<Dashboard />} />
@@ -23,12 +25,8 @@ function App() {
         <Route path="/marketplace" element={<MarketplacePage />} />
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/payment" element={<PaymentPage />} />
-
-        {/* 🟢 Routes avancées */}
         <Route path="/preview/:projectId/:pageId" element={<PreviewPage />} />
         <Route path="/export/:projectId/:pageId" element={<ExportPage />} />
-
-        {/* 🟣 Route 404 : à toujours laisser en dernier */}
         <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </div>
