@@ -7,7 +7,9 @@ import EditorPage from './pages/EditorPage';
 import MarketplacePage from './pages/MarketplacePage';
 import PricingPage from './pages/PricingPage';
 import PaymentPage from './pages/PaymentPage';
-import PreviewPage from './pages/PreviewPage'; // ✅ import ici
+import PreviewPage from './pages/PreviewPage';
+import ExportPage from './pages/ExportPage';
+import NotFoundPage from './pages/NotFoundPage';
 
 function App() {
   return (
@@ -22,8 +24,12 @@ function App() {
         <Route path="/pricing" element={<PricingPage />} />
         <Route path="/payment" element={<PaymentPage />} />
 
-        {/* ✅ Ajout de PreviewPage ici, à la fin du bloc Routes */}
+        {/* 🟢 Routes avancées */}
         <Route path="/preview/:projectId/:pageId" element={<PreviewPage />} />
+        <Route path="/export/:projectId/:pageId" element={<ExportPage />} />
+
+        {/* 🟣 Route 404 : à toujours laisser en dernier */}
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </div>
   );
