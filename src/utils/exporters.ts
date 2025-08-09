@@ -273,3 +273,68 @@ export function download(filename: string, content: string | Blob, type = "text/
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 200);
 }
+/* =========================
+ * ZIP MULTI-PAGES (projet complet)
+ * ========================= */
+
+type SimplePage = { id: string; name: string; elements: any[] };
+type SimpleProject = { id: string; name: string; pages: SimplePage[] };
+
+/** Page index avec liens vers chaque page exportée */
+function buildProjectIndexHTML(project: SimpleProject): string {
+  const links = project.pages
+    .map((p) => `<li><a href="pages/${p.id}.html">${escapeHtml(p.name || p.id)}</a></li>`)
+    .join("\n");
+
+  return `<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>${escapeHtml(project.name || "UInova Site")}</title>
+  <style>
+    body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:24px}
+    ul{line-height:1.9}
+    a{color:#2563eb;text-decoration:none}
+    a:hover{text-decoration:underline}
+  </style>
+</head>
+<body>
+  <h1>${escapeHtml(project.name || "Site UInova")}</h1>
+  <p>Pages exportées :</p>
+  <ul>${links}</ul>
+</body>
+</html>`;
+}
+
+/**
+ * Exporte un projet complet (toutes les pages) :
+ *  - index.html (liste des pages)
+ *  - pages/{pageId}.html (avec binding CMS si resolver fourni)
+ *  - project.json (dump)
+ */
+export async function generateProjectZip(
+  project: SimpleProject,
+  resolver?: (b: { collectionId: string; field: string }) => any
+): Promise<Blob> {
+  const JSZip = (await import("jszip")).default;
+  const zip = new JSZip();
+
+  // index
+  zip.file("index.html", buildProjectIndexHTML(project));
+  // dump
+  zip.file("project.json", JSON.stringify(project, null, 2));
+
+  // pages
+  const folder = zip.folder("pages");
+  if (!folder) throw new Error("Impossible de créer le dossier pages dans le ZIP.");
+
+  for (const page of project.pages) {
+    const html = resolver
+      ? generateHTMLWithResolver(page.elements as any[], resolver)
+      : generateHTML(page.elements as any[]);
+    folder.file(`${page.id}.html`, html);
+  }
+
+  return zip.generateAsync({ type: "blob" });
+}
