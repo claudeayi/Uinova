@@ -12,9 +12,8 @@ import ImportExportModal from "./ImportExportModal";
 import ToolbarPro from "./ToolbarPro";
 
 import { useAppStore, ElementData } from "../../store/useAppStore";
-/* ✅ Patch (a): imports utils + CMS */
-import { download, generateHTMLWithResolver, generateZip } from "../../utils/exporters"; // generateZip sera utilisé à l'étape suivante
-import { useCMS } from "../../store/useCMS";
+import { download, generateHTMLWithResolver, generateZip } from "../../utils/exporters"; // ✅
+import { useCMS } from "../../store/useCMS"; // ✅
 
 /* ---------------------------
  * Drag helpers
@@ -39,7 +38,6 @@ function DroppableCanvas({ children }: any) {
 
 /* ---------------------------
  * Data helpers (path utils)
- * path = tableau d'index (ex: [2,1] = 2e element -> 1er enfant)
  * --------------------------- */
 function getByPath(tree: ElementData[], path: number[]): ElementData {
   if (path.length === 1) return tree[path[0]];
@@ -69,7 +67,7 @@ function cloneWithNewIds(node: ElementData): ElementData {
 }
 
 /* ---------------------------
- * Palette de base
+ * Palette
  * --------------------------- */
 const palette = [
   { type: "button", label: "Button" },
@@ -83,17 +81,14 @@ export default function EditorWrapper() {
     projects,
     currentProjectId,
     currentPageId,
-    // collaboration
     emitElements,
     listenElements,
-    // historique (si présents dans ton store avancé)
     saveSnapshot,
     undo,
     redo,
   } = useAppStore();
 
-  /* ✅ Patch (a): hook CMS pour le resolver d'export */
-  const { getItems } = useCMS();
+  const { getItems } = useCMS(); // ✅ resolver CMS
 
   const proj = useMemo(
     () => projects.find((p) => p.id === currentProjectId) || projects[0],
@@ -106,21 +101,14 @@ export default function EditorWrapper() {
 
   const [selectedPath, setSelectedPath] = useState<number[] | null>(null);
   const [showImportExport, setShowImportExport] = useState(false);
+  const [zipLoading, setZipLoading] = useState(false); // ✅
 
-  /* ✅ Patch (b): état de chargement ZIP (utilisé à l’étape suivante) */
-  const [zipLoading, setZipLoading] = useState(false);
+  useEffect(() => { listenElements(); }, [listenElements]);
 
-  // Collaboration
-  useEffect(() => {
-    listenElements();
-  }, [listenElements]);
-
-  // Indicateurs pour la Toolbar
   const canUndo = (page?.history?.length || 0) > 1;
   const canRedo = (page?.future?.length || 0) > 0;
   const hasSelection = !!selectedPath;
 
-  // Mutations (avec snapshot)
   function applyElements(next: ElementData[], msg?: string) {
     try {
       if (saveSnapshot) saveSnapshot();
@@ -132,7 +120,6 @@ export default function EditorWrapper() {
     }
   }
 
-  // Patch props d'un élément sélectionné
   function patchProps(path: number[], patch: Partial<ElementData["props"]>) {
     const updated = structuredClone(page.elements) as ElementData[];
     const el = getByPath(updated, path);
@@ -140,17 +127,11 @@ export default function EditorWrapper() {
     applyElements(updated);
   }
 
-  // Ajouts / insertion
   function addElementAtRoot(type: string, label: string) {
     applyElements(
       [
         ...page.elements,
-        {
-          id: uuid(),
-          type,
-          props: { label },
-          children: type === "group" ? [] : undefined,
-        },
+        { id: uuid(), type, props: { label }, children: type === "group" ? [] : undefined },
       ],
       "Composant ajouté !"
     );
@@ -160,15 +141,9 @@ export default function EditorWrapper() {
     applyElements([...page.elements, el], "Section insérée !");
   }
 
-  // Actions Pro: Undo / Redo
-  function handleUndo() {
-    if (undo) undo();
-  }
-  function handleRedo() {
-    if (redo) redo();
-  }
+  function handleUndo() { if (undo) undo(); }
+  function handleRedo() { if (redo) redo(); }
 
-  // Actions Pro: Duplicate / Delete
   function handleDuplicate() {
     if (!selectedPath) return;
     const node = getByPath(page.elements, selectedPath);
@@ -194,30 +169,40 @@ export default function EditorWrapper() {
     setSelectedPath(null);
   }
 
-  // Actions Pro: Aperçu / Export
   function handlePreview() {
     window.open(`/preview/${proj.id}/${page.id}`, "_blank", "noopener,noreferrer");
   }
 
-  // ✅ Export HTML AVEC données CMS (binding via resolver)
+  // ✅ Export HTML AVEC binding CMS
   function handleExportHTML() {
     const resolver = ({ collectionId, field }: { collectionId: string; field: string }) => {
       const items = getItems(collectionId);
       return items.length ? items[0]?.[field] ?? null : null;
     };
-
     const html = generateHTMLWithResolver(page.elements, resolver);
     download(`${page.name || "page"}.html`, html, "text/html;charset=utf-8");
     toast.success("Export HTML (avec données CMS) généré");
   }
 
-  // Raccourcis clavier pro
-  useHotkeys("ctrl+z, cmd+z", (e) => { e.preventDefault(); handleUndo(); }, {}, [page?.history]);
-  useHotkeys("ctrl+y, cmd+y, ctrl+shift+z, cmd+shift+z", (e) => { e.preventDefault(); handleRedo(); }, {}, [page?.future]);
-  useHotkeys("ctrl+d, cmd+d", (e) => { e.preventDefault(); hasSelection && handleDuplicate(); }, {}, [hasSelection, selectedPath, page?.elements]);
-  useHotkeys("del, backspace", (e) => { if (hasSelection) { e.preventDefault(); handleDelete(); } }, {}, [hasSelection, selectedPath, page?.elements]);
+  // ✅ Export ZIP AVEC binding CMS
+  async function handleExportZip() {
+    try {
+      setZipLoading(true);
+      const resolver = ({ collectionId, field }: { collectionId: string; field: string }) => {
+        const items = getItems(collectionId);
+        return items.length ? items[0]?.[field] ?? null : null;
+      };
+      const blob = await generateZip(page.elements, resolver);
+      download(`${page.name || "export"}.zip`, blob, "application/zip");
+      toast.success("Export ZIP généré");
+    } catch (e) {
+      console.error(e);
+      toast.error("Échec de l’export ZIP");
+    } finally {
+      setZipLoading(false);
+    }
+  }
 
-  // Palette (drag source)
   const paletteView = (
     <div className="mb-3 flex gap-2">
       {palette.map((c) => (
@@ -246,7 +231,6 @@ export default function EditorWrapper() {
 
         {/* Centre : Canvas + Preview + Actions */}
         <div className="flex-1 p-6 bg-gray-100 dark:bg-gray-900">
-          {/* Toolbar Pro */}
           <ToolbarPro
             canUndo={canUndo}
             canRedo={canRedo}
@@ -257,17 +241,14 @@ export default function EditorWrapper() {
             onDelete={handleDelete}
             onPreview={handlePreview}
             onExportHTML={handleExportHTML}
+            onExportZip={handleExportZip}     // ✅ nouveau
+            zipLoading={zipLoading}           // ✅ nouveau
             onOpenImportExport={() => setShowImportExport(true)}
-            /* onExportZip & zipLoading seront branchés lors de l'étape suivante */
           />
 
-          {/* Live Preview */}
           <LivePreview elements={page.elements} />
-
-          {/* Palette drag source */}
           {paletteView}
 
-          {/* Canvas */}
           <DroppableCanvas>
             {page.elements.map((el, idx) => (
               <div key={el.id} className="mb-2" onClick={() => setSelectedPath([idx])}>
@@ -339,13 +320,9 @@ export default function EditorWrapper() {
           onPatchProps={(patch) => selectedPath && patchProps(selectedPath, patch)}
         />
 
-        {/* Modale import/export */}
-        {showImportExport && (
-          <ImportExportModal onClose={() => setShowImportExport(false)} />
-        )}
+        {showImportExport && <ImportExportModal onClose={() => setShowImportExport(false)} />}
       </div>
 
-      {/* Toasts globaux */}
       <Toaster position="top-right" />
     </DndContext>
   );
