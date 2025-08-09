@@ -1,9 +1,9 @@
+// src/utils/exporters.ts
 import { ElementData } from "../store/useAppStore";
 
 /* =========================
- * Utils communs
+ * Types & helpers
  * ========================= */
-
 type Binding = { collectionId: string; field: string };
 type Resolver = (b: Binding) => any;
 
@@ -27,9 +27,8 @@ function pickStyleProps(p: Record<string, any>) {
 }
 
 /* =========================
- * STYLE: CSS / JSX
+ * Style serializers
  * ========================= */
-
 function styleToCss(p: Record<string, any>): string {
   let css = "";
   if ("bg" in p) css += `background:${p.bg};`;
@@ -51,9 +50,8 @@ function styleToJsx(p: Record<string, any>): string {
 }
 
 /* =========================
- * Résolution de binding
+ * Binding resolver
  * ========================= */
-
 function resolveBound(props: any, resolver?: Resolver) {
   const b = props?._binding;
   if (!resolver || !b?.collectionId || !b?.field) return null;
@@ -61,9 +59,8 @@ function resolveBound(props: any, resolver?: Resolver) {
 }
 
 /* =========================
- * EXPORT HTML
+ * HTML
  * ========================= */
-
 function nodeToHTML(el: ElementData, resolver?: Resolver): string {
   const p = el.props || {};
   const bound = resolveBound(p, resolver);
@@ -77,18 +74,8 @@ function nodeToHTML(el: ElementData, resolver?: Resolver): string {
     return `<div style="${style}">${escapeHtml(bound ?? p.label ?? "Card")}</div>`;
   if (el.type === "group")
     return `<div style="${style}">${(el.children || []).map((c) => nodeToHTML(c, resolver)).join("")}</div>`;
+
   return `<div style="${style}">${escapeHtml(bound ?? p.label ?? el.type)}</div>`;
-}
-
-export function generateHTML(elements: ElementData[]): string {
-  const body = elements.map((e) => nodeToHTML(e)).join("");
-  return htmlDoc(body);
-}
-
-/** HTML avec données CMS (binding via resolver) */
-export function generateHTMLWithResolver(elements: ElementData[], resolver: Resolver): string {
-  const body = elements.map((e) => nodeToHTML(e, resolver)).join("");
-  return htmlDoc(body);
 }
 
 function htmlDoc(body: string): string {
@@ -112,10 +99,19 @@ ${body}
 </html>`;
 }
 
-/* =========================
- * EXPORT FLUTTER
- * ========================= */
+export function generateHTML(elements: ElementData[]): string {
+  const body = elements.map((e) => nodeToHTML(e)).join("");
+  return htmlDoc(body);
+}
 
+export function generateHTMLWithResolver(elements: ElementData[], resolver: Resolver): string {
+  const body = elements.map((e) => nodeToHTML(e, resolver)).join("");
+  return htmlDoc(body);
+}
+
+/* =========================
+ * Flutter (Dart)
+ * ========================= */
 function nodeToFlutter(el: ElementData, resolver?: Resolver, depth = 2): string {
   const p = el.props || {};
   const bound = resolveBound(p, resolver);
@@ -150,9 +146,8 @@ export function generateFlutterWithResolver(elements: ElementData[], resolver: R
 }
 
 /* =========================
- * EXPORT REACT (JSX)
+ * React (JSX)
  * ========================= */
-
 function nodeToReact(el: ElementData, resolver?: Resolver, depth = 2): string {
   const p = el.props || {};
   const bound = resolveBound(p, resolver);
@@ -187,9 +182,8 @@ export function generateReactWithResolver(elements: ElementData[], resolver: Res
 }
 
 /* =========================
- * EXPORT VUE
+ * Vue
  * ========================= */
-
 function nodeToVue(el: ElementData, resolver?: Resolver, depth = 2): string {
   const p = el.props || {};
   const bound = resolveBound(p, resolver);
@@ -219,9 +213,8 @@ export function generateVueWithResolver(elements: ElementData[], resolver: Resol
 }
 
 /* =========================
- * EXPORT / IMPORT JSON
+ * JSON
  * ========================= */
-
 export function generateJSON(elements: ElementData[]): string {
   return JSON.stringify(elements, null, 2);
 }
@@ -232,20 +225,18 @@ export function importJSON(jsonString: string): ElementData[] {
     if (!Array.isArray(parsed)) throw new Error("Données invalides");
     return parsed;
   } catch (e: any) {
-    alert("Erreur d'import JSON : " + e?.message || String(e));
+    alert("Erreur d'import JSON : " + (e?.message || String(e)));
     return [];
   }
 }
 
 /* =========================
- * ZIP (JSZip)
+ * ZIP (page courante)
  * ========================= */
-
 export async function generateZip(elements: ElementData[], resolver?: Resolver): Promise<Blob> {
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
 
-  // HTML / React / Vue / Flutter — avec ou sans resolver
   const html = resolver ? generateHTMLWithResolver(elements, resolver) : generateHTML(elements);
   const react = resolver ? generateReactWithResolver(elements, resolver) : generateReact(elements);
   const vue = resolver ? generateVueWithResolver(elements, resolver) : generateVue(elements);
@@ -261,26 +252,11 @@ export async function generateZip(elements: ElementData[], resolver?: Resolver):
 }
 
 /* =========================
- * DOWNLOAD
- * ========================= */
-
-export function download(filename: string, content: string | Blob, type = "text/html;charset=utf-8") {
-  const blob = content instanceof Blob ? content : new Blob([content], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 200);
-}
-/* =========================
  * ZIP MULTI-PAGES (projet complet)
  * ========================= */
-
 type SimplePage = { id: string; name: string; elements: any[] };
 type SimpleProject = { id: string; name: string; pages: SimplePage[] };
 
-/** Page index avec liens vers chaque page exportée */
 function buildProjectIndexHTML(project: SimpleProject): string {
   const links = project.pages
     .map((p) => `<li><a href="pages/${p.id}.html">${escapeHtml(p.name || p.id)}</a></li>`)
@@ -308,24 +284,21 @@ function buildProjectIndexHTML(project: SimpleProject): string {
 }
 
 /**
- * Exporte un projet complet (toutes les pages) :
- *  - index.html (liste des pages)
- *  - pages/{pageId}.html (avec binding CMS si resolver fourni)
+ * Exporte un projet complet :
+ *  - index.html
+ *  - pages/{pageId}.html (avec resolver CMS si fourni)
  *  - project.json (dump)
  */
 export async function generateProjectZip(
   project: SimpleProject,
-  resolver?: (b: { collectionId: string; field: string }) => any
+  resolver?: Resolver
 ): Promise<Blob> {
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
 
-  // index
   zip.file("index.html", buildProjectIndexHTML(project));
-  // dump
   zip.file("project.json", JSON.stringify(project, null, 2));
 
-  // pages
   const folder = zip.folder("pages");
   if (!folder) throw new Error("Impossible de créer le dossier pages dans le ZIP.");
 
@@ -337,4 +310,17 @@ export async function generateProjectZip(
   }
 
   return zip.generateAsync({ type: "blob" });
+}
+
+/* =========================
+ * Download helper
+ * ========================= */
+export function download(filename: string, content: string | Blob, type = "text/html;charset=utf-8") {
+  const blob = content instanceof Blob ? content : new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 200);
 }
