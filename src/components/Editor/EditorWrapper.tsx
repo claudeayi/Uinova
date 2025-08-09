@@ -12,8 +12,13 @@ import ImportExportModal from "./ImportExportModal";
 import ToolbarPro from "./ToolbarPro";
 
 import { useAppStore, ElementData } from "../../store/useAppStore";
-import { download, generateHTMLWithResolver, generateZip } from "../../utils/exporters"; // ✅
-import { useCMS } from "../../store/useCMS"; // ✅
+import {
+  download,
+  generateHTMLWithResolver,
+  generateZip,
+  generateProjectZip,
+} from "../../utils/exporters";
+import { useCMS } from "../../store/useCMS";
 
 /* ---------------------------
  * Drag helpers
@@ -37,7 +42,7 @@ function DroppableCanvas({ children }: any) {
 }
 
 /* ---------------------------
- * Data helpers (path utils)
+ * Path utils
  * --------------------------- */
 function getByPath(tree: ElementData[], path: number[]): ElementData {
   if (path.length === 1) return tree[path[0]];
@@ -88,7 +93,7 @@ export default function EditorWrapper() {
     redo,
   } = useAppStore();
 
-  const { getItems } = useCMS(); // ✅ resolver CMS
+  const { getItems } = useCMS(); // resolver CMS
 
   const proj = useMemo(
     () => projects.find((p) => p.id === currentProjectId) || projects[0],
@@ -101,14 +106,20 @@ export default function EditorWrapper() {
 
   const [selectedPath, setSelectedPath] = useState<number[] | null>(null);
   const [showImportExport, setShowImportExport] = useState(false);
-  const [zipLoading, setZipLoading] = useState(false); // ✅
+  const [zipLoading, setZipLoading] = useState(false);
+  const [siteLoading, setSiteLoading] = useState(false);
 
-  useEffect(() => { listenElements(); }, [listenElements]);
+  // Collaboration live
+  useEffect(() => {
+    listenElements();
+  }, [listenElements]);
 
+  // Toolbar indicators
   const canUndo = (page?.history?.length || 0) > 1;
   const canRedo = (page?.future?.length || 0) > 0;
   const hasSelection = !!selectedPath;
 
+  // Apply mutation (avec snapshot)
   function applyElements(next: ElementData[], msg?: string) {
     try {
       if (saveSnapshot) saveSnapshot();
@@ -120,6 +131,7 @@ export default function EditorWrapper() {
     }
   }
 
+  // Patch props
   function patchProps(path: number[], patch: Partial<ElementData["props"]>) {
     const updated = structuredClone(page.elements) as ElementData[];
     const el = getByPath(updated, path);
@@ -127,6 +139,7 @@ export default function EditorWrapper() {
     applyElements(updated);
   }
 
+  // Insertions
   function addElementAtRoot(type: string, label: string) {
     applyElements(
       [
@@ -141,8 +154,13 @@ export default function EditorWrapper() {
     applyElements([...page.elements, el], "Section insérée !");
   }
 
-  function handleUndo() { if (undo) undo(); }
-  function handleRedo() { if (redo) redo(); }
+  // Actions Pro
+  function handleUndo() {
+    if (undo) undo();
+  }
+  function handleRedo() {
+    if (redo) redo();
+  }
 
   function handleDuplicate() {
     if (!selectedPath) return;
@@ -173,7 +191,7 @@ export default function EditorWrapper() {
     window.open(`/preview/${proj.id}/${page.id}`, "_blank", "noopener,noreferrer");
   }
 
-  // ✅ Export HTML AVEC binding CMS
+  // Export HTML (binding CMS)
   function handleExportHTML() {
     const resolver = ({ collectionId, field }: { collectionId: string; field: string }) => {
       const items = getItems(collectionId);
@@ -184,7 +202,7 @@ export default function EditorWrapper() {
     toast.success("Export HTML (avec données CMS) généré");
   }
 
-  // ✅ Export ZIP AVEC binding CMS
+  // Export ZIP (page courante)
   async function handleExportZip() {
     try {
       setZipLoading(true);
@@ -202,6 +220,43 @@ export default function EditorWrapper() {
       setZipLoading(false);
     }
   }
+
+  // Export Site (multi‑pages)
+  async function handleExportSite() {
+    try {
+      setSiteLoading(true);
+
+      const projectPayload = {
+        id: proj.id,
+        name: proj.name,
+        pages: proj.pages.map((p) => ({
+          id: p.id,
+          name: p.name,
+          elements: p.elements,
+        })),
+      };
+
+      const resolver = ({ collectionId, field }: { collectionId: string; field: string }) => {
+        const items = getItems(collectionId);
+        return items.length ? items[0]?.[field] ?? null : null;
+      };
+
+      const blob = await generateProjectZip(projectPayload, resolver);
+      download(`${proj.name || "uinova-site"}.zip`, blob, "application/zip");
+      toast.success("Export du site (multi-pages) généré");
+    } catch (e) {
+      console.error(e);
+      toast.error("Échec de l’export du site");
+    } finally {
+      setSiteLoading(false);
+    }
+  }
+
+  // Raccourcis clavier pro
+  useHotkeys("ctrl+z, cmd+z", (e) => { e.preventDefault(); handleUndo(); }, {}, [page?.history]);
+  useHotkeys("ctrl+y, cmd+y, ctrl+shift+z, cmd+shift+z", (e) => { e.preventDefault(); handleRedo(); }, {}, [page?.future]);
+  useHotkeys("ctrl+d, cmd+d", (e) => { e.preventDefault(); hasSelection && handleDuplicate(); }, {}, [hasSelection, selectedPath, page?.elements]);
+  useHotkeys("del, backspace", (e) => { if (hasSelection) { e.preventDefault(); handleDelete(); } }, {}, [hasSelection, selectedPath, page?.elements]);
 
   const paletteView = (
     <div className="mb-3 flex gap-2">
@@ -241,8 +296,10 @@ export default function EditorWrapper() {
             onDelete={handleDelete}
             onPreview={handlePreview}
             onExportHTML={handleExportHTML}
-            onExportZip={handleExportZip}     // ✅ nouveau
-            zipLoading={zipLoading}           // ✅ nouveau
+            onExportZip={handleExportZip}
+            zipLoading={zipLoading}
+            onExportSite={handleExportSite}
+            siteLoading={siteLoading}
             onOpenImportExport={() => setShowImportExport(true)}
           />
 
