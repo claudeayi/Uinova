@@ -4,8 +4,7 @@ import { v4 as uuid } from "uuid";
 import toast, { Toaster } from "react-hot-toast";
 import { useHotkeys } from "react-hotkeys-hook";
 
-import LivePreview from "./LivePreview";
-import TreeView from "./TreeView";
+import SortableTree from "./SortableTree";
 import Inspector from "./Inspector";
 import SectionLibrary from "./SectionLibrary";
 import ImportExportModal from "./ImportExportModal";
