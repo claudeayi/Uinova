@@ -1,160 +1,191 @@
-import { useMemo, useState } from "react";
+import { ElementData, useAppStore } from "../../store/useAppStore";
+import { useMemo } from "react";
 import { useCMS } from "../../store/useCMS";
+import { colors, space, font } from "../../themes/tokens";
 
-// Aligne-toi sur ton type ElementData du store si tu l'exportes.
-// Ici, on redéfinit minimalement pour rendre ce composant autonome.
-type ElementData = {
-  id: string;
-  type: string;
-  props?: Record<string, any>;
-  children?: ElementData[];
-};
+function getElementByPath(tree: ElementData[], path: number[]): ElementData {
+  if (path.length === 1) return tree[path[0]];
+  const [h, ...r] = path;
+  return getElementByPath((tree[h].children || []), r);
+}
 
-type Props = {
-  elements: ElementData[];
-};
+const colorOptions = Object.entries(colors).map(([k, v]) => ({ key: k, val: v }));
+const spaceOptions = Object.entries(space).map(([k, v]) => ({ key: k, val: v }));
+const fontOptions  = Object.entries(font).map(([k, v]) => ({ key: k, val: v }));
 
-export default function LivePreview({ elements }: Props) {
-  const { getItems } = useCMS();
-  const [device, setDevice] = useState<"mobile" | "tablet" | "desktop">("desktop");
+export default function Inspector({
+  selectedPath,
+  onPatchProps,
+}: {
+  selectedPath: number[] | null;
+  onPatchProps: (patch: Partial<ElementData["props"]>) => void;
+}) {
+  const { projects, currentProjectId, currentPageId } = useAppStore();
+  const { collections } = useCMS();
 
-  // Résout une valeur liée au CMS: prend le premier item de la collection.
-  const resolveBinding = (props?: Record<string, any>) => {
-    const b = props?._binding;
-    if (!b?.collectionId || !b?.field) return null;
-    const items = getItems(b.collectionId);
-    if (!items.length) return null;
-    return items[0]?.[b.field] ?? null;
-  };
+  const page = useMemo(() => {
+    const proj = projects.find((p) => p.id === currentProjectId);
+    return proj?.pages.find((p) => p.id === currentPageId);
+  }, [projects, currentProjectId, currentPageId]);
 
-  // Construit un style inline à partir des props éditées dans l’Inspector
-  const buildStyle = (props?: Record<string, any>): React.CSSProperties => {
-    if (!props) return {};
-    const s: React.CSSProperties = {};
-    if (props.color) s.color = props.color;
-    if (props.bg) s.background = props.bg;
-    if (typeof props.fontSize === "number") s.fontSize = props.fontSize;
-    if (typeof props.p === "number") s.padding = props.p;
-    if (props.display) s.display = props.display as any;
-    return s;
-  };
-
-  const frameStyle: React.CSSProperties = useMemo(() => {
-    const width =
-      device === "mobile" ? 375 :
-      device === "tablet" ? 834 : // iPad-ish
-      undefined; // desktop = plein container
-    return {
-      width,
-      minHeight: 500,
-      border: "1px solid #e5e7eb",
-      borderRadius: 8,
-      background: "#ffffff",
-      overflow: "hidden",
-    };
-  }, [device]);
-
-  const renderEl = (el: ElementData): JSX.Element => {
-    const props = el.props || {};
-    const style = buildStyle(props);
-    const bound = resolveBinding(props);
-
-    if (el.type === "button") {
-      const label = bound ?? props.label ?? "Button";
-      return (
-        <button
-          style={style}
-          className="bg-blue-600 text-white px-3 py-1 rounded"
-        >
-          {label}
-        </button>
-      );
-    }
-
-    if (el.type === "input") {
-      const ph = bound ?? props.label ?? "Saisir…";
-      return (
-        <input
-          style={style}
-          className="border px-2 py-1 rounded"
-          placeholder={ph}
-          readOnly
-        />
-      );
-    }
-
-    if (el.type === "card") {
-      const text = bound ?? props.label ?? "Card";
-      return (
-        <div
-          style={style}
-          className="p-2 bg-gray-100 dark:bg-gray-700 rounded"
-        >
-          {text}
-        </div>
-      );
-    }
-
-    if (el.type === "group") {
-      return (
-        <div style={style} className="p-2 border-2 border-dashed rounded">
-          {props.label && (
-            <div className="font-semibold mb-1">{props.label}</div>
-          )}
-          <div className="ml-2 space-y-1">
-            {(el.children || []).map((c) => (
-              <div key={c.id} className="bg-white dark:bg-gray-700 rounded p-2">
-                {renderEl(c)}
-              </div>
-            ))}
-          </div>
-        </div>
-      );
-    }
-
-    // Fallback pour types non mappés (ou futurs composants)
-    const fallback = bound ?? props.label ?? el.type;
+  if (!selectedPath || !page) {
     return (
-      <div style={style}>{fallback}</div>
+      <aside className="w-80 p-4 border-l bg-white dark:bg-gray-900">
+        <h3 className="font-semibold mb-2">Inspector</h3>
+        <div className="text-sm text-gray-500">Sélectionne un élément.</div>
+      </aside>
     );
-  };
+  }
+
+  const el = getElementByPath(page.elements, selectedPath);
+  const p = el.props || {};
 
   return (
-    <div className="mb-4">
-      {/* Barre device */}
-      <div className="flex items-center gap-2 mb-2">
-        <span className="text-sm opacity-70 mr-2">Aperçu</span>
-        <button
-          className={`px-2 py-1 rounded ${device === "mobile" ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700"}`}
-          onClick={() => setDevice("mobile")}
-        >
-          📱 Mobile
-        </button>
-        <button
-          className={`px-2 py-1 rounded ${device === "tablet" ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700"}`}
-          onClick={() => setDevice("tablet")}
-        >
-          💻 Tablet
-        </button>
-        <button
-          className={`px-2 py-1 rounded ${device === "desktop" ? "bg-blue-600 text-white" : "bg-gray-200 dark:bg-gray-700"}`}
-          onClick={() => setDevice("desktop")}
-        >
-          🖥️ Desktop
-        </button>
+    <aside className="w-80 p-4 border-l bg-white dark:bg-gray-900 space-y-3">
+      <h3 className="font-semibold">Inspector</h3>
+      <div className="text-xs text-gray-500">
+        {el.type} • {el.id.slice(0, 6)}
       </div>
 
-      {/* Zone de rendu */}
-      <div
-        className="mx-auto p-4 bg-white dark:bg-gray-800"
-        style={frameStyle}
-      >
-        <div className="space-y-2">
-          {elements.map((el) => (
-            <div key={el.id}>{renderEl(el)}</div>
-          ))}
+      {/* Content */}
+      <label className="block">
+        <span className="text-sm">Label / Text</span>
+        <input
+          className="mt-1 border rounded px-2 py-1 w-full"
+          value={p.label || ""}
+          onChange={(e) => onPatchProps({ label: e.target.value })}
+        />
+      </label>
+
+      {/* Styles rapides (numériques) */}
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="text-sm">Font size</span>
+          <input
+            type="number"
+            className="mt-1 border rounded px-2 py-1 w-full"
+            value={p.fontSize ?? 16}
+            onChange={(e) => onPatchProps({ fontSize: Number(e.target.value) })}
+          />
+        </label>
+        <label className="block">
+          <span className="text-sm">Padding</span>
+          <input
+            type="number"
+            className="mt-1 border rounded px-2 py-1 w-full"
+            value={p.p ?? 8}
+            onChange={(e) => onPatchProps({ p: Number(e.target.value) })}
+          />
+        </label>
+      </div>
+
+      {/* Styles via tokens */}
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="text-sm">BG (token)</span>
+          <select
+            className="mt-1 border rounded px-2 py-1 w-full"
+            value={colorOptions.find((o) => o.val === p.bg)?.key || ""}
+            onChange={(e) => {
+              const key = e.target.value;
+              onPatchProps({ bg: key ? colors[key as keyof typeof colors] : undefined });
+            }}
+          >
+            <option value="">—</option>
+            {colorOptions.map((o) => (
+              <option key={o.key} value={o.key}>{o.key}</option>
+            ))}
+          </select>
+        </label>
+
+        <label className="block">
+          <span className="text-sm">Couleur (token)</span>
+          <select
+            className="mt-1 border rounded px-2 py-1 w-full"
+            value={colorOptions.find((o) => o.val === p.color)?.key || ""}
+            onChange={(e) => {
+              const key = e.target.value;
+              onPatchProps({ color: key ? colors[key as keyof typeof colors] : undefined });
+            }}
+          >
+            <option value="">—</option>
+            {colorOptions.map((o) => (
+              <option key={o.key} value={o.key}>{o.key}</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <label className="block">
+          <span className="text-sm">Padding (token)</span>
+          <select
+            className="mt-1 border rounded px-2 py-1 w-full"
+            value={String(p.p ?? "")}
+            onChange={(e) => onPatchProps({ p: Number(e.target.value) })}
+          >
+            <option value="">—</option>
+            {spaceOptions.map((o) => (
+              <option key={o.key} value={o.val}>{o.key} ({o.val}px)</option>
+            ))}
+          </select>
+        </label>
+        <label className="block">
+          <span className="text-sm">Font size (token)</span>
+          <select
+            className="mt-1 border rounded px-2 py-1 w-full"
+            value={String(p.fontSize ?? "")}
+            onChange={(e) => onPatchProps({ fontSize: Number(e.target.value) })}
+          >
+            <option value="">—</option>
+            {fontOptions.map((o) => (
+              <option key={o.key} value={o.val}>{o.key} ({o.val}px)</option>
+            ))}
+          </select>
+        </label>
+      </div>
+
+      {/* Layout */}
+      <div>
+        <div className="text-sm mb-1">Layout</div>
+        <div className="grid grid-cols-3 gap-2">
+          <button className="border rounded px-2 py-1" onClick={() => onPatchProps({ display: "block" })}>Block</button>
+          <button className="border rounded px-2 py-1" onClick={() => onPatchProps({ display: "inline-block" })}>Inline</button>
+          <button className="border rounded px-2 py-1" onClick={() => onPatchProps({ display: "flex" })}>Flex</button>
         </div>
       </div>
-    </div>
+
+      {/* CMS binding */}
+      <section className="p-3 border rounded">
+        <div className="font-semibold mb-2">Données (CMS)</div>
+
+        <label className="text-sm block mb-1">Collection</label>
+        <select
+          className="w-full border rounded px-2 py-1 mb-2"
+          value={p._binding?.collectionId || ""}
+          onChange={(e) =>
+            onPatchProps({ _binding: { collectionId: e.target.value, field: p._binding?.field || "" } })
+          }
+        >
+          <option value="">— Aucune —</option>
+          {collections.map((c) => (
+            <option key={c.id} value={c.id}>{c.name}</option>
+          ))}
+        </select>
+
+        <label className="text-sm block mb-1">Champ</label>
+        <input
+          className="w-full border rounded px-2 py-1"
+          placeholder="ex: title"
+          value={p._binding?.field || ""}
+          onChange={(e) =>
+            onPatchProps({ _binding: { collectionId: p._binding?.collectionId || "", field: e.target.value } })
+          }
+        />
+        <p className="text-xs opacity-70 mt-2">
+          Renseigne un champ existant de la collection (ex: title, subtitle, image).
+        </p>
+      </section>
+    </aside>
   );
 }
