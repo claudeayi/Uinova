@@ -1,41 +1,109 @@
 import { ElementData } from "../store/useAppStore";
 
-// ===== STYLE UTILS
+/* =========================
+ * Utils communs
+ * ========================= */
+
+type Binding = { collectionId: string; field: string };
+type Resolver = (b: Binding) => any;
+
+const STYLE_KEYS = new Set(["bg", "color", "p", "fontSize", "display"]);
+
+function escapeHtml(v: any): string {
+  const s = v == null ? "" : String(v);
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function pickStyleProps(p: Record<string, any>) {
+  const out: Record<string, any> = {};
+  for (const k of Object.keys(p || {})) {
+    if (STYLE_KEYS.has(k)) out[k] = p[k];
+  }
+  return out;
+}
+
+/* =========================
+ * STYLE: CSS / JSX
+ * ========================= */
+
 function styleToCss(p: Record<string, any>): string {
   let css = "";
-  if (p.bg) css += `background:${p.bg};`;
-  if (p.color) css += `color:${p.color};`;
-  if (p.p !== undefined) css += `padding:${p.p}px;`;
-  if (p.fontSize) css += `font-size:${p.fontSize}px;`;
-  if (p.display) css += `display:${p.display};`;
+  if ("bg" in p) css += `background:${p.bg};`;
+  if ("color" in p) css += `color:${p.color};`;
+  if ("p" in p) css += `padding:${Number(p.p)}px;`;
+  if ("fontSize" in p) css += `font-size:${Number(p.fontSize)}px;`;
+  if ("display" in p) css += `display:${p.display};`;
   return css;
 }
 
-// ===== EXPORT HTML
-function nodeToHTML(el: ElementData): string {
+function styleToJsx(p: Record<string, any>): string {
+  const parts: string[] = [];
+  if ("bg" in p) parts.push(`background: ${JSON.stringify(p.bg)}`);
+  if ("color" in p) parts.push(`color: ${JSON.stringify(p.color)}`);
+  if ("p" in p) parts.push(`padding: ${Number(p.p)}`);
+  if ("fontSize" in p) parts.push(`fontSize: ${Number(p.fontSize)}`);
+  if ("display" in p) parts.push(`display: ${JSON.stringify(p.display)}`);
+  return parts.join(", ");
+}
+
+/* =========================
+ * Résolution de binding
+ * ========================= */
+
+function resolveBound(props: any, resolver?: Resolver) {
+  const b = props?._binding;
+  if (!resolver || !b?.collectionId || !b?.field) return null;
+  return resolver({ collectionId: b.collectionId, field: b.field });
+}
+
+/* =========================
+ * EXPORT HTML
+ * ========================= */
+
+function nodeToHTML(el: ElementData, resolver?: Resolver): string {
   const p = el.props || {};
+  const bound = resolveBound(p, resolver);
+  const style = styleToCss(pickStyleProps(p));
+
   if (el.type === "button")
-    return `<button style="${styleToCss(p)}">${p.label || "Button"}</button>`;
+    return `<button style="${style}">${escapeHtml(bound ?? p.label ?? "Button")}</button>`;
   if (el.type === "input")
-    return `<input style="${styleToCss(p)}" placeholder="${p.label || ""}" />`;
+    return `<input style="${style}" placeholder="${escapeHtml(bound ?? p.label ?? "")}" />`;
   if (el.type === "card")
-    return `<div style="${styleToCss(p)}">${p.label || "Card"}</div>`;
+    return `<div style="${style}">${escapeHtml(bound ?? p.label ?? "Card")}</div>`;
   if (el.type === "group")
-    return `<div style="${styleToCss(p)}">${(el.children || []).map(nodeToHTML).join("")}</div>`;
-  return "";
+    return `<div style="${style}">${(el.children || []).map((c) => nodeToHTML(c, resolver)).join("")}</div>`;
+  return `<div style="${style}">${escapeHtml(bound ?? p.label ?? el.type)}</div>`;
 }
 
 export function generateHTML(elements: ElementData[]): string {
-  const body = elements.map(nodeToHTML).join("");
+  const body = elements.map((e) => nodeToHTML(e)).join("");
+  return htmlDoc(body);
+}
+
+/** HTML avec données CMS (binding via resolver) */
+export function generateHTMLWithResolver(elements: ElementData[], resolver: Resolver): string {
+  const body = elements.map((e) => nodeToHTML(e, resolver)).join("");
+  return htmlDoc(body);
+}
+
+function htmlDoc(body: string): string {
   return `<!doctype html>
-<html>
+<html lang="fr">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>UInova Export</title>
   <style>
-    html,body{margin:0;padding:16px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
-    button,input{font-family:inherit;}
+    html,body{margin:0;padding:16px;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
+    .group{border:2px dashed #E5E7EB; border-radius:8px; padding:8px; margin:8px 0}
+    .card{background:#F3F4F6; border-radius:8px; padding:12px; margin:8px 0}
+    button{background:#2563eb;color:#fff;border:none;border-radius:6px;padding:8px 12px}
+    input{border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px}
   </style>
 </head>
 <body>
@@ -44,106 +112,160 @@ ${body}
 </html>`;
 }
 
-// ===== EXPORT FLUTTER
-function nodeToFlutter(el: ElementData, depth = 2): string {
+/* =========================
+ * EXPORT FLUTTER
+ * ========================= */
+
+function nodeToFlutter(el: ElementData, resolver?: Resolver, depth = 2): string {
   const p = el.props || {};
-  let indent = "  ".repeat(depth);
+  const bound = resolveBound(p, resolver);
+  const indent = "  ".repeat(depth);
+
+  const text = String(bound ?? p.label ?? (el.type === "input" ? "" : el.type));
+  const pad = Number("p" in p ? p.p : 8);
 
   if (el.type === "button") {
-    return `${indent}ElevatedButton(\n${indent}  onPressed: () {},\n${indent}  child: Text('${p.label || "Button"}'),\n${indent}),`;
+    return `${indent}ElevatedButton(\n${indent}  onPressed: () {},\n${indent}  child: Text('${escapeHtml(text)}'),\n${indent}),`;
   }
   if (el.type === "input") {
-    return `${indent}TextField(\n${indent}  decoration: InputDecoration(hintText: '${p.label || ""}'),\n${indent}),`;
+    return `${indent}TextField(\n${indent}  decoration: InputDecoration(hintText: '${escapeHtml(text)}'),\n${indent}),`;
   }
   if (el.type === "card") {
-    return `${indent}Container(\n${indent}  padding: EdgeInsets.all(${p.p ?? 8}),\n${indent}  child: Text('${p.label || "Card"}'),\n${indent}),`;
+    return `${indent}Container(\n${indent}  padding: EdgeInsets.all(${pad}),\n${indent}  child: Text('${escapeHtml(text)}'),\n${indent}),`;
   }
   if (el.type === "group") {
-    return `${indent}Column(\n${indent}  children: [\n${(el.children || []).map(c => nodeToFlutter(c, depth + 2)).join("\n")}\n${indent}  ],\n${indent}),`;
+    return `${indent}Column(\n${indent}  children: [\n${(el.children || [])
+      .map((c) => nodeToFlutter(c, resolver, depth + 2))
+      .join("\n")}\n${indent}  ],\n${indent}),`;
   }
-  return "";
+  return `${indent}Text('${escapeHtml(text)}'),`;
 }
+
 export function generateFlutter(elements: ElementData[]): string {
-  return `Column(\n  children: [\n${elements.map(e => nodeToFlutter(e, 2)).join("\n")}\n  ],\n);`;
+  return `Column(\n  children: [\n${elements.map((e) => nodeToFlutter(e, undefined, 2)).join("\n")}\n  ],\n);`;
 }
 
-// ===== EXPORT REACT (JSX)
-function nodeToReact(el: ElementData, depth = 2): string {
-  const p = el.props || {};
-  let indent = "  ".repeat(depth);
-  if (el.type === "button")
-    return `${indent}<button style={{ ${Object.entries(p).map(([k, v]) => `${k}:${JSON.stringify(v)}`).join(", ")} }}>${p.label || "Button"}</button>`;
-  if (el.type === "input")
-    return `${indent}<input style={{ ${Object.entries(p).map(([k, v]) => `${k}:${JSON.stringify(v)}`).join(", ")} }} placeholder="${p.label || ""}" />`;
-  if (el.type === "card")
-    return `${indent}<div style={{ ${Object.entries(p).map(([k, v]) => `${k}:${JSON.stringify(v)}`).join(", ")} }}>${p.label || "Card"}</div>`;
-  if (el.type === "group")
-    return `${indent}<div style={{ ${Object.entries(p).map(([k, v]) => `${k}:${JSON.stringify(v)}`).join(", ")} }}>\n${(el.children || []).map(c => nodeToReact(c, depth + 2)).join("\n")}\n${indent}</div>`;
-  return "";
+export function generateFlutterWithResolver(elements: ElementData[], resolver: Resolver): string {
+  return `Column(\n  children: [\n${elements.map((e) => nodeToFlutter(e, resolver, 2)).join("\n")}\n  ],\n);`;
 }
+
+/* =========================
+ * EXPORT REACT (JSX)
+ * ========================= */
+
+function nodeToReact(el: ElementData, resolver?: Resolver, depth = 2): string {
+  const p = el.props || {};
+  const bound = resolveBound(p, resolver);
+  const indent = "  ".repeat(depth);
+  const style = styleToJsx(pickStyleProps(p));
+  const open = style ? ` style={{ ${style} }}` : "";
+
+  if (el.type === "button")
+    return `${indent}<button${open}>${escapeHtml(bound ?? p.label ?? "Button")}</button>`;
+  if (el.type === "input")
+    return `${indent}<input${open} placeholder="${escapeHtml(bound ?? p.label ?? "")}" />`;
+  if (el.type === "card")
+    return `${indent}<div${open}>${escapeHtml(bound ?? p.label ?? "Card")}</div>`;
+  if (el.type === "group")
+    return `${indent}<div${open}>\n${(el.children || [])
+      .map((c) => nodeToReact(c, resolver, depth + 2))
+      .join("\n")}\n${indent}</div>`;
+
+  return `${indent}<div${open}>${escapeHtml(bound ?? p.label ?? el.type)}</div>`;
+}
+
 export function generateReact(elements: ElementData[]): string {
-  return `export default function ExportedComponent() {\n  return (\n${elements.map(e => nodeToReact(e, 3)).join("\n")}\n  );\n}`;
+  return `export default function ExportedComponent() {\n  return (\n${elements
+    .map((e) => nodeToReact(e, undefined, 3))
+    .join("\n")}\n  );\n}`;
 }
 
-// ===== EXPORT VUE
-function nodeToVue(el: ElementData, depth = 2): string {
+export function generateReactWithResolver(elements: ElementData[], resolver: Resolver): string {
+  return `export default function ExportedComponent() {\n  return (\n${elements
+    .map((e) => nodeToReact(e, resolver, 3))
+    .join("\n")}\n  );\n}`;
+}
+
+/* =========================
+ * EXPORT VUE
+ * ========================= */
+
+function nodeToVue(el: ElementData, resolver?: Resolver, depth = 2): string {
   const p = el.props || {};
-  let indent = "  ".repeat(depth);
+  const bound = resolveBound(p, resolver);
+  const indent = "  ".repeat(depth);
+  const style = styleToCss(pickStyleProps(p));
+
   if (el.type === "button")
-    return `${indent}<button style="${styleToCss(p)}">${p.label || "Button"}</button>`;
+    return `${indent}<button style="${style}">${escapeHtml(bound ?? p.label ?? "Button")}</button>`;
   if (el.type === "input")
-    return `${indent}<input style="${styleToCss(p)}" placeholder="${p.label || ""}" />`;
+    return `${indent}<input style="${style}" placeholder="${escapeHtml(bound ?? p.label ?? "")}" />`;
   if (el.type === "card")
-    return `${indent}<div style="${styleToCss(p)}">${p.label || "Card"}</div>`;
+    return `${indent}<div style="${style}">${escapeHtml(bound ?? p.label ?? "Card")}</div>`;
   if (el.type === "group")
-    return `${indent}<div style="${styleToCss(p)}">\n${(el.children || []).map(c => nodeToVue(c, depth + 2)).join("\n")}\n${indent}</div>`;
-  return "";
-}
-export function generateVue(elements: ElementData[]): string {
-  return `<template>\n  <div>\n${elements.map(e => nodeToVue(e, 3)).join("\n")}\n  </div>\n</template>\n\n<script setup>\n// Ajoute ta logique ici\n</script>\n`;
+    return `${indent}<div style="${style}">\n${(el.children || [])
+      .map((c) => nodeToVue(c, resolver, depth + 2))
+      .join("\n")}\n${indent}</div>`;
+
+  return `${indent}<div style="${style}">${escapeHtml(bound ?? p.label ?? el.type)}</div>`;
 }
 
-// ===== EXPORT JSON
+export function generateVue(elements: ElementData[]): string {
+  return `<template>\n  <div>\n${elements.map((e) => nodeToVue(e)).join("\n")}\n  </div>\n</template>\n\n<script setup>\n// Ajoute ta logique ici\n</script>\n`;
+}
+
+export function generateVueWithResolver(elements: ElementData[], resolver: Resolver): string {
+  return `<template>\n  <div>\n${elements.map((e) => nodeToVue(e, resolver)).join("\n")}\n  </div>\n</template>\n\n<script setup>\n// Ajoute ta logique ici\n</script>\n`;
+}
+
+/* =========================
+ * EXPORT / IMPORT JSON
+ * ========================= */
+
 export function generateJSON(elements: ElementData[]): string {
   return JSON.stringify(elements, null, 2);
 }
 
-// ===== IMPORT JSON
 export function importJSON(jsonString: string): ElementData[] {
   try {
     const parsed = JSON.parse(jsonString);
-    // Petite vérif basique : c'est un tableau avec type/props/id
     if (!Array.isArray(parsed)) throw new Error("Données invalides");
     return parsed;
-  } catch (e) {
-    alert("Erreur d'import JSON : " + e);
+  } catch (e: any) {
+    alert("Erreur d'import JSON : " + e?.message || String(e));
     return [];
   }
 }
 
-// ===== ZIP (utilise jszip)
-export async function generateZip(elements: ElementData[]): Promise<Blob> {
-  // Import dynamique pour garder le bundle léger (npm i jszip)
+/* =========================
+ * ZIP (JSZip)
+ * ========================= */
+
+export async function generateZip(elements: ElementData[], resolver?: Resolver): Promise<Blob> {
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
 
-  zip.file("export.html", generateHTML(elements));
-  zip.file("export.dart", generateFlutter(elements));
-  zip.file("ExportedComponent.jsx", generateReact(elements));
-  zip.file("ExportedComponent.vue", generateVue(elements));
+  // HTML / React / Vue / Flutter — avec ou sans resolver
+  const html = resolver ? generateHTMLWithResolver(elements, resolver) : generateHTML(elements);
+  const react = resolver ? generateReactWithResolver(elements, resolver) : generateReact(elements);
+  const vue = resolver ? generateVueWithResolver(elements, resolver) : generateVue(elements);
+  const dart = resolver ? generateFlutterWithResolver(elements, resolver) : generateFlutter(elements);
+
+  zip.file("export.html", html);
+  zip.file("ExportedComponent.jsx", react);
+  zip.file("ExportedComponent.vue", vue);
+  zip.file("export.dart", dart);
   zip.file("export.json", generateJSON(elements));
 
   return zip.generateAsync({ type: "blob" });
 }
 
-// ===== DOWNLOAD UTIL
-export function download(filename: string, content: string | Blob, type = "text/html") {
-  let blob: Blob;
-  if (content instanceof Blob) {
-    blob = content;
-  } else {
-    blob = new Blob([content], { type });
-  }
+/* =========================
+ * DOWNLOAD
+ * ========================= */
+
+export function download(filename: string, content: string | Blob, type = "text/html;charset=utf-8") {
+  const blob = content instanceof Blob ? content : new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
