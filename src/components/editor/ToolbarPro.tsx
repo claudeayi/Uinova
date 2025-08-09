@@ -10,7 +10,10 @@ type Props = {
   onDelete: () => void;
   onPreview: () => void;
   onExportHTML: () => void;
-  onOpenImportExport?: () => void; // optionnel
+  onOpenImportExport?: () => void;
+  // ✅ nouveau : export ZIP
+  onExportZip?: () => void;
+  zipLoading?: boolean;
 };
 
 export default function ToolbarPro({
@@ -24,6 +27,8 @@ export default function ToolbarPro({
   onPreview,
   onExportHTML,
   onOpenImportExport,
+  onExportZip,
+  zipLoading = false,
 }: Props) {
   const wrapStyle: React.CSSProperties = {
     display: "flex",
@@ -105,7 +110,7 @@ export default function ToolbarPro({
 
       <span style={sepStyle} />
 
-      {/* Aperçu / Export */}
+      {/* Aperçu / Export HTML */}
       <button
         style={btnStyle}
         onClick={onPreview}
@@ -117,12 +122,26 @@ export default function ToolbarPro({
       <button
         style={btnStyle}
         onClick={onExportHTML}
-        title="Exporter en HTML"
+        title="Exporter en HTML (avec données CMS)"
         aria-label="Exporter HTML"
       >
         ⬇️ Export HTML
       </button>
 
+      {/* ✅ Nouveau : Export ZIP */}
+      {onExportZip && (
+        <button
+          style={{ ...btnStyle, ...(zipLoading ? btnDisabled : {}) }}
+          onClick={onExportZip}
+          disabled={zipLoading}
+          title="ZIP (HTML + React + Vue + Flutter + JSON)"
+          aria-label="Exporter ZIP"
+        >
+          {zipLoading ? "⏳ ZIP…" : "📦 Export ZIP"}
+        </button>
+      )}
+
+      {/* Import/Export JSON (modal) */}
       {onOpenImportExport && (
         <>
           <span style={sepStyle} />
@@ -137,11 +156,7 @@ export default function ToolbarPro({
         </>
       )}
 
-      {/* Push le reste à droite si besoin */}
       <div style={{ flex: 1 }} />
-
-      {/* Slot futur (IA, thème, etc.) */}
-      {/* <button style={btnStyle} onClick={...}>✨ IA</button> */}
     </div>
   );
 }
