@@ -10,6 +10,7 @@ import Inspector from "./Inspector";
 import SectionLibrary from "./SectionLibrary";
 import ImportExportModal from "./ImportExportModal";
 import ToolbarPro from "./ToolbarPro";
+import PresenceBar from "./PresenceBar"; // ✅ présence
 
 import { useAppStore, ElementData } from "../../store/useAppStore";
 import {
@@ -18,6 +19,8 @@ import {
   generateZip,
   generateProjectZip,
 } from "../../utils/exporters";
+import { debounce } from "../../utils/debounce"; // ✅ autosave
+import { saveDraft, loadDraft } from "../../utils/autosave"; // ✅ autosave
 import { useCMS } from "../../store/useCMS";
 
 /* ---------------------------
@@ -93,7 +96,7 @@ export default function EditorWrapper() {
     redo,
   } = useAppStore();
 
-  const { getItems } = useCMS(); // resolver CMS
+  const { getItems } = useCMS(); // ✅ resolver CMS
 
   const proj = useMemo(
     () => projects.find((p) => p.id === currentProjectId) || projects[0],
@@ -109,17 +112,41 @@ export default function EditorWrapper() {
   const [zipLoading, setZipLoading] = useState(false);
   const [siteLoading, setSiteLoading] = useState(false);
 
-  // Collaboration live
+  /* ========= Collaboration (écoute live) ========= */
   useEffect(() => {
     listenElements();
   }, [listenElements]);
 
-  // Toolbar indicators
+  /* ========= Autosave: restore au 1er montage de la page ========= */
+  useEffect(() => {
+    if (!proj || !page) return;
+    const draft = loadDraft(proj.id, page.id);
+    if (draft && Array.isArray(draft) && draft.length) {
+      emitElements(draft);
+      toast.success("Brouillon restauré");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [proj?.id, page?.id]);
+
+  /* ========= Autosave: sauvegarde debouncée à chaque changement ========= */
+  const debouncedSave = useMemo(
+    () =>
+      debounce((elements: ElementData[]) => {
+        if (!proj || !page) return;
+        saveDraft(proj.id, page.id, elements);
+      }, 500),
+    [proj?.id, page?.id]
+  );
+  useEffect(() => {
+    if (page?.elements) debouncedSave(page.elements);
+  }, [page?.elements, debouncedSave]);
+
+  /* ========= Indicateurs Toolbar ========= */
   const canUndo = (page?.history?.length || 0) > 1;
   const canRedo = (page?.future?.length || 0) > 0;
   const hasSelection = !!selectedPath;
 
-  // Apply mutation (avec snapshot)
+  /* ========= Mutations (snapshot + broadcast) ========= */
   function applyElements(next: ElementData[], msg?: string) {
     try {
       if (saveSnapshot) saveSnapshot();
@@ -131,7 +158,7 @@ export default function EditorWrapper() {
     }
   }
 
-  // Patch props
+  /* ========= Patch props ========= */
   function patchProps(path: number[], patch: Partial<ElementData["props"]>) {
     const updated = structuredClone(page.elements) as ElementData[];
     const el = getByPath(updated, path);
@@ -139,7 +166,7 @@ export default function EditorWrapper() {
     applyElements(updated);
   }
 
-  // Insertions
+  /* ========= Insertions ========= */
   function addElementAtRoot(type: string, label: string) {
     applyElements(
       [
@@ -149,18 +176,13 @@ export default function EditorWrapper() {
       "Composant ajouté !"
     );
   }
-
   function insertSection(el: ElementData) {
     applyElements([...page.elements, el], "Section insérée !");
   }
 
-  // Actions Pro
-  function handleUndo() {
-    if (undo) undo();
-  }
-  function handleRedo() {
-    if (redo) redo();
-  }
+  /* ========= Actions Pro (Undo/Redo/Duplicate/Delete) ========= */
+  function handleUndo() { if (undo) undo(); }
+  function handleRedo() { if (redo) redo(); }
 
   function handleDuplicate() {
     if (!selectedPath) return;
@@ -187,11 +209,12 @@ export default function EditorWrapper() {
     setSelectedPath(null);
   }
 
+  /* ========= Export / Preview ========= */
   function handlePreview() {
     window.open(`/preview/${proj.id}/${page.id}`, "_blank", "noopener,noreferrer");
   }
 
-  // Export HTML (binding CMS)
+  // HTML (avec binding CMS)
   function handleExportHTML() {
     const resolver = ({ collectionId, field }: { collectionId: string; field: string }) => {
       const items = getItems(collectionId);
@@ -202,7 +225,7 @@ export default function EditorWrapper() {
     toast.success("Export HTML (avec données CMS) généré");
   }
 
-  // Export ZIP (page courante)
+  // ZIP (page courante)
   async function handleExportZip() {
     try {
       setZipLoading(true);
@@ -221,7 +244,7 @@ export default function EditorWrapper() {
     }
   }
 
-  // Export Site (multi‑pages)
+  // Site (multi-pages)
   async function handleExportSite() {
     try {
       setSiteLoading(true);
@@ -252,7 +275,7 @@ export default function EditorWrapper() {
     }
   }
 
-  // Raccourcis clavier pro
+  /* ========= Raccourcis pro ========= */
   useHotkeys("ctrl+z, cmd+z", (e) => { e.preventDefault(); handleUndo(); }, {}, [page?.history]);
   useHotkeys("ctrl+y, cmd+y, ctrl+shift+z, cmd+shift+z", (e) => { e.preventDefault(); handleRedo(); }, {}, [page?.future]);
   useHotkeys("ctrl+d, cmd+d", (e) => { e.preventDefault(); hasSelection && handleDuplicate(); }, {}, [hasSelection, selectedPath, page?.elements]);
@@ -281,11 +304,19 @@ export default function EditorWrapper() {
         {/* Colonne gauche : Library + Tree */}
         <div className="flex flex-col">
           <SectionLibrary onInsert={insertSection} />
-          <TreeView elements={page.elements} onSelect={setSelectedPath} />
+          <TreeView
+            elements={page.elements}
+            onSelect={setSelectedPath}
+            onReorder={(next) => applyElements(next, "Arborescence réordonnée")} // ✅ tri entre frères
+          />
         </div>
 
         {/* Centre : Canvas + Preview + Actions */}
         <div className="flex-1 p-6 bg-gray-100 dark:bg-gray-900">
+          {/* ✅ Présence utilisateurs */}
+          <PresenceBar />
+
+          {/* ✅ Toolbar Pro */}
           <ToolbarPro
             canUndo={canUndo}
             canRedo={canRedo}
@@ -303,9 +334,13 @@ export default function EditorWrapper() {
             onOpenImportExport={() => setShowImportExport(true)}
           />
 
+          {/* ✅ Live Preview */}
           <LivePreview elements={page.elements} />
+
+          {/* ✅ Palette drag source */}
           {paletteView}
 
+          {/* ✅ Canvas */}
           <DroppableCanvas>
             {page.elements.map((el, idx) => (
               <div key={el.id} className="mb-2" onClick={() => setSelectedPath([idx])}>
@@ -377,9 +412,13 @@ export default function EditorWrapper() {
           onPatchProps={(patch) => selectedPath && patchProps(selectedPath, patch)}
         />
 
-        {showImportExport && <ImportExportModal onClose={() => setShowImportExport(false)} />}
+        {/* Modale import/export */}
+        {showImportExport && (
+          <ImportExportModal onClose={() => setShowImportExport(false)} />
+        )}
       </div>
 
+      {/* Toasts globaux */}
       <Toaster position="top-right" />
     </DndContext>
   );
