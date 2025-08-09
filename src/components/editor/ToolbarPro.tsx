@@ -4,16 +4,24 @@ type Props = {
   canUndo?: boolean;
   canRedo?: boolean;
   hasSelection?: boolean;
+
   onUndo: () => void;
   onRedo: () => void;
   onDuplicate: () => void;
   onDelete: () => void;
+
   onPreview: () => void;
   onExportHTML: () => void;
+
   onOpenImportExport?: () => void;
-  // ✅ nouveau : export ZIP
+
+  // Export ZIP (page courante)
   onExportZip?: () => void;
   zipLoading?: boolean;
+
+  // ✅ Nouveau : Export Site (multi-pages)
+  onExportSite?: () => void;
+  siteLoading?: boolean;
 };
 
 export default function ToolbarPro({
@@ -29,6 +37,8 @@ export default function ToolbarPro({
   onOpenImportExport,
   onExportZip,
   zipLoading = false,
+  onExportSite,
+  siteLoading = false,
 }: Props) {
   const wrapStyle: React.CSSProperties = {
     display: "flex",
@@ -128,7 +138,7 @@ export default function ToolbarPro({
         ⬇️ Export HTML
       </button>
 
-      {/* ✅ Nouveau : Export ZIP */}
+      {/* Export ZIP (page courante) */}
       {onExportZip && (
         <button
           style={{ ...btnStyle, ...(zipLoading ? btnDisabled : {}) }}
@@ -138,6 +148,19 @@ export default function ToolbarPro({
           aria-label="Exporter ZIP"
         >
           {zipLoading ? "⏳ ZIP…" : "📦 Export ZIP"}
+        </button>
+      )}
+
+      {/* ✅ Export Site (multi-pages) */}
+      {onExportSite && (
+        <button
+          style={{ ...btnStyle, ...(siteLoading ? btnDisabled : {}) }}
+          onClick={onExportSite}
+          disabled={siteLoading}
+          title="Exporter le site (toutes les pages)"
+          aria-label="Exporter Site"
+        >
+          {siteLoading ? "⏳ Site…" : "🌐 Export Site"}
         </button>
       )}
 
