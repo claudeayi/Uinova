@@ -12,7 +12,8 @@ import ImportExportModal from "./ImportExportModal";
 import ToolbarPro from "./ToolbarPro";
 
 import { useAppStore, ElementData } from "../../store/useAppStore";
-import { toHTML, download } from "../../utils/exporters";
+import { download, generateHTMLWithResolver } from "../../utils/exporters";
+import { useCMS } from "../../store/useCMS";
 
 /* ---------------------------
  * Drag helpers
@@ -89,6 +90,8 @@ export default function EditorWrapper() {
     undo,
     redo,
   } = useAppStore();
+
+  const { getItems } = useCMS();
 
   const proj = useMemo(
     () => projects.find((p) => p.id === currentProjectId) || projects[0],
@@ -191,10 +194,17 @@ export default function EditorWrapper() {
     window.open(`/preview/${proj.id}/${page.id}`, "_blank", "noopener,noreferrer");
   }
 
+  // ✅ Export HTML AVEC données CMS (binding via resolver)
   function handleExportHTML() {
-    const html = toHTML(page.elements);
-    download(`${page.name || "page"}.html`, html);
-    toast.success("Export HTML généré");
+    // Resolver : renvoie la valeur du premier item pour {collectionId, field}
+    const resolver = ({ collectionId, field }: { collectionId: string; field: string }) => {
+      const items = getItems(collectionId);
+      return items.length ? items[0]?.[field] ?? null : null;
+    };
+
+    const html = generateHTMLWithResolver(page.elements, resolver);
+    download(`${page.name || "page"}.html`, html, "text/html;charset=utf-8");
+    toast.success("Export HTML (avec données CMS) généré");
   }
 
   // Raccourcis clavier pro
