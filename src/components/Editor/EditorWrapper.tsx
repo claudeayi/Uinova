@@ -12,7 +12,8 @@ import ImportExportModal from "./ImportExportModal";
 import ToolbarPro from "./ToolbarPro";
 
 import { useAppStore, ElementData } from "../../store/useAppStore";
-import { download, generateHTMLWithResolver } from "../../utils/exporters";
+/* ✅ Patch (a): imports utils + CMS */
+import { download, generateHTMLWithResolver, generateZip } from "../../utils/exporters"; // generateZip sera utilisé à l'étape suivante
 import { useCMS } from "../../store/useCMS";
 
 /* ---------------------------
@@ -91,6 +92,7 @@ export default function EditorWrapper() {
     redo,
   } = useAppStore();
 
+  /* ✅ Patch (a): hook CMS pour le resolver d'export */
   const { getItems } = useCMS();
 
   const proj = useMemo(
@@ -104,6 +106,9 @@ export default function EditorWrapper() {
 
   const [selectedPath, setSelectedPath] = useState<number[] | null>(null);
   const [showImportExport, setShowImportExport] = useState(false);
+
+  /* ✅ Patch (b): état de chargement ZIP (utilisé à l’étape suivante) */
+  const [zipLoading, setZipLoading] = useState(false);
 
   // Collaboration
   useEffect(() => {
@@ -196,7 +201,6 @@ export default function EditorWrapper() {
 
   // ✅ Export HTML AVEC données CMS (binding via resolver)
   function handleExportHTML() {
-    // Resolver : renvoie la valeur du premier item pour {collectionId, field}
     const resolver = ({ collectionId, field }: { collectionId: string; field: string }) => {
       const items = getItems(collectionId);
       return items.length ? items[0]?.[field] ?? null : null;
@@ -254,6 +258,7 @@ export default function EditorWrapper() {
             onPreview={handlePreview}
             onExportHTML={handleExportHTML}
             onOpenImportExport={() => setShowImportExport(true)}
+            /* onExportZip & zipLoading seront branchés lors de l'étape suivante */
           />
 
           {/* Live Preview */}
