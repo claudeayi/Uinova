@@ -1,8 +1,12 @@
+// src/components/editor/Inspector.tsx
+import React, { useMemo } from "react";
 import { ElementData, useAppStore } from "../../store/useAppStore";
-import { useMemo } from "react";
 import { useCMS } from "../../store/useCMS";
 import { colors, space, font } from "../../themes/tokens";
 
+/* ---------------------------
+ * Utils
+ * --------------------------- */
 function getElementByPath(tree: ElementData[], path: number[]): ElementData {
   if (path.length === 1) return tree[path[0]];
   const [h, ...r] = path;
@@ -13,179 +17,153 @@ const colorOptions = Object.entries(colors).map(([k, v]) => ({ key: k, val: v })
 const spaceOptions = Object.entries(space).map(([k, v]) => ({ key: k, val: v }));
 const fontOptions  = Object.entries(font).map(([k, v]) => ({ key: k, val: v }));
 
-export default function Inspector({
-  selectedPath,
-  onPatchProps,
-}: {
-  selectedPath: number[] | null;
-  onPatchProps: (patch: Partial<ElementData["props"]>) => void;
-}) {
-  const { projects, currentProjectId, currentPageId } = useAppStore();
-  const { collections } = useCMS();
-
-  const page = useMemo(() => {
-    const proj = projects.find((p) => p.id === currentProjectId);
-    return proj?.pages.find((p) => p.id === currentPageId);
-  }, [projects, currentProjectId, currentPageId]);
-
-  if (!selectedPath || !page) {
-    return (
-      <aside className="w-80 p-4 border-l bg-white dark:bg-gray-900">
-        <h3 className="font-semibold mb-2">Inspector</h3>
-        <div className="text-sm text-gray-500">Sélectionne un élément.</div>
-      </aside>
-    );
-  }
-
-  const el = getElementByPath(page.elements, selectedPath);
-  const p = el.props || {};
-
+/* ---------------------------
+ * Petits éditeurs réutilisables
+ * --------------------------- */
+function Row({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <aside className="w-80 p-4 border-l bg-white dark:bg-gray-900 space-y-3">
-      <h3 className="font-semibold">Inspector</h3>
-      <div className="text-xs text-gray-500">
-        {el.type} • {el.id.slice(0, 6)}
-      </div>
-
-      {/* Content */}
-      <label className="block">
-        <span className="text-sm">Label / Text</span>
-        <input
-          className="mt-1 border rounded px-2 py-1 w-full"
-          value={p.label || ""}
-          onChange={(e) => onPatchProps({ label: e.target.value })}
-        />
-      </label>
-
-      {/* Styles rapides (numériques) */}
-      <div className="grid grid-cols-2 gap-2">
-        <label className="block">
-          <span className="text-sm">Font size</span>
-          <input
-            type="number"
-            className="mt-1 border rounded px-2 py-1 w-full"
-            value={p.fontSize ?? 16}
-            onChange={(e) => onPatchProps({ fontSize: Number(e.target.value) })}
-          />
-        </label>
-        <label className="block">
-          <span className="text-sm">Padding</span>
-          <input
-            type="number"
-            className="mt-1 border rounded px-2 py-1 w-full"
-            value={p.p ?? 8}
-            onChange={(e) => onPatchProps({ p: Number(e.target.value) })}
-          />
-        </label>
-      </div>
-
-      {/* Styles via tokens */}
-      <div className="grid grid-cols-2 gap-2">
-        <label className="block">
-          <span className="text-sm">BG (token)</span>
-          <select
-            className="mt-1 border rounded px-2 py-1 w-full"
-            value={colorOptions.find((o) => o.val === p.bg)?.key || ""}
-            onChange={(e) => {
-              const key = e.target.value;
-              onPatchProps({ bg: key ? colors[key as keyof typeof colors] : undefined });
-            }}
-          >
-            <option value="">—</option>
-            {colorOptions.map((o) => (
-              <option key={o.key} value={o.key}>{o.key}</option>
-            ))}
-          </select>
-        </label>
-
-        <label className="block">
-          <span className="text-sm">Couleur (token)</span>
-          <select
-            className="mt-1 border rounded px-2 py-1 w-full"
-            value={colorOptions.find((o) => o.val === p.color)?.key || ""}
-            onChange={(e) => {
-              const key = e.target.value;
-              onPatchProps({ color: key ? colors[key as keyof typeof colors] : undefined });
-            }}
-          >
-            <option value="">—</option>
-            {colorOptions.map((o) => (
-              <option key={o.key} value={o.key}>{o.key}</option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      <div className="grid grid-cols-2 gap-2">
-        <label className="block">
-          <span className="text-sm">Padding (token)</span>
-          <select
-            className="mt-1 border rounded px-2 py-1 w-full"
-            value={String(p.p ?? "")}
-            onChange={(e) => onPatchProps({ p: Number(e.target.value) })}
-          >
-            <option value="">—</option>
-            {spaceOptions.map((o) => (
-              <option key={o.key} value={o.val}>{o.key} ({o.val}px)</option>
-            ))}
-          </select>
-        </label>
-        <label className="block">
-          <span className="text-sm">Font size (token)</span>
-          <select
-            className="mt-1 border rounded px-2 py-1 w-full"
-            value={String(p.fontSize ?? "")}
-            onChange={(e) => onPatchProps({ fontSize: Number(e.target.value) })}
-          >
-            <option value="">—</option>
-            {fontOptions.map((o) => (
-              <option key={o.key} value={o.val}>{o.key} ({o.val}px)</option>
-            ))}
-          </select>
-        </label>
-      </div>
-
-      {/* Layout */}
-      <div>
-        <div className="text-sm mb-1">Layout</div>
-        <div className="grid grid-cols-3 gap-2">
-          <button className="border rounded px-2 py-1" onClick={() => onPatchProps({ display: "block" })}>Block</button>
-          <button className="border rounded px-2 py-1" onClick={() => onPatchProps({ display: "inline-block" })}>Inline</button>
-          <button className="border rounded px-2 py-1" onClick={() => onPatchProps({ display: "flex" })}>Flex</button>
-        </div>
-      </div>
-
-      {/* CMS binding */}
-      <section className="p-3 border rounded">
-        <div className="font-semibold mb-2">Données (CMS)</div>
-
-        <label className="text-sm block mb-1">Collection</label>
-        <select
-          className="w-full border rounded px-2 py-1 mb-2"
-          value={p._binding?.collectionId || ""}
-          onChange={(e) =>
-            onPatchProps({ _binding: { collectionId: e.target.value, field: p._binding?.field || "" } })
-          }
-        >
-          <option value="">— Aucune —</option>
-          {collections.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-
-        <label className="text-sm block mb-1">Champ</label>
-        <input
-          className="w-full border rounded px-2 py-1"
-          placeholder="ex: title"
-          value={p._binding?.field || ""}
-          onChange={(e) =>
-            onPatchProps({ _binding: { collectionId: p._binding?.collectionId || "", field: e.target.value } })
-          }
-        />
-        <p className="text-xs opacity-70 mt-2">
-          Renseigne un champ existant de la collection (ex: title, subtitle, image).
-        </p>
-      </section>
-    </aside>
+    <label className="block">
+      <span className="text-sm">{label}</span>
+      <div className="mt-1">{children}</div>
+    </label>
   );
 }
+
+function NumberInput({
+  value,
+  onChange,
+  min,
+  max,
+  step = 1,
+}: {
+  value: number | undefined;
+  onChange: (n: number) => void;
+  min?: number;
+  max?: number;
+  step?: number;
+}) {
+  return (
+    <input
+      type="number"
+      className="border rounded px-2 py-1 w-full"
+      value={value ?? ""}
+      onChange={(e) => onChange(Number(e.target.value))}
+      min={min}
+      max={max}
+      step={step}
+    />
+  );
+}
+
+/** Liste simple de chaînes (Select options / Radio options) */
+function StringListEditor({
+  value,
+  onChange,
+  placeholder = "Entrée…",
+}: {
+  value: string[];
+  onChange: (next: string[]) => void;
+  placeholder?: string;
+}) {
+  const add = () => onChange([...(value || []), "Nouvelle valeur"]);
+  const setAt = (idx: number, v: string) => {
+    const next = [...value];
+    next[idx] = v;
+    onChange(next);
+  };
+  const rm = (idx: number) => {
+    const next = value.filter((_, i) => i !== idx);
+    onChange(next);
+  };
+
+  return (
+    <div className="space-y-2">
+      {(value || []).map((v, i) => (
+        <div key={i} className="flex gap-2">
+          <input
+            className="border rounded px-2 py-1 flex-1"
+            value={v}
+            onChange={(e) => setAt(i, e.target.value)}
+            placeholder={placeholder}
+          />
+          <button type="button" className="px-2 py-1 border rounded" onClick={() => rm(i)}>
+            ✕
+          </button>
+        </div>
+      ))}
+      <button type="button" className="px-2 py-1 border rounded w-full" onClick={add}>
+        + Ajouter
+      </button>
+    </div>
+  );
+}
+
+/** Tabs {label, content}[] */
+function TabsEditor({
+  value,
+  onChange,
+}: {
+  value: { label: string; content?: string }[];
+  onChange: (next: { label: string; content?: string }[]) => void;
+}) {
+  const add = () => onChange([...(value || []), { label: "Nouvel onglet", content: "…" }]);
+  const setAt = (idx: number, k: "label" | "content", v: string) => {
+    const next = value.map((t, i) => (i === idx ? { ...t, [k]: v } : t));
+    onChange(next);
+  };
+  const rm = (idx: number) => onChange(value.filter((_, i) => i !== idx));
+
+  return (
+    <div className="space-y-3">
+      {(value || []).map((t, i) => (
+        <div key={i} className="p-2 border rounded space-y-2">
+          <Row label={`Label #${i + 1}`}>
+            <input
+              className="border rounded px-2 py-1 w-full"
+              value={t.label}
+              onChange={(e) => setAt(i, "label", e.target.value)}
+            />
+          </Row>
+          <Row label="Contenu">
+            <textarea
+              className="border rounded px-2 py-1 w-full"
+              rows={2}
+              value={t.content || ""}
+              onChange={(e) => setAt(i, "content", e.target.value)}
+            />
+          </Row>
+          <div className="flex justify-end">
+            <button type="button" className="px-2 py-1 border rounded" onClick={() => rm(i)}>
+              Supprimer
+            </button>
+          </div>
+        </div>
+      ))}
+      <button type="button" className="px-2 py-1 border rounded w-full" onClick={add}>
+        + Ajouter un onglet
+      </button>
+    </div>
+  );
+}
+
+/** Accordion items {title, content}[] */
+function AccordionEditor({
+  value,
+  onChange,
+}: {
+  value: { title: string; content: string }[];
+  onChange: (next: { title: string; content: string }[]) => void;
+}) {
+  const add = () => onChange([...(value || []), { title: "Titre", content: "Contenu" }]);
+  const setAt = (idx: number, k: "title" | "content", v: string) => {
+    onChange(value.map((it, i) => (i === idx ? { ...it, [k]: v } : it)));
+  };
+  const rm = (idx: number) => onChange(value.filter((_, i) => i !== idx));
+
+  return (
+    <div className="space-y-3">
+      {(value || []).map((it, i) => (
+        <div key={i} className="p-2 border rounded space-y-2">
+          <Row label={`Titre #${i + 1}`}>
+            <input
+             
