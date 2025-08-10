@@ -5,14 +5,14 @@ import { v4 as uuid } from "uuid";
 import toast, { Toaster } from "react-hot-toast";
 import { useHotkeys } from "react-hotkeys-hook";
 
-import SortableTree from "./SortableTree";            // ✅ tree DnD avec nesting
+import SortableTree from "./SortableTree";            // ✅ Tree DnD avec nesting
 import Inspector from "./Inspector";
 import SectionLibrary from "./SectionLibrary";
 import ImportExportModal from "./ImportExportModal";
 import ToolbarPro from "./ToolbarPro";
-import PresenceBar from "./PresenceBar";             // ✅ présence
+import PresenceBar from "./PresenceBar";             // ✅ présence UI
 import LivePreview from "./LivePreview";             // ✅ preview
-import { PRO_PALETTE } from "./ProPalette";          // ✅ palette étendue
+import { PRO_PALETTE } from "./ProPalette";          // ✅ palette pro
 import { renderNode } from "./renderers";            // ✅ rendu unifié
 
 import { useAppStore, ElementData } from "../../store/useAppStore";
@@ -92,7 +92,7 @@ export default function EditorWrapper() {
     redo,
   } = useAppStore();
 
-  const cms = useCMS(); // peut contenir getItems OU getCollection selon ta version
+  const cms = useCMS(); // compat: getItems() OU getCollection()
 
   const proj = useMemo(
     () => projects.find((p) => p.id === currentProjectId) || projects[0],
@@ -213,8 +213,8 @@ export default function EditorWrapper() {
 
   // Résolveur CMS robuste (supporte getItems OU getCollection)
   const cmsResolver = ({ collectionId, field }: { collectionId: string; field: string }) => {
+    // @ts-ignore — selon ta version du store
     const items =
-      // @ts-ignore — selon ta version du store
       typeof cms.getItems === "function"
         ? cms.getItems(collectionId)
         : cms.getCollection
