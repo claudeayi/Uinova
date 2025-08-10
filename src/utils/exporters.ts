@@ -1,97 +1,194 @@
 // src/utils/exporters.ts
-import { ElementData } from "../store/useAppStore";
+import type { ElementData } from "../store/useAppStore";
 
-/* =========================
- * Types & helpers
- * ========================= */
-type Binding = { collectionId: string; field: string };
-type Resolver = (b: Binding) => any;
+/* -----------------------------------------------------------
+ * Helpers communs
+ * ----------------------------------------------------------- */
 
-const STYLE_KEYS = new Set(["bg", "color", "p", "fontSize", "display"]);
+type Resolver = (ref: { collectionId: string; field: string }) => any;
 
-function escapeHtml(v: any): string {
-  const s = v == null ? "" : String(v);
-  return s
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
-}
-
-function pickStyleProps(p: Record<string, any>) {
-  const out: Record<string, any> = {};
-  for (const k of Object.keys(p || {})) {
-    if (STYLE_KEYS.has(k)) out[k] = p[k];
+function resolveBinding(p: any, resolver?: Resolver): any {
+  const b = p?._binding;
+  if (resolver && b?.collectionId && b?.field) {
+    try {
+      const v = resolver({ collectionId: b.collectionId, field: b.field });
+      return v ?? p.label ?? "";
+    } catch {
+      return p.label ?? "";
+    }
   }
-  return out;
+  return p.label ?? "";
 }
 
-/* =========================
- * Style serializers
- * ========================= */
-function styleToCss(p: Record<string, any>): string {
+function styleToCss(p: Record<string, any> = {}): string {
   let css = "";
-  if ("bg" in p) css += `background:${p.bg};`;
-  if ("color" in p) css += `color:${p.color};`;
-  if ("p" in p) css += `padding:${Number(p.p)}px;`;
-  if ("fontSize" in p) css += `font-size:${Number(p.fontSize)}px;`;
-  if ("display" in p) css += `display:${p.display};`;
+  if (p.bg) css += `background:${p.bg};`;
+  if (p.color) css += `color:${p.color};`;
+  if (p.p != null) css += `padding:${Number(p.p)}px;`;
+  if (p.fontSize != null) css += `font-size:${Number(p.fontSize)}px;`;
+  if (p.display) css += `display:${p.display};`;
   return css;
 }
 
-function styleToJsx(p: Record<string, any>): string {
-  const parts: string[] = [];
-  if ("bg" in p) parts.push(`background: ${JSON.stringify(p.bg)}`);
-  if ("color" in p) parts.push(`color: ${JSON.stringify(p.color)}`);
-  if ("p" in p) parts.push(`padding: ${Number(p.p)}`);
-  if ("fontSize" in p) parts.push(`fontSize: ${Number(p.fontSize)}`);
-  if ("display" in p) parts.push(`display: ${JSON.stringify(p.display)}`);
-  return parts.join(", ");
+function propsToInlineJsx(p: Record<string, any> = {}): string {
+  // convertit props style en objet JSX inline
+  const style: Record<string, any> = {};
+  if (p.bg) style.background = p.bg;
+  if (p.color) style.color = p.color;
+  if (p.p != null) style.padding = Number(p.p);
+  if (p.fontSize != null) style.fontSize = Number(p.fontSize);
+  if (p.display) style.display = p.display;
+  const pairs = Object.entries(style).map(([k, v]) => `${k}:${JSON.stringify(v)}`);
+  return pairs.join(", ");
 }
 
-/* =========================
- * Binding resolver
- * ========================= */
-function resolveBound(props: any, resolver?: Resolver) {
-  const b = props?._binding;
-  if (!resolver || !b?.collectionId || !b?.field) return null;
-  return resolver({ collectionId: b.collectionId, field: b.field });
+function escapeHtml(s: any): string {
+  return String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
-/* =========================
- * HTML
- * ========================= */
+/* -----------------------------------------------------------
+ * HTML EXPORT (avec resolver CMS)
+ * ----------------------------------------------------------- */
+
 function nodeToHTML(el: ElementData, resolver?: Resolver): string {
   const p = el.props || {};
-  const bound = resolveBound(p, resolver);
-  const style = styleToCss(pickStyleProps(p));
+  const labelOrBound = resolveBinding(p, resolver);
+  const css = styleToCss(p);
 
-  if (el.type === "button")
-    return `<button style="${style}">${escapeHtml(bound ?? p.label ?? "Button")}</button>`;
-  if (el.type === "input")
-    return `<input style="${style}" placeholder="${escapeHtml(bound ?? p.label ?? "")}" />`;
-  if (el.type === "card")
-    return `<div style="${style}">${escapeHtml(bound ?? p.label ?? "Card")}</div>`;
-  if (el.type === "group")
-    return `<div style="${style}">${(el.children || []).map((c) => nodeToHTML(c, resolver)).join("")}</div>`;
+  switch (el.type) {
+    /* Base */
+    case "button":
+      return `<button style="${css}">${escapeHtml(labelOrBound || "Button")}</button>`;
+    case "input":
+      return `<input style="${css}" placeholder="${escapeHtml(labelOrBound || "")}" />`;
+    case "card":
+      return `<div style="${css}">${escapeHtml(labelOrBound || "Card")}</div>`;
+    case "group":
+      return `<div style="${css}">${(el.children || []).map((c) => nodeToHTML(c, resolver)).join("")}</div>`;
 
-  return `<div style="${style}">${escapeHtml(bound ?? p.label ?? el.type)}</div>`;
+    /* Layouts */
+    case "grid": {
+      const cols = Number(p.cols ?? 2);
+      const gap = Number(p.gap ?? 12);
+      const gridCss = `${css}display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:${gap}px;`;
+      return `<div style="${gridCss}">${(el.children || []).map((c) => nodeToHTML(c, resolver)).join("")}</div>`;
+    }
+    case "stack": {
+      const dir = p.direction === "row" ? "row" : "column";
+      const gap = Number(p.gap ?? 8);
+      const st = `${css}display:flex;flex-direction:${dir};gap:${gap}px;`;
+      return `<div style="${st}">${(el.children || []).map((c) => nodeToHTML(c, resolver)).join("")}</div>`;
+    }
+
+    /* Media */
+    case "image":
+      return `<img style="${css}" src="${escapeHtml(p.src || "https://via.placeholder.com/640x360?text=Image")}" alt="${escapeHtml(p.alt || "image")}" />`;
+    case "video":
+      return `<video style="${css}" src="${escapeHtml(p.src || "")}" controls poster="${escapeHtml(p.poster || "https://via.placeholder.com/640x360?text=Video")}"></video>`;
+
+    /* Nav / Footer */
+    case "navbar": {
+      const items: string[] = p.items || ["Home", "About", "Contact"];
+      const brand = p.brand || "UInova";
+      return `<nav style="${css}"><div>${escapeHtml(brand)}</div><ul>${items.map((it) => `<li>${escapeHtml(it)}</li>`).join("")}</ul></nav>`;
+    }
+    case "footer":
+      return `<footer style="${css}">${escapeHtml(p.text || `© ${new Date().getFullYear()} UInova`)}</footer>`;
+
+    /* Tabs / Accordion */
+    case "tabs": {
+      const tabs: { label: string; content?: string }[] = p.tabs || [
+        { label: "Tab 1", content: "Content 1" },
+        { label: "Tab 2", content: "Content 2" },
+      ];
+      const active = Number(p.active ?? 0);
+      return `<div style="${css}"><div>${tabs.map((t, i) => `<button>${escapeHtml(t.label)}</button>`).join("")}</div><div>${escapeHtml(
+        tabs[active]?.content || ""
+      )}</div></div>`;
+    }
+    case "accordion": {
+      const items: { title: string; content: string }[] = p.items || [
+        { title: "Item 1", content: "Content 1" },
+        { title: "Item 2", content: "Content 2" },
+      ];
+      return `<div style="${css}">${items
+        .map((it) => `<section><div>${escapeHtml(it.title)}</div><div>${escapeHtml(it.content)}</div></section>`)
+        .join("")}</div>`;
+    }
+
+    /* Forms */
+    case "form":
+      return `<form style="${css}" onsubmit="return false;">${(el.children || []).map((c) => nodeToHTML(c, resolver)).join("")}<button>${
+        escapeHtml(p.submitLabel || "Envoyer")
+      }</button></form>`;
+    case "textarea":
+      return `<textarea style="${css}" placeholder="${escapeHtml(labelOrBound || "Textarea")}"></textarea>`;
+    case "select": {
+      const options: string[] = p.options || ["Option 1", "Option 2"];
+      const ph = labelOrBound || "Select";
+      return `<select style="${css}"><option selected disabled hidden>${escapeHtml(ph)}</option>${options
+        .map((o) => `<option>${escapeHtml(o)}</option>`)
+        .join("")}</select>`;
+    }
+    case "radio": {
+      const options: string[] = p.options || ["A", "B", "C"];
+      return `<div style="${css}">${options
+        .map((o) => `<label><input type="radio" name="${escapeHtml(el.id)}" /> ${escapeHtml(o)}</label>`)
+        .join("")}</div>`;
+    }
+    case "checkbox":
+      return `<label style="${css}"><input type="checkbox" /> ${escapeHtml(labelOrBound || "Checkbox")}</label>`;
+
+    /* Sections */
+    case "hero":
+      return `<section style="${css}"><h1>${escapeHtml(p.title || "Construisez plus vite avec UInova")}</h1><p>${escapeHtml(
+        p.subtitle || "Éditeur visuel, export multi-formats, collaboration live."
+      )}</p><button>${escapeHtml(p.cta || "Commencer")}</button></section>`;
+    case "pricing": {
+      const plans =
+        p.plans ||
+        [
+          { name: "Free", price: "0€", features: ["1 projet", "Export HTML"] },
+          { name: "Pro", price: "19€/mo", features: ["Projets illimités", "Export ZIP Site"] },
+        ];
+      return `<section style="${css}">${plans
+        .map(
+          (pl: any) =>
+            `<article><div>${escapeHtml(pl.name)}</div><div>${escapeHtml(pl.price)}</div><ul>${(pl.features || [])
+              .map((f: string) => `<li>• ${escapeHtml(f)}</li>`)
+              .join("")}</ul></article>`
+        )
+        .join("")}</section>`;
+    }
+    case "features": {
+      const feats: { title: string; subtitle?: string }[] =
+        p.items || [
+          { title: "Rapide", subtitle: "Build en minutes" },
+          { title: "Collaboratif", subtitle: "Édition live" },
+          { title: "Exportable", subtitle: "HTML/React/Vue/Flutter" },
+        ];
+      return `<section style="${css}">${feats
+        .map((f) => `<article><div>${escapeHtml(f.title)}</div><div>${escapeHtml(f.subtitle || "")}</div></article>`)
+        .join("")}</section>`;
+    }
+
+    default:
+      return `<div style="${css}">${escapeHtml(labelOrBound || el.type)}</div>`;
+  }
 }
 
-function htmlDoc(body: string): string {
+export function generateHTMLWithResolver(elements: ElementData[], resolver?: Resolver): string {
+  const body = elements.map((e) => nodeToHTML(e, resolver)).join("");
   return `<!doctype html>
-<html lang="fr">
+<html>
 <head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
   <title>UInova Export</title>
-  <style>
-    html,body{margin:0;padding:16px;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;}
-    .group{border:2px dashed #E5E7EB; border-radius:8px; padding:8px; margin:8px 0}
-    .card{background:#F3F4F6; border-radius:8px; padding:12px; margin:8px 0}
-    button{background:#2563eb;color:#fff;border:none;border-radius:6px;padding:8px 12px}
-    input{border:1px solid #e5e7eb;border-radius:6px;padding:8px 10px}
-  </style>
+  <style>html,body{margin:0;padding:16px;font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif}button,input,select,textarea{font-family:inherit}</style>
 </head>
 <body>
 ${body}
@@ -99,122 +196,484 @@ ${body}
 </html>`;
 }
 
-export function generateHTML(elements: ElementData[]): string {
-  const body = elements.map((e) => nodeToHTML(e)).join("");
-  return htmlDoc(body);
-}
+/* -----------------------------------------------------------
+ * REACT (JSX) EXPORT (avec resolver)
+ * ----------------------------------------------------------- */
 
-export function generateHTMLWithResolver(elements: ElementData[], resolver: Resolver): string {
-  const body = elements.map((e) => nodeToHTML(e, resolver)).join("");
-  return htmlDoc(body);
-}
-
-/* =========================
- * Flutter (Dart)
- * ========================= */
-function nodeToFlutter(el: ElementData, resolver?: Resolver, depth = 2): string {
-  const p = el.props || {};
-  const bound = resolveBound(p, resolver);
-  const indent = "  ".repeat(depth);
-
-  const text = String(bound ?? p.label ?? (el.type === "input" ? "" : el.type));
-  const pad = Number("p" in p ? p.p : 8);
-
-  if (el.type === "button") {
-    return `${indent}ElevatedButton(\n${indent}  onPressed: () {},\n${indent}  child: Text('${escapeHtml(text)}'),\n${indent}),`;
-  }
-  if (el.type === "input") {
-    return `${indent}TextField(\n${indent}  decoration: InputDecoration(hintText: '${escapeHtml(text)}'),\n${indent}),`;
-  }
-  if (el.type === "card") {
-    return `${indent}Container(\n${indent}  padding: EdgeInsets.all(${pad}),\n${indent}  child: Text('${escapeHtml(text)}'),\n${indent}),`;
-  }
-  if (el.type === "group") {
-    return `${indent}Column(\n${indent}  children: [\n${(el.children || [])
-      .map((c) => nodeToFlutter(c, resolver, depth + 2))
-      .join("\n")}\n${indent}  ],\n${indent}),`;
-  }
-  return `${indent}Text('${escapeHtml(text)}'),`;
-}
-
-export function generateFlutter(elements: ElementData[]): string {
-  return `Column(\n  children: [\n${elements.map((e) => nodeToFlutter(e, undefined, 2)).join("\n")}\n  ],\n);`;
-}
-
-export function generateFlutterWithResolver(elements: ElementData[], resolver: Resolver): string {
-  return `Column(\n  children: [\n${elements.map((e) => nodeToFlutter(e, resolver, 2)).join("\n")}\n  ],\n);`;
-}
-
-/* =========================
- * React (JSX)
- * ========================= */
 function nodeToReact(el: ElementData, resolver?: Resolver, depth = 2): string {
   const p = el.props || {};
-  const bound = resolveBound(p, resolver);
   const indent = "  ".repeat(depth);
-  const style = styleToJsx(pickStyleProps(p));
-  const open = style ? ` style={{ ${style} }}` : "";
+  const styled = propsToInlineJsx(p);
+  const labelOrBound = resolveBinding(p, resolver);
 
-  if (el.type === "button")
-    return `${indent}<button${open}>${escapeHtml(bound ?? p.label ?? "Button")}</button>`;
-  if (el.type === "input")
-    return `${indent}<input${open} placeholder="${escapeHtml(bound ?? p.label ?? "")}" />`;
-  if (el.type === "card")
-    return `${indent}<div${open}>${escapeHtml(bound ?? p.label ?? "Card")}</div>`;
-  if (el.type === "group")
-    return `${indent}<div${open}>\n${(el.children || [])
-      .map((c) => nodeToReact(c, resolver, depth + 2))
-      .join("\n")}\n${indent}</div>`;
+  const wrap = (s: string) => `${indent}${s}`;
 
-  return `${indent}<div${open}>${escapeHtml(bound ?? p.label ?? el.type)}</div>`;
+  switch (el.type) {
+    case "button":
+      return wrap(`<button style={{ ${styled} }}>${escapeHtml(labelOrBound || "Button")}</button>`);
+    case "input":
+      return wrap(`<input style={{ ${styled} }} placeholder="${escapeHtml(labelOrBound || "")}" />`);
+    case "card":
+      return wrap(`<div style={{ ${styled} }}>${escapeHtml(labelOrBound || "Card")}</div>`);
+    case "group":
+      return `${wrap(`<div style={{ ${styled} }}>`)}
+${(el.children || []).map((c) => nodeToReact(c, resolver, depth + 1)).join("\n")}
+${wrap(`</div>`)}`;
+
+    case "grid": {
+      const cols = Number(p.cols ?? 2);
+      const gap = Number(p.gap ?? 12);
+      return `${wrap(`<div style={{ ${styled}, display:"grid", gridTemplateColumns:"repeat(${cols}, minmax(0,1fr))", gap:${gap} }}>`)}
+${(el.children || []).map((c) => nodeToReact(c, resolver, depth + 1)).join("\n")}
+${wrap(`</div>`)}`;
+    }
+    case "stack": {
+      const dir = p.direction === "row" ? "row" : "column";
+      const gap = Number(p.gap ?? 8);
+      return `${wrap(`<div style={{ ${styled}, display:"flex", flexDirection:"${dir}", gap:${gap} }}>`)}
+${(el.children || []).map((c) => nodeToReact(c, resolver, depth + 1)).join("\n")}
+${wrap(`</div>`)}`;
+    }
+
+    case "image":
+      return wrap(`<img style={{ ${styled} }} src="${escapeHtml(p.src || "https://via.placeholder.com/640x360?text=Image")}" alt="${escapeHtml(p.alt || "image")}" />`);
+    case "video":
+      return wrap(
+        `<video style={{ ${styled} }} src="${escapeHtml(p.src || "")}" controls poster="${escapeHtml(p.poster || "https://via.placeholder.com/640x360?text=Video")}" />`
+      );
+
+    case "navbar": {
+      const items: string[] = p.items || ["Home", "About", "Contact"];
+      const brand = p.brand || "UInova";
+      return `${wrap(`<nav style={{ ${styled} }}>`)}
+${wrap(`<div>${escapeHtml(brand)}</div>`)}
+${wrap(`<ul>`)}
+${items.map((it) => `${indent}  <li>${escapeHtml(it)}</li>`).join("\n")}
+${wrap(`</ul>`)}
+${wrap(`</nav>`)}`;
+    }
+    case "footer":
+      return wrap(`<footer style={{ ${styled} }}>${escapeHtml(p.text || `© ${new Date().getFullYear()} UInova`)}</footer>`);
+
+    case "tabs": {
+      const tabs: { label: string; content?: string }[] = p.tabs || [
+        { label: "Tab 1", content: "Content 1" },
+        { label: "Tab 2", content: "Content 2" },
+      ];
+      const active = Number(p.active ?? 0);
+      return `${wrap(`<div style={{ ${styled} }}>`)}
+${wrap(`<div>`)}
+${tabs.map((t) => `${indent}  <button>${escapeHtml(t.label)}</button>`).join("\n")}
+${wrap(`</div>`)}
+${wrap(`<div>${escapeHtml(tabs[active]?.content || "")}</div>`)}
+${wrap(`</div>`)}`;
+    }
+    case "accordion": {
+      const items: { title: string; content: string }[] = p.items || [
+        { title: "Item 1", content: "Content 1" },
+        { title: "Item 2", content: "Content 2" },
+      ];
+      return `${wrap(`<div style={{ ${styled} }}>`)}
+${items
+  .map(
+    (it) => `${indent}  <section>
+${indent}    <div>${escapeHtml(it.title)}</div>
+${indent}    <div>${escapeHtml(it.content)}</div>
+${indent}  </section>`
+  )
+  .join("\n")}
+${wrap(`</div>`)}`;
+    }
+
+    case "form":
+      return `${wrap(`<form style={{ ${styled} }} onSubmit={(e)=>e.preventDefault()}>`)}
+${(el.children || []).map((c) => nodeToReact(c, resolver, depth + 1)).join("\n")}
+${wrap(`<button>${escapeHtml(p.submitLabel || "Envoyer")}</button>`)}
+${wrap(`</form>`)}`;
+    case "textarea":
+      return wrap(`<textarea style={{ ${styled} }} placeholder="${escapeHtml(labelOrBound || "Textarea")}" />`);
+    case "select": {
+      const options: string[] = p.options || ["Option 1", "Option 2"];
+      const ph = labelOrBound || "Select";
+      return `${wrap(`<select style={{ ${styled} }} defaultValue="">`)}
+${wrap(`  <option value="" disabled hidden>${escapeHtml(ph)}</option>`)}
+${options.map((o) => `${indent}  <option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`).join("\n")}
+${wrap(`</select>`)}`;
+    }
+    case "radio": {
+      const options: string[] = p.options || ["A", "B", "C"];
+      return `${wrap(`<div style={{ ${styled} }}>`)}
+${options.map((o) => `${indent}  <label><input type="radio" name="${escapeHtml(el.id)}" /> ${escapeHtml(o)}</label>`).join("\n")}
+${wrap(`</div>`)}`;
+    }
+    case "checkbox":
+      return wrap(`<label style={{ ${styled} }}><input type="checkbox" /> ${escapeHtml(labelOrBound || "Checkbox")}</label>`);
+
+    case "hero":
+      return `${wrap(`<section style={{ ${styled} }}>`)}
+${wrap(`  <h1>${escapeHtml(p.title || "Construisez plus vite avec UInova")}</h1>`)}
+${wrap(`  <p>${escapeHtml(p.subtitle || "Éditeur visuel, export multi-formats, collaboration live.")}</p>`)}
+${wrap(`  <button>${escapeHtml(p.cta || "Commencer")}</button>`)}
+${wrap(`</section>`)}`;
+    case "pricing": {
+      const plans =
+        p.plans ||
+        [
+          { name: "Free", price: "0€", features: ["1 projet", "Export HTML"] },
+          { name: "Pro", price: "19€/mo", features: ["Projets illimités", "Export ZIP Site"] },
+        ];
+      return `${wrap(`<section style={{ ${styled} }}>`)}
+${plans
+  .map(
+    (pl: any) => `${indent}  <article>
+${indent}    <div>${escapeHtml(pl.name)}</div>
+${indent}    <div>${escapeHtml(pl.price)}</div>
+${indent}    <ul>
+${(pl.features || []).map((f: string) => `${indent}      <li>• ${escapeHtml(f)}</li>`).join("\n")}
+${indent}    </ul>
+${indent}  </article>`
+  )
+  .join("\n")}
+${wrap(`</section>`)}`;
+    }
+    case "features": {
+      const feats: { title: string; subtitle?: string }[] =
+        p.items || [
+          { title: "Rapide", subtitle: "Build en minutes" },
+          { title: "Collaboratif", subtitle: "Édition live" },
+          { title: "Exportable", subtitle: "HTML/React/Vue/Flutter" },
+        ];
+      return `${wrap(`<section style={{ ${styled} }}>`)}
+${feats
+  .map(
+    (f) => `${indent}  <article>
+${indent}    <div>${escapeHtml(f.title)}</div>
+${indent}    <div>${escapeHtml(f.subtitle || "")}</div>
+${indent}  </article>`
+  )
+  .join("\n")}
+${wrap(`</section>`)}`;
+    }
+
+    default:
+      return wrap(`<div style={{ ${styled} }}>${escapeHtml(labelOrBound || el.type)}</div>`);
+  }
 }
 
-export function generateReact(elements: ElementData[]): string {
-  return `export default function ExportedComponent() {\n  return (\n${elements
-    .map((e) => nodeToReact(e, undefined, 3))
-    .join("\n")}\n  );\n}`;
-}
-
-export function generateReactWithResolver(elements: ElementData[], resolver: Resolver): string {
-  return `export default function ExportedComponent() {\n  return (\n${elements
+export function generateReactWithResolver(elements: ElementData[], resolver?: Resolver): string {
+  return `export default function ExportedComponent(){\n  return (\n${elements
     .map((e) => nodeToReact(e, resolver, 3))
     .join("\n")}\n  );\n}`;
 }
 
-/* =========================
- * Vue
- * ========================= */
+/* -----------------------------------------------------------
+ * VUE EXPORT (SFC) (avec resolver)
+ * ----------------------------------------------------------- */
+
 function nodeToVue(el: ElementData, resolver?: Resolver, depth = 2): string {
   const p = el.props || {};
-  const bound = resolveBound(p, resolver);
   const indent = "  ".repeat(depth);
-  const style = styleToCss(pickStyleProps(p));
+  const labelOrBound = resolveBinding(p, resolver);
+  const css = styleToCss(p);
 
-  if (el.type === "button")
-    return `${indent}<button style="${style}">${escapeHtml(bound ?? p.label ?? "Button")}</button>`;
-  if (el.type === "input")
-    return `${indent}<input style="${style}" placeholder="${escapeHtml(bound ?? p.label ?? "")}" />`;
-  if (el.type === "card")
-    return `${indent}<div style="${style}">${escapeHtml(bound ?? p.label ?? "Card")}</div>`;
-  if (el.type === "group")
-    return `${indent}<div style="${style}">\n${(el.children || [])
-      .map((c) => nodeToVue(c, resolver, depth + 2))
-      .join("\n")}\n${indent}</div>`;
+  const wrap = (s: string) => `${indent}${s}`;
 
-  return `${indent}<div style="${style}">${escapeHtml(bound ?? p.label ?? el.type)}</div>`;
+  switch (el.type) {
+    case "button":
+      return wrap(`<button style="${css}">${escapeHtml(labelOrBound || "Button")}</button>`);
+    case "input":
+      return wrap(`<input style="${css}" placeholder="${escapeHtml(labelOrBound || "")}" />`);
+    case "card":
+      return wrap(`<div style="${css}">${escapeHtml(labelOrBound || "Card")}</div>`);
+    case "group":
+      return `${wrap(`<div style="${css}">`)}
+${(el.children || []).map((c) => nodeToVue(c, resolver, depth + 1)).join("\n")}
+${wrap(`</div>`)}`;
+
+    case "grid": {
+      const cols = Number(p.cols ?? 2);
+      const gap = Number(p.gap ?? 12);
+      const gridCss = `${css}display:grid;grid-template-columns:repeat(${cols},minmax(0,1fr));gap:${gap}px;`;
+      return `${wrap(`<div style="${gridCss}">`)}
+${(el.children || []).map((c) => nodeToVue(c, resolver, depth + 1)).join("\n")}
+${wrap(`</div>`)}`;
+    }
+    case "stack": {
+      const dir = p.direction === "row" ? "row" : "column";
+      const gap = Number(p.gap ?? 8);
+      const st = `${css}display:flex;flex-direction:${dir};gap:${gap}px;`;
+      return `${wrap(`<div style="${st}">`)}
+${(el.children || []).map((c) => nodeToVue(c, resolver, depth + 1)).join("\n")}
+${wrap(`</div>`)}`;
+    }
+
+    case "image":
+      return wrap(`<img style="${css}" src="${escapeHtml(p.src || "https://via.placeholder.com/640x360?text=Image")}" alt="${escapeHtml(p.alt || "image")}" />`);
+    case "video":
+      return wrap(
+        `<video style="${css}" src="${escapeHtml(p.src || "")}" controls poster="${escapeHtml(p.poster || "https://via.placeholder.com/640x360?text=Video")}"></video>`
+      );
+
+    case "navbar": {
+      const items: string[] = p.items || ["Home", "About", "Contact"];
+      const brand = p.brand || "UInova";
+      return `${wrap(`<nav style="${css}">`)}
+${wrap(`<div>${escapeHtml(brand)}</div>`)}
+${wrap(`<ul>`)}
+${items.map((it) => `${indent}  <li>${escapeHtml(it)}</li>`).join("\n")}
+${wrap(`</ul>`)}
+${wrap(`</nav>`)}`;
+    }
+    case "footer":
+      return wrap(`<footer style="${css}">${escapeHtml(p.text || `© ${new Date().getFullYear()} UInova`)}</footer>`);
+
+    case "tabs": {
+      const tabs: { label: string; content?: string }[] = p.tabs || [
+        { label: "Tab 1", content: "Content 1" },
+        { label: "Tab 2", content: "Content 2" },
+      ];
+      const active = Number(p.active ?? 0);
+      return `${wrap(`<div style="${css}">`)}
+${wrap(`<div>`)}
+${tabs.map((t) => `${indent}  <button>${escapeHtml(t.label)}</button>`).join("\n")}
+${wrap(`</div>`)}
+${wrap(`<div>${escapeHtml(tabs[active]?.content || "")}</div>`)}
+${wrap(`</div>`)}`;
+    }
+    case "accordion": {
+      const items: { title: string; content: string }[] = p.items || [
+        { title: "Item 1", content: "Content 1" },
+        { title: "Item 2", content: "Content 2" },
+      ];
+      return `${wrap(`<div style="${css}">`)}
+${items
+  .map(
+    (it) => `${indent}  <section>
+${indent}    <div>${escapeHtml(it.title)}</div>
+${indent}    <div>${escapeHtml(it.content)}</div>
+${indent}  </section>`
+  )
+  .join("\n")}
+${wrap(`</div>`)}`;
+    }
+
+    case "form":
+      return `${wrap(`<form style="${css}" onsubmit="return false;">`)}
+${(el.children || []).map((c) => nodeToVue(c, resolver, depth + 1)).join("\n")}
+${wrap(`<button>${escapeHtml(p.submitLabel || "Envoyer")}</button>`)}
+${wrap(`</form>`)}`;
+    case "textarea":
+      return wrap(`<textarea style="${css}" placeholder="${escapeHtml(labelOrBound || "Textarea")}"></textarea>`);
+    case "select": {
+      const options: string[] = p.options || ["Option 1", "Option 2"];
+      const ph = labelOrBound || "Select";
+      return `${wrap(`<select style="${css}">`)}
+${wrap(`  <option selected disabled hidden>${escapeHtml(ph)}</option>`)}
+${options.map((o) => `${indent}  <option>${escapeHtml(o)}</option>`).join("\n")}
+${wrap(`</select>`)}`;
+    }
+    case "radio": {
+      const options: string[] = p.options || ["A", "B", "C"];
+      return `${wrap(`<div style="${css}">`)}
+${options.map((o) => `${indent}  <label><input type="radio" name="${escapeHtml(el.id)}" /> ${escapeHtml(o)}</label>`).join("\n")}
+${wrap(`</div>`)}`;
+    }
+    case "checkbox":
+      return wrap(`<label style="${css}"><input type="checkbox" /> ${escapeHtml(labelOrBound || "Checkbox")}</label>`);
+
+    case "hero":
+      return `${wrap(`<section style="${css}">`)}
+${wrap(`  <h1>${escapeHtml(p.title || "Construisez plus vite avec UInova")}</h1>`)}
+${wrap(`  <p>${escapeHtml(p.subtitle || "Éditeur visuel, export multi-formats, collaboration live.")}</p>`)}
+${wrap(`  <button>${escapeHtml(p.cta || "Commencer")}</button>`)}
+${wrap(`</section>`)}`;
+    case "pricing": {
+      const plans =
+        p.plans ||
+        [
+          { name: "Free", price: "0€", features: ["1 projet", "Export HTML"] },
+          { name: "Pro", price: "19€/mo", features: ["Projets illimités", "Export ZIP Site"] },
+        ];
+      return `${wrap(`<section style="${css}">`)}
+${plans
+  .map(
+    (pl: any) => `${indent}  <article>
+${indent}    <div>${escapeHtml(pl.name)}</div>
+${indent}    <div>${escapeHtml(pl.price)}</div>
+${indent}    <ul>
+${(pl.features || []).map((f: string) => `${indent}      <li>• ${escapeHtml(f)}</li>`).join("\n")}
+${indent}    </ul>
+${indent}  </article>`
+  )
+  .join("\n")}
+${wrap(`</section>`)}`;
+    }
+    case "features": {
+      const feats: { title: string; subtitle?: string }[] =
+        p.items || [
+          { title: "Rapide", subtitle: "Build en minutes" },
+          { title: "Collaboratif", subtitle: "Édition live" },
+          { title: "Exportable", subtitle: "HTML/React/Vue/Flutter" },
+        ];
+      return `${wrap(`<section style="${css}">`)}
+${feats
+  .map(
+    (f) => `${indent}  <article>
+${indent}    <div>${escapeHtml(f.title)}</div>
+${indent}    <div>${escapeHtml(f.subtitle || "")}</div>
+${indent}  </article>`
+  )
+  .join("\n")}
+${wrap(`</section>`)}`;
+    }
+
+    default:
+      return wrap(`<div style="${css}">${escapeHtml(labelOrBound || el.type)}</div>`);
+  }
 }
 
-export function generateVue(elements: ElementData[]): string {
-  return `<template>\n  <div>\n${elements.map((e) => nodeToVue(e)).join("\n")}\n  </div>\n</template>\n\n<script setup>\n// Ajoute ta logique ici\n</script>\n`;
+export function generateVueWithResolver(elements: ElementData[], resolver?: Resolver): string {
+  return `<template>
+  <div>
+${elements.map((e) => nodeToVue(e, resolver, 3)).join("\n")}
+  </div>
+</template>
+
+<script setup>
+// Ajoutez votre logique ici
+</script>
+`;
 }
 
-export function generateVueWithResolver(elements: ElementData[], resolver: Resolver): string {
-  return `<template>\n  <div>\n${elements.map((e) => nodeToVue(e, resolver)).join("\n")}\n  </div>\n</template>\n\n<script setup>\n// Ajoute ta logique ici\n</script>\n`;
+/* -----------------------------------------------------------
+ * FLUTTER (Dart) EXPORT (avec resolver)
+ * ----------------------------------------------------------- */
+
+function dartStr(v: any): string {
+  return String(v ?? "").replace(/'/g, "\\'");
 }
 
-/* =========================
- * JSON
- * ========================= */
+function nodeToFlutter(el: ElementData, resolver?: Resolver, depth = 2): string {
+  const p = el.props || {};
+  const indent = "  ".repeat(depth);
+  const labelOrBound = resolveBinding(p, resolver);
+
+  const wrap = (s: string) => `${indent}${s}`;
+  const pad = Number(p.p ?? 8);
+
+  // Styles Flutter minimalistes (padding + text)
+  switch (el.type) {
+    case "button":
+      return `${wrap(`ElevatedButton(`)}
+${wrap(`  onPressed: () {},`)}
+${wrap(`  child: Text('${dartStr(labelOrBound || "Button")}'),`)}
+${wrap(`),`)}`;
+    case "input":
+      return `${wrap(`TextField(`)}
+${wrap(`  decoration: InputDecoration(hintText: '${dartStr(labelOrBound || "")}'),`)}
+${wrap(`),`)}`;
+    case "card":
+      return `${wrap(`Container(`)}
+${wrap(`  padding: EdgeInsets.all(${pad}),`)}
+${wrap(`  child: Text('${dartStr(labelOrBound || "Card")}'),`)}
+${wrap(`),`)}`;
+    case "group":
+    case "stack":
+      return `${wrap(`Column(`)}
+${wrap(`  children: [`)}
+${(el.children || []).map((c) => nodeToFlutter(c, resolver, depth + 2)).join("\n")}
+${wrap(`  ],`)}
+${wrap(`),`)}`;
+    case "grid":
+      return `${wrap(`Wrap(`)}
+${wrap(`  spacing: ${Number(p.gap ?? 12)},`)}
+${wrap(`  runSpacing: ${Number(p.gap ?? 12)},`)}
+${wrap(`  children: [`)}
+${(el.children || []).map((c) => nodeToFlutter(c, resolver, depth + 2)).join("\n")}
+${wrap(`  ],`)}
+${wrap(`),`)}`;
+    case "image":
+      return `${wrap(`Image.network('${dartStr(p.src || "https://via.placeholder.com/640x360?text=Image")}'),`)}`;
+    case "video":
+      return `${wrap(`Container(`)}
+${wrap(`  padding: EdgeInsets.all(${pad}),`)}
+${wrap(`  child: Text('Video placeholder'),`)}
+${wrap(`),`)}`;
+
+    case "navbar":
+      return `${wrap(`Container(`)}
+${wrap(`  padding: EdgeInsets.all(${pad}),`)}
+${wrap(`  child: Text('${dartStr(p.brand || "UInova")}'),`)}
+${wrap(`),`)}`;
+    case "footer":
+      return `${wrap(`Container(`)}
+${wrap(`  padding: EdgeInsets.all(${pad}),`)}
+${wrap(`  child: Text('${dartStr(p.text || `© ${new Date().getFullYear()} UInova`)}'),`)}
+${wrap(`),`)}`;
+
+    case "tabs":
+      return `${wrap(`Column(`)}
+${wrap(`  children: [`)}
+${wrap(`    Text('${dartStr((p.tabs?.[Number(p.active ?? 0)]?.label) || "Tab")}'),`)}
+${wrap(`    Text('${dartStr((p.tabs?.[Number(p.active ?? 0)]?.content) || "")}'),`)}
+${wrap(`  ],`)}
+${wrap(`),`)}`;
+    case "accordion":
+      return `${wrap(`Column(`)}
+${wrap(`  children: [`)}
+${(p.items || [{ title: "Item 1", content: "Content 1" }])
+  .map((it: any) => `${indent}    Column(children:[Text('${dartStr(it.title)}'), Text('${dartStr(it.content)}')],),`)
+  .join("\n")}
+${wrap(`  ],`)}
+${wrap(`),`)}`;
+
+    case "form":
+      return `${wrap(`Column(`)}
+${wrap(`  children: [`)}
+${(el.children || []).map((c) => nodeToFlutter(c, resolver, depth + 2)).join("\n")}
+${wrap(`    ElevatedButton(onPressed: () {}, child: Text('${dartStr(p.submitLabel || "Envoyer")}')),`)}
+${wrap(`  ],`)}
+${wrap(`),`)}`;
+    case "textarea":
+      return `${wrap(`TextField(maxLines: 4, decoration: InputDecoration(hintText: '${dartStr(labelOrBound || "Textarea")}')),`)}`;
+    case "select":
+      return `${wrap(`DropdownButton<String>(items: [DropdownMenuItem(value:'1',child: Text('${dartStr((p.options?.[0]) || "Option")}'))], onChanged: (_){},),`)}`;
+    case "radio":
+      return `${wrap(`Row(children: [Text('Radio ${dartStr((p.options?.[0]) || "A")}')]),`)}`;
+    case "checkbox":
+      return `${wrap(`Row(children: [Text('${dartStr(labelOrBound || "Checkbox")}')]),`)}`;
+
+    case "hero":
+      return `${wrap(`Column(children:[Text('${dartStr(p.title || "Construisez plus vite avec UInova")}'), Text('${dartStr(p.subtitle || "Éditeur visuel, export multi-formats, collaboration live.")}'), ElevatedButton(onPressed:(){}, child: Text('${dartStr(p.cta || "Commencer")}'))],),`)}`;
+    case "pricing":
+      return `${wrap(`Column(children:[Text('Pricing'),`)}
+${((p.plans || []) as any[])
+  .map((pl: any) => `${indent}  Column(children:[Text('${dartStr(pl.name)}'), Text('${dartStr(pl.price)}')]),`)
+  .join("\n")}
+${wrap(`],),`)}`;
+    case "features":
+      return `${wrap(`Column(children:[Text('Features'),`)}
+${((p.items || []) as any[])
+  .map((f: any) => `${indent}  Column(children:[Text('${dartStr(f.title)}'), Text('${dartStr(f.subtitle || "")}')],),`)
+  .join("\n")}
+${wrap(`],),`)}`;
+
+    default:
+      return `${wrap(`Text('${dartStr(labelOrBound || el.type)}'),`)}`;
+  }
+}
+
+export function generateFlutterWithResolver(elements: ElementData[], resolver?: Resolver): string {
+  return `Column(
+  children: [
+${elements.map((e) => nodeToFlutter(e, resolver, 2)).join("\n")}
+  ],
+);`;
+}
+
+/* -----------------------------------------------------------
+ * JSON / IMPORT
+ * ----------------------------------------------------------- */
 export function generateJSON(elements: ElementData[]): string {
   return JSON.stringify(elements, null, 2);
 }
@@ -225,98 +684,84 @@ export function importJSON(jsonString: string): ElementData[] {
     if (!Array.isArray(parsed)) throw new Error("Données invalides");
     return parsed;
   } catch (e: any) {
-    alert("Erreur d'import JSON : " + (e?.message || String(e)));
+    alert("Erreur d'import JSON : " + e?.message || e);
     return [];
   }
 }
 
-/* =========================
- * ZIP (page courante)
- * ========================= */
+/* -----------------------------------------------------------
+ * ZIP (page) et ZIP SITE (multi-pages)
+ * ----------------------------------------------------------- */
+
 export async function generateZip(elements: ElementData[], resolver?: Resolver): Promise<Blob> {
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
 
-  const html = resolver ? generateHTMLWithResolver(elements, resolver) : generateHTML(elements);
-  const react = resolver ? generateReactWithResolver(elements, resolver) : generateReact(elements);
-  const vue = resolver ? generateVueWithResolver(elements, resolver) : generateVue(elements);
-  const dart = resolver ? generateFlutterWithResolver(elements, resolver) : generateFlutter(elements);
-
-  zip.file("export.html", html);
-  zip.file("ExportedComponent.jsx", react);
-  zip.file("ExportedComponent.vue", vue);
-  zip.file("export.dart", dart);
+  zip.file("export.html", generateHTMLWithResolver(elements, resolver));
+  zip.file("ExportedComponent.jsx", generateReactWithResolver(elements, resolver));
+  zip.file("ExportedComponent.vue", generateVueWithResolver(elements, resolver));
+  zip.file("export.dart", generateFlutterWithResolver(elements, resolver));
   zip.file("export.json", generateJSON(elements));
 
   return zip.generateAsync({ type: "blob" });
 }
 
-/* =========================
- * ZIP MULTI-PAGES (projet complet)
- * ========================= */
-type SimplePage = { id: string; name: string; elements: any[] };
-type SimpleProject = { id: string; name: string; pages: SimplePage[] };
-
-function buildProjectIndexHTML(project: SimpleProject): string {
-  const links = project.pages
-    .map((p) => `<li><a href="pages/${p.id}.html">${escapeHtml(p.name || p.id)}</a></li>`)
-    .join("\n");
-
-  return `<!doctype html>
-<html lang="fr">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>${escapeHtml(project.name || "UInova Site")}</title>
-  <style>
-    body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;padding:24px}
-    ul{line-height:1.9}
-    a{color:#2563eb;text-decoration:none}
-    a:hover{text-decoration:underline}
-  </style>
-</head>
-<body>
-  <h1>${escapeHtml(project.name || "Site UInova")}</h1>
-  <p>Pages exportées :</p>
-  <ul>${links}</ul>
-</body>
-</html>`;
-}
-
-/**
- * Exporte un projet complet :
- *  - index.html
- *  - pages/{pageId}.html (avec resolver CMS si fourni)
- *  - project.json (dump)
- */
 export async function generateProjectZip(
-  project: SimpleProject,
+  project: { id: string; name: string; pages: { id: string; name: string; elements: ElementData[] }[] },
   resolver?: Resolver
 ): Promise<Blob> {
   const JSZip = (await import("jszip")).default;
   const zip = new JSZip();
 
-  zip.file("index.html", buildProjectIndexHTML(project));
-  zip.file("project.json", JSON.stringify(project, null, 2));
+  // index
+  const index = `<!doctype html>
+<html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width, initial-scale=1"/><title>${escapeHtml(
+    project.name || "UInova Site"
+  )}</title></head>
+<body>
+  <h1>${escapeHtml(project.name || "UInova Site")}</h1>
+  <ul>
+    ${project.pages.map((p) => `<li><a href="./pages/${p.id}.html">${escapeHtml(p.name || p.id)}</a></li>`).join("")}
+  </ul>
+</body></html>`;
+  zip.file("index.html", index);
 
+  // pages
   const folder = zip.folder("pages");
-  if (!folder) throw new Error("Impossible de créer le dossier pages dans le ZIP.");
-
-  for (const page of project.pages) {
-    const html = resolver
-      ? generateHTMLWithResolver(page.elements as any[], resolver)
-      : generateHTML(page.elements as any[]);
-    folder.file(`${page.id}.html`, html);
+  if (folder) {
+    for (const p of project.pages) {
+      folder.file(`${p.id}.html`, generateHTMLWithResolver(p.elements, resolver));
+    }
   }
+
+  // project.json
+  zip.file(
+    "project.json",
+    JSON.stringify(
+      {
+        id: project.id,
+        name: project.name,
+        pages: project.pages.map((p) => ({ id: p.id, name: p.name })),
+      },
+      null,
+      2
+    )
+  );
 
   return zip.generateAsync({ type: "blob" });
 }
 
-/* =========================
- * Download helper
- * ========================= */
-export function download(filename: string, content: string | Blob, type = "text/html;charset=utf-8") {
-  const blob = content instanceof Blob ? content : new Blob([content], { type });
+/* -----------------------------------------------------------
+ * DOWNLOAD util
+ * ----------------------------------------------------------- */
+
+export function download(filename: string, content: string | Blob, type = "text/html") {
+  let blob: Blob;
+  if (content instanceof Blob) {
+    blob = content;
+  } else {
+    blob = new Blob([content], { type });
+  }
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
