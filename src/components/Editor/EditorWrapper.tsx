@@ -1,15 +1,19 @@
+// src/components/editor/EditorWrapper.tsx
 import { useEffect, useMemo, useState } from "react";
 import { DndContext, useDraggable, useDroppable } from "@dnd-kit/core";
 import { v4 as uuid } from "uuid";
 import toast, { Toaster } from "react-hot-toast";
 import { useHotkeys } from "react-hotkeys-hook";
 
-import SortableTree from "./SortableTree";
+import SortableTree from "./SortableTree";            // ✅ tree DnD avec nesting
 import Inspector from "./Inspector";
 import SectionLibrary from "./SectionLibrary";
 import ImportExportModal from "./ImportExportModal";
 import ToolbarPro from "./ToolbarPro";
-import PresenceBar from "./PresenceBar"; // ✅ présence
+import PresenceBar from "./PresenceBar";             // ✅ présence
+import LivePreview from "./LivePreview";             // ✅ preview
+import { PRO_PALETTE } from "./ProPalette";          // ✅ palette étendue
+import { renderNode } from "./renderers";            // ✅ rendu unifié
 
 import { useAppStore, ElementData } from "../../store/useAppStore";
 import {
@@ -18,14 +22,14 @@ import {
   generateZip,
   generateProjectZip,
 } from "../../utils/exporters";
-import { debounce } from "../../utils/debounce"; // ✅ autosave
-import { saveDraft, loadDraft } from "../../utils/autosave"; // ✅ autosave
+import { debounce } from "../../utils/debounce";     // ✅ autosave
+import { saveDraft, loadDraft } from "../../utils/autosave";
 import { useCMS } from "../../store/useCMS";
 
 /* ---------------------------
  * Drag helpers
  * --------------------------- */
-function DraggableItem({ id, children }: any) {
+function DraggableItem({ id, children }: { id: string; children: React.ReactNode }) {
   const { attributes, listeners, setNodeRef } = useDraggable({ id });
   return (
     <div ref={setNodeRef} {...listeners} {...attributes} className="cursor-grab select-none">
@@ -34,7 +38,7 @@ function DraggableItem({ id, children }: any) {
   );
 }
 
-function DroppableCanvas({ children }: any) {
+function DroppableCanvas({ children }: { children: React.ReactNode }) {
   const { setNodeRef } = useDroppable({ id: "canvas" });
   return (
     <div ref={setNodeRef} className="min-h-[420px] bg-white dark:bg-gray-800 border rounded p-4 flex flex-col">
@@ -74,15 +78,8 @@ function cloneWithNewIds(node: ElementData): ElementData {
 }
 
 /* ---------------------------
- * Palette
+ * Éditeur
  * --------------------------- */
-const palette = [
-  { type: "button", label: "Button" },
-  { type: "input", label: "Input" },
-  { type: "card", label: "Card" },
-  { type: "group", label: "Groupe" },
-];
-
 export default function EditorWrapper() {
   const {
     projects,
@@ -95,7 +92,7 @@ export default function EditorWrapper() {
     redo,
   } = useAppStore();
 
-  const { getItems } = useCMS(); // ✅ resolver CMS
+  const cms = useCMS(); // peut contenir getItems OU getCollection selon ta version
 
   const proj = useMemo(
     () => projects.find((p) => p.id === currentProjectId) || projects[0],
@@ -145,11 +142,12 @@ export default function EditorWrapper() {
   const canRedo = (page?.future?.length || 0) > 0;
   const hasSelection = !!selectedPath;
 
-  /* ========= Mutations (snapshot + broadcast) ========= */
+  /* ========= Mutations (snapshot + broadcast + autosave imméd.) ========= */
   function applyElements(next: ElementData[], msg?: string) {
     try {
       if (saveSnapshot) saveSnapshot();
       emitElements(next);
+      if (proj && page) saveDraft(proj.id, page.id, next); // ✅ autosave immédiat
       if (msg) toast.success(msg);
     } catch (e) {
       toast.error("Une erreur est survenue");
@@ -213,13 +211,21 @@ export default function EditorWrapper() {
     window.open(`/preview/${proj.id}/${page.id}`, "_blank", "noopener,noreferrer");
   }
 
+  // Résolveur CMS robuste (supporte getItems OU getCollection)
+  const cmsResolver = ({ collectionId, field }: { collectionId: string; field: string }) => {
+    const items =
+      // @ts-ignore — selon ta version du store
+      typeof cms.getItems === "function"
+        ? cms.getItems(collectionId)
+        : cms.getCollection
+        ? (cms.getCollection(collectionId)?.items ?? [])
+        : [];
+    return items.length ? items[0]?.[field] ?? null : null;
+  };
+
   // HTML (avec binding CMS)
   function handleExportHTML() {
-    const resolver = ({ collectionId, field }: { collectionId: string; field: string }) => {
-      const items = getItems(collectionId);
-      return items.length ? items[0]?.[field] ?? null : null;
-    };
-    const html = generateHTMLWithResolver(page.elements, resolver);
+    const html = generateHTMLWithResolver(page.elements, cmsResolver);
     download(`${page.name || "page"}.html`, html, "text/html;charset=utf-8");
     toast.success("Export HTML (avec données CMS) généré");
   }
@@ -228,11 +234,7 @@ export default function EditorWrapper() {
   async function handleExportZip() {
     try {
       setZipLoading(true);
-      const resolver = ({ collectionId, field }: { collectionId: string; field: string }) => {
-        const items = getItems(collectionId);
-        return items.length ? items[0]?.[field] ?? null : null;
-      };
-      const blob = await generateZip(page.elements, resolver);
+      const blob = await generateZip(page.elements, cmsResolver);
       download(`${page.name || "export"}.zip`, blob, "application/zip");
       toast.success("Export ZIP généré");
     } catch (e) {
@@ -258,12 +260,7 @@ export default function EditorWrapper() {
         })),
       };
 
-      const resolver = ({ collectionId, field }: { collectionId: string; field: string }) => {
-        const items = getItems(collectionId);
-        return items.length ? items[0]?.[field] ?? null : null;
-      };
-
-      const blob = await generateProjectZip(projectPayload, resolver);
+      const blob = await generateProjectZip(projectPayload, cmsResolver);
       download(`${proj.name || "uinova-site"}.zip`, blob, "application/zip");
       toast.success("Export du site (multi-pages) généré");
     } catch (e) {
@@ -277,12 +274,13 @@ export default function EditorWrapper() {
   /* ========= Raccourcis pro ========= */
   useHotkeys("ctrl+z, cmd+z", (e) => { e.preventDefault(); handleUndo(); }, {}, [page?.history]);
   useHotkeys("ctrl+y, cmd+y, ctrl+shift+z, cmd+shift+z", (e) => { e.preventDefault(); handleRedo(); }, {}, [page?.future]);
-  useHotkeys("ctrl+d, cmd+d", (e) => { e.preventDefault(); hasSelection && handleDuplicate(); }, {}, [hasSelection, selectedPath, page?.elements]);
-  useHotkeys("del, backspace", (e) => { if (hasSelection) { e.preventDefault(); handleDelete(); } }, {}, [hasSelection, selectedPath, page?.elements]);
+  useHotkeys("ctrl+d, cmd+d", (e) => { e.preventDefault(); if (selectedPath) handleDuplicate(); }, {}, [selectedPath, page?.elements]);
+  useHotkeys("del, backspace", (e) => { if (selectedPath) { e.preventDefault(); handleDelete(); } }, {}, [selectedPath, page?.elements]);
 
+  // Palette PRO
   const paletteView = (
-    <div className="mb-3 flex gap-2">
-      {palette.map((c) => (
+    <div className="mb-3 flex gap-2 flex-wrap">
+      {PRO_PALETTE.map((c) => (
         <DraggableItem key={c.type} id={c.type}>
           <div className="px-3 py-2 bg-gray-200 dark:bg-gray-700 rounded shadow">{c.label}</div>
         </DraggableItem>
@@ -294,7 +292,7 @@ export default function EditorWrapper() {
     <DndContext
       onDragEnd={(e) => {
         if (e.over && e.over.id === "canvas") {
-          const comp = palette.find((p) => p.type === e.active.id);
+          const comp = PRO_PALETTE.find((p) => p.type === e.active.id);
           if (comp) addElementAtRoot(comp.type, comp.label);
         }
       }}
@@ -303,10 +301,10 @@ export default function EditorWrapper() {
         {/* Colonne gauche : Library + Tree */}
         <div className="flex flex-col">
           <SectionLibrary onInsert={insertSection} />
-          <TreeView
+          <SortableTree
             elements={page.elements}
             onSelect={setSelectedPath}
-            onReorder={(next) => applyElements(next, "Arborescence réordonnée")} // ✅ tri entre frères
+            onReorder={(next) => applyElements(next, "Arborescence réordonnée")} // ✅ tri + nesting
           />
         </div>
 
@@ -344,61 +342,7 @@ export default function EditorWrapper() {
             {page.elements.map((el, idx) => (
               <div key={el.id} className="mb-2" onClick={() => setSelectedPath([idx])}>
                 <div className="bg-white dark:bg-gray-800 border rounded p-2">
-                  {el.type === "button" && (
-                    <button className="bg-blue-600 text-white px-3 py-1 rounded">
-                      {el.props?.label}
-                    </button>
-                  )}
-                  {el.type === "input" && (
-                    <input
-                      className="border px-2 py-1 rounded"
-                      placeholder={el.props?.label}
-                      readOnly
-                    />
-                  )}
-                  {el.type === "card" && (
-                    <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded">
-                      {el.props?.label}
-                    </div>
-                  )}
-                  {el.type === "group" && (
-                    <div className="p-2 border-2 border-dashed rounded">
-                      <div className="font-semibold mb-1">
-                        {el.props?.label || "Groupe"}
-                      </div>
-                      <div className="ml-2">
-                        {(el.children || []).map((c, i) => (
-                          <div
-                            key={c.id}
-                            onClick={(ev) => {
-                              ev.stopPropagation();
-                              setSelectedPath([idx, i]);
-                            }}
-                          >
-                            <div className="bg-white dark:bg-gray-700 rounded p-2 mt-1">
-                              {c.type === "button" && (
-                                <button className="bg-blue-600 text-white px-3 py-1 rounded">
-                                  {c.props?.label}
-                                </button>
-                              )}
-                              {c.type === "input" && (
-                                <input
-                                  className="border px-2 py-1 rounded"
-                                  placeholder={c.props?.label}
-                                  readOnly
-                                />
-                              )}
-                              {c.type === "card" && (
-                                <div className="p-2 bg-gray-100 dark:bg-gray-700 rounded">
-                                  {c.props?.label}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )}
+                  {renderNode(el)}
                 </div>
               </div>
             ))}
