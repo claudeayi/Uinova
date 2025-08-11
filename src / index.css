@@ -1,50 +1,126 @@
+/* =========================
+   Tailwind Core Directives
+   ========================= */
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
 
-/* --- MODE SOMBRE GLOBAL --- */
-html.dark, body.dark {
-  background: #18181b !important;
-  color: #f4f4f5 !important;
+/* =========================
+   Base Globales
+   ========================= */
+:root {
+  color-scheme: light dark;
+  --color-bg-light: #ffffff;
+  --color-text-light: #111827;
+  --color-bg-dark: #0f172a; /* slate-900 */
+  --color-text-dark: #e2e8f0; /* slate-200 */
+
+  /* Tokens futurs pour UInova (personnalisables via src/themes/tokens.ts) */
+  --uinova-primary: #3b82f6; /* bleu Tailwind 500 */
+  --uinova-secondary: #6366f1; /* indigo 500 */
+  --uinova-accent: #f59e0b; /* amber 500 */
+  --uinova-success: #10b981; /* emerald 500 */
+  --uinova-danger: #ef4444; /* red 500 */
 }
 
-body, html {
-  min-height: 100%;
-  transition: background 0.2s, color 0.2s;
+html {
+  background-color: var(--color-bg-light);
+  color: var(--color-text-light);
 }
 
-/* Prise en charge de la classe .dark pour tous les éléments */
-.dark .bg-white   { background-color: #23232a !important; }
-.dark .bg-gray-50 { background-color: #23232a !important; }
-.dark .bg-gray-100 { background-color: #28283a !important; }
-.dark .bg-gray-200 { background-color: #323249 !important; }
-.dark .bg-gray-900 { background-color: #18181b !important; }
-.dark .text-black  { color: #f4f4f5 !important; }
-.dark .text-gray-700 { color: #e4e4e7 !important; }
-.dark .text-gray-500 { color: #a3a3a3 !important; }
-
-/* Pour inputs, cards, etc. */
-.dark input,
-.dark textarea,
-.dark .border,
-.dark .rounded,
-.dark .card,
-.dark .shadow {
-  background: #262633 !important;
-  color: #f4f4f5 !important;
-  border-color: #36364c !important;
+html.dark {
+  background-color: var(--color-bg-dark);
+  color: var(--color-text-dark);
 }
 
-/* Pour buttons génériques */
-.dark button {
-  background: #23234a !important;
-  color: #e0e0ff !important;
+/* =========================
+   Reset & Typographie
+   ========================= */
+body {
+  @apply antialiased;
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  margin: 0;
+  padding: 0;
 }
 
-/* Pour modales */
-.dark .modal, .dark .shadow-lg, .dark .rounded {
-  background: #23234a !important;
-  color: #e0e0ff !important;
+h1, h2, h3, h4, h5, h6 {
+  @apply font-semibold;
 }
 
-/* Transition douce */
-*, *::before, *::after {
-  transition: background 0.15s, color 0.15s;
+/* =========================
+   Transitions globales
+   ========================= */
+* {
+  transition:
+    background-color 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+/* =========================
+   Helpers Utilitaires
+   ========================= */
+.container {
+  @apply mx-auto px-4;
+}
+
+.btn {
+  @apply inline-flex items-center justify-center px-3 py-1.5 rounded border;
+  background-color: var(--uinova-primary);
+  color: #fff;
+}
+.btn:hover {
+  opacity: 0.9;
+}
+.btn-secondary {
+  background-color: var(--uinova-secondary);
+}
+.btn-accent {
+  background-color: var(--uinova-accent);
+}
+.btn-success {
+  background-color: var(--uinova-success);
+}
+.btn-danger {
+  background-color: var(--uinova-danger);
+}
+
+/* =========================
+   Cards
+   ========================= */
+.card {
+  @apply rounded-lg border shadow-sm p-4 bg-white dark:bg-slate-800;
+}
+
+/* =========================
+   Inputs
+   ========================= */
+.input {
+  @apply border rounded px-2 py-1 w-full;
+  background-color: white;
+  color: black;
+}
+html.dark .input {
+  background-color: #1e293b; /* slate-800 */
+  color: white;
+}
+
+/* =========================
+   Layout fixes pour UInova
+   ========================= */
+#root {
+  @apply min-h-screen flex flex-col;
+}
+
+.editor-canvas {
+  @apply flex-1 p-6 bg-gray-100 dark:bg-gray-900;
+}
+
+.presence-bar {
+  @apply flex items-center gap-2 mb-4;
+}
+
+.toolbar-pro {
+  @apply flex flex-wrap gap-2 mb-4;
 }
