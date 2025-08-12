@@ -1,17 +1,236 @@
-import prisma from '../utils/prisma';
+// src/models/exportModel.ts
+import { prisma } from "../utils/prisma";
 
-export async function getExportsByPage(pageId: number) {
-  return prisma.export.findMany({ where: { pageId } });
+// (optionnels) services externes si présents dans ton projet
+import * as cloud from "../services/cloud"; // cloud.putObjectFromBase64(key, base64) -> url
+let exportQueue: any = null;
+try { exportQueue = require("../services/exportQueue").exportQueue; } catch { /* ok si absent */ }
+
+// ---- Types / constantes
+export const EXPORT_TYPES = ["react", "html", "flutter", "pwa"] as const;
+export type ExportType = typeof EXPORT_TYPES[number];
+export type ExportStatus = "pending" | "ready" | "failed";
+type Id = string | number;
+
+const selectExport = {
+  id: true,
+  type: true,
+  status: true,
+  bundleUrl: true,
+  meta: true as const,
+  createdAt: true,
+  projectId: true,
+  pageId: true,
+};
+
+function toId(v: Id): any {
+  const n = Number(v);
+  return Number.isFinite(n) && String(n) === String(v) ? n : String(v);
 }
 
-export async function createExport(data: { type: string; content: string; projectId: number; pageId?: number }) {
-  return prisma.export.create({ data });
+export type ExportDTO = {
+  id: Id;
+  type: ExportType | string;
+  status: ExportStatus | string;
+  bundleUrl: string | null;
+  meta: Record<string, any> | null;
+  createdAt: Date;
+  projectId: Id;
+  pageId: Id | null;
+};
+
+export function toExportDTO(e: any): ExportDTO {
+  return {
+    id: e.id,
+    type: e.type,
+    status: e.status,
+    bundleUrl: e.bundleUrl ?? null,
+    meta: e.meta ?? null,
+    createdAt: e.createdAt,
+    projectId: e.projectId,
+    pageId: e.pageId ?? null,
+  };
 }
 
-export async function getExportById(id: number) {
-  return prisma.export.findUnique({ where: { id } });
+/* =======================
+ * LISTER (pagination/filtre)
+ * ======================= */
+export async function listExports(opts: {
+  projectId?: Id;
+  pageId?: Id;
+  type?: ExportType;
+  status?: ExportStatus;
+  page?: number;
+  pageSize?: number;
+  sort?: "createdAt:desc" | "createdAt:asc";
+}) {
+  const page = Math.max(1, opts.page ?? 1);
+  const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 20));
+  const [field, dir] = (opts.sort ?? "createdAt:desc").split(":") as ["createdAt", "asc" | "desc"];
+
+  const where: any = {};
+  if (opts.projectId != null) where.projectId = toId(opts.projectId);
+  if (opts.pageId != null) where.pageId = toId(opts.pageId);
+  if (opts.type) where.type = opts.type;
+  if (opts.status) where.status = opts.status;
+
+  const [total, rows] = await Promise.all([
+    prisma.export.count({ where }),
+    prisma.export.findMany({
+      where,
+      orderBy: { [field]: dir },
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+      select: selectExport,
+    }),
+  ]);
+
+  return {
+    items: rows.map(toExportDTO),
+    page,
+    pageSize,
+    total,
+    totalPages: Math.max(1, Math.ceil(total / pageSize)),
+  };
 }
 
-export async function deleteExport(id: number) {
-  return prisma.export.delete({ where: { id } });
+/* =======================
+ * GET BY ID
+ * ======================= */
+export async function getExportById(id: Id): Promise<ExportDTO | null> {
+  const rec = await prisma.export.findUnique({ where: { id: toId(id) } as any, select: selectExport });
+  return rec ? toExportDTO(rec) : null;
+}
+
+/* =======================
+ * CREATE (mode DIRECT)
+ * - stocke directement l’export
+ * - si content est un dataURL base64 et cloud dispo → upload et stocke l’URL
+ * - sinon, stocke inline (meta.content) — éviter pour de gros binaires
+ * ======================= */
+export async function createExportDirect(params: {
+  type: ExportType;
+  content: string;            // base64 (dataURL) ou HTML texte
+  projectId: Id;
+  pageId?: Id;
+  meta?: Record<string, any>;
+}) {
+  const { type, content, projectId, pageId, meta } = params;
+
+  // Upload vers S3/MinIO si possible
+  let bundleUrl: string | null = null;
+  const isDataUrl = /^data:.*;base64,/.test(content);
+  if (isDataUrl && cloud?.putObjectFromBase64) {
+    const base64 = content.split(",")[1] || "";
+    const key = `exports/${projectId}/${Date.now()}_${type}.zip`;
+    bundleUrl = await cloud.putObjectFromBase64(key, base64);
+  } else if (cloud?.putObjectFromBase64 && type !== "html") {
+    // si pas dataURL mais binaire attendu → pousser quand même
+    const base64 = Buffer.from(content, "utf8").toString("base64");
+    const key = `exports/${projectId}/${Date.now()}_${type}.bin`;
+    bundleUrl = await cloud.putObjectFromBase64(key, base64);
+  }
+
+  const rec = await prisma.export.create({
+    data: {
+      type,
+      status: "ready",
+      projectId: toId(projectId),
+      pageId: pageId != null ? toId(pageId) : undefined,
+      bundleUrl,
+      meta: {
+        ...(meta ?? {}),
+        inline: bundleUrl ? false : true,
+        content: bundleUrl ? undefined : content,
+      },
+    },
+    select: selectExport,
+  });
+
+  return toExportDTO(rec);
+}
+
+/* =======================
+ * CREATE (mode ENQUEUE)
+ * - crée un export en "pending"
+ * - si BullMQ est présent, envoie un job `export-project`
+ * ======================= */
+export async function createExportQueued(params: {
+  type: ExportType;
+  projectId: Id;
+  pageId?: Id;
+  userId?: Id | null;
+  meta?: Record<string, any>;
+}) {
+  const { type, projectId, pageId, userId, meta } = params;
+
+  const rec = await prisma.export.create({
+    data: {
+      type,
+      status: "pending",
+      projectId: toId(projectId),
+      pageId: pageId != null ? toId(pageId) : undefined,
+      meta: meta ?? {},
+    },
+    select: selectExport,
+  });
+
+  if (exportQueue?.add) {
+    await exportQueue.add("export-project", {
+      exportId: rec.id,
+      projectId,
+      pageId: pageId ?? null,
+      type,
+      userId: userId ?? null,
+    });
+  }
+
+  return toExportDTO(rec);
+}
+
+/* =======================
+ * MARK READY / FAILED
+ * ======================= */
+export async function markExportReady(id: Id, bundleUrl: string, meta?: Record<string, any>) {
+  const rec = await prisma.export.update({
+    where: { id: toId(id) } as any,
+    data: { status: "ready", bundleUrl, meta: meta ?? {} },
+    select: selectExport,
+  });
+  return toExportDTO(rec);
+}
+
+export async function markExportFailed(id: Id, error?: string) {
+  const rec = await prisma.export.update({
+    where: { id: toId(id) } as any,
+    data: { status: "failed", meta: error ? { error } : {} },
+    select: selectExport,
+  });
+  return toExportDTO(rec);
+}
+
+/* =======================
+ * DELETE
+ * ======================= */
+export async function deleteExport(id: Id) {
+  const rec = await prisma.export.delete({ where: { id: toId(id) } as any, select: selectExport });
+  return toExportDTO(rec);
+}
+
+/* =======================
+ * UTILITAIRES SPÉCIFIQUES
+ * ======================= */
+export async function getExportsByPage(pageId: Id) {
+  const rows = await prisma.export.findMany({ where: { pageId: toId(pageId) } as any, select: selectExport });
+  return rows.map(toExportDTO);
+}
+
+export async function getExportsByProject(projectId: Id, limit = 50) {
+  const rows = await prisma.export.findMany({
+    where: { projectId: toId(projectId) } as any,
+    orderBy: { createdAt: "desc" },
+    take: limit,
+    select: selectExport,
+  });
+  return rows.map(toExportDTO);
 }
