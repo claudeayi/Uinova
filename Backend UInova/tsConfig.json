@@ -1,23 +1,22 @@
-
----
-
-### `tsconfig.json`
-```json
 {
   "compilerOptions": {
-    "target": "ES2020",
+    "target": "ES2022",
     "module": "ESNext",
-    "moduleResolution": "Node",
-    "lib": ["ES2020", "DOM"],
-    "outDir": "./build",
+    "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
     "rootDir": "./src",
+    "outDir": "./dist",
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "resolveJsonModule": true,
     "allowSyntheticDefaultImports": true,
-    "noImplicitAny": false
+    "forceConsistentCasingInFileNames": true,
+    "noEmitOnError": true,
+    "sourceMap": true,
+    "incremental": true,
+    "types": ["node"]
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "build"]
+  "exclude": ["node_modules", "dist"]
 }
