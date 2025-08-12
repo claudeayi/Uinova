@@ -1,32 +1,46 @@
 # UInova Backend
 
-Ce dépôt contient l’API de la plateforme UInova (nocode builder) basée sur Node.js, Express, MySQL et Prisma.
+Plateforme **UInova** (nocode builder) – **Node.js + Express + Prisma + MySQL**.  
+API sécurisée, temps réel (Socket.io), exports multi-formats, paiements (Stripe/PayPal/CinetPay), assistant IA, badges/notifications, uploads et back-office admin.
+
+---
 
 ## 🚀 Fonctionnalités
 
-- **Authentification** : inscription, connexion, JWT (avec rôles user/premium/admin).
-- **Gestion des projets/pages** : CRUD complet (plusieurs projets, plusieurs pages par projet).
-- **Exports** : génération multi-format (HTML, Flutter, React, Vue, JSON, ZIP) et historique.
-- **Paiements** : intégration Stripe/PayPal/Cinetpay pour abonnements et achats.
-- **Collaboration** : édition en temps réel via Socket.io.
-- **Assistant IA** : integration OpenAI (chat, génération UI).
-- **Badges & notifications** : gamification et messaging utilisateur.
-- **Uploads** : envoi de fichiers/images.
-- **Admin** : routes pour gérer utilisateurs, projets et logs.
-- **Documentation Swagger** : accessible via `/api-docs`.
-- **Sécurité** : casque Helmet, rate‑limit, validations et hashing des mots de passe.
+- **Authentification & rôles** : JWT (user/premium/admin), hash Bcrypt, middlewares `auth` + `requireRole`.
+- **Projets & pages** : CRUD complet, statuts (PLANIFIE / EN_COURS / TERMINE), schémas JSON.
+- **Exports** : HTML/React/Flutter/PWA/ZIP, `styles.css`, `sitemap.xml`, `robots.txt`, gestion des assets.
+- **Paiements** : Stripe (Payment Intents), PayPal (Orders), CinetPay (init + check), Mock.
+- **Collaboration** : Socket.io avec auth JWT, rooms projet/page, présence, cursors, rate-limit.
+- **Assistant IA** : OpenAI (`gpt-4o`), modération locale configurable.
+- **Badges & notifications** : gamification simple et messagerie utilisateur.
+- **Uploads** : Multer + abstraction cloud (LOCAL / S3 / Cloudinary).
+- **Admin** : liste/suppression d’utilisateurs (RBAC).
+- **Docs Swagger** : `/api-docs` (UI) + `/api-docs.json` (spec).
+- **Sécurité** : Helmet, rate-limit, validation (express-validator), logs & quotas.
+
+---
 
 ## 🧩 Démarrer en local
 
 ### Prérequis
-- Node.js ≥ 18
-- MySQL
-- npm
+- **Node.js ≥ 18**
+- **MySQL 8** (ou compatible)
+- **npm** ou **pnpm**
 
 ### Installation
 
 ```bash
+# 1) Dépendances
 npm install
-cp .env.example .env   # puis renseigner vos valeurs
+
+# 2) Variables d'environnement
+cp .env.example .env
+# -> ouvre .env et renseigne DATABASE_URL, JWT_SECRET, OPENAI_API_KEY, STRIPE_KEY, SMTP_*
+
+# 3) Base de données
 npx prisma migrate dev --name init
 npx prisma generate
+
+# (optionnel) Inspecter la DB
+npx prisma studio
