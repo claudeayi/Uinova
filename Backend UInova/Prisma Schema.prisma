@@ -1,96 +1,143 @@
+// prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
+
 datasource db {
   provider = "mysql"
   url      = env("DATABASE_URL")
 }
 
+//// =========================
+//// Enums
+//// =========================
+
+enum Role {
+  user
+  premium
+  admin
+}
+
+enum ProjectStatus {
+  PLANNED
+  IN_PROGRESS
+  DONE
+}
+
+//// =========================
+//// Modèles
+//// =========================
+
 model User {
   id            String         @id @default(cuid())
   email         String         @unique
-  passwordHash  String
+  password      String
   displayName   String?
-  role          Role           @default(USER)
+  role          Role           @default(user)
+
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
-  refreshTokens RefreshToken[]
+
+  // Relations
   projects      Project[]
-  badges        UserBadge[]
+  badges        Badge[]
   notifications Notification[]
-}
 
-enum Role {
-  USER
-  ADMIN
-}
-
-model RefreshToken {
-  id        String   @id @default(cuid())
-  token     String   @unique
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  revoked   Boolean  @default(false)
-  createdAt DateTime @default(now())
-  expiresAt DateTime
+  @@index([role])
+  @@map("users")
 }
 
 model Project {
-  id        String   @id @default(cuid())
+  id        String         @id @default(cuid())
   ownerId   String
-  owner     User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  owner     User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
   name      String
+  tagline   String?
+  icon      String?
+  status    ProjectStatus  @default(PLANNED)
   json      Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  // Relations
   pages     Page[]
   exports   Export[]
+
+  @@index([ownerId, status])
+  @@index([updatedAt])
+  @@map("projects")
 }
 
 model Page {
   id        String   @id @default(cuid())
   projectId String
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
   name      String
-  schema    Json
+  // Aligné avec tes controllers: create/update utilisent "data"
+  data      Json?
   order     Int       @default(0)
+
   createdAt DateTime  @default(now())
   updatedAt DateTime  @updatedAt
+
+  @@index([projectId, order])
+  @@map("pages")
 }
 
 model Export {
   id        String   @id @default(cuid())
+
   projectId String
   project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  type      String   // html | react | flutter | pwa ...
-  bundleUrl String?
+
+  // pageId optionnel (tu listes souvent par pageId)
+  pageId    String?
+  page      Page?    @relation(fields: [pageId], references: [id], onDelete: SetNull)
+
+  // Types d’export (html, react, pwa, etc.)
+  type      String
+  // Contenu généré (long) — utilisé par saveExport/list
+  content   String?  @db.LongText
   status    String   @default("pending")
+  // Optionnel: URL d’un bundle si tu externalises
+  bundleUrl String?
+
   createdAt DateTime @default(now())
+
+  @@index([projectId, pageId])
+  @@index([createdAt])
+  @@map("exports")
 }
 
 model Badge {
   id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
-  icon      String?
-  createdAt DateTime @default(now())
-}
+  // Aligné avec awardBadge({ type, userId })
+  type      String
 
-model UserBadge {
-  id        String   @id @default(cuid())
   userId    String
-  badgeId   String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
-  earnedAt  DateTime @default(now())
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, type])
+  @@map("badges")
 }
 
 model Notification {
   id        String   @id @default(cuid())
+
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  title     String
-  body      String
-  read      Boolean  @default(false)
+
+  // Aligné avec notify({ message }) et markNotificationAsRead(seen)
+  message   String
+  seen      Boolean  @default(false)
+
   createdAt DateTime @default(now())
+
+  @@index([userId, seen, createdAt])
+  @@map("notifications")
 }
