@@ -1,69 +1,84 @@
 uinova-backend/
 ├─ prisma/
-│   └─ schema.prisma             # Définition des modèles Prisma (User, Project, Page, Export, Badge, Notification)
+│  ├─ schema.prisma
+│  └─ migrations/                # (généré par Prisma)
+│
 ├─ src/
-│   ├─ config/
-│   │   └─ db.js                 # Connexion à MySQL via Prisma (pool si besoin natif)
-│   ├─ controllers/
-│   │   ├─ authController.ts
-│   │   ├─ projectController.ts
-│   │   ├─ pageController.ts
-│   │   ├─ exportController.ts
-│   │   ├─ paymentController.ts
-│   │   ├─ badgeController.ts
-│   │   ├─ notificationController.ts
-│   │   ├─ adminController.ts
-│   │   ├─ aiController.ts       # Utilisation d’OpenAI pour l’assistant
-│   │   └─ uploadController.ts
-│   ├─ middlewares/
-│   │   ├─ auth.ts               # Authentification JWT + gestion des rôles
-│   │   ├─ errorHandler.ts       # Gestion globale des erreurs
-│   │   ├─ validate.ts           # Validation des entrées (express-validator)
-│   │   ├─ security.ts           # Headers sécurité + rate limit
-│   │   └─ upload.ts             # Configuration Multer pour les uploads
-│   ├─ models/
-│   │   ├─ userModel.ts
-│   │   ├─ projectModel.ts
-│   │   ├─ pageModel.ts
-│   │   ├─ exportModel.ts
-│   │   ├─ badgeModel.ts
-│   │   └─ notificationModel.ts
-│   ├─ routes/
-│   │   ├─ auth.ts
-│   │   ├─ projects.ts
-│   │   ├─ pages.ts
-│   │   ├─ exports.ts
-│   │   ├─ payments.ts
-│   │   ├─ badges.ts
-│   │   ├─ notifications.ts
-│   │   ├─ admin.ts
-│   │   ├─ upload.ts
-│   │   └─ ai.ts
-│   ├─ services/
-│   │   ├─ paymentService.ts     # Intégration Stripe et autres paiements
-│   │   ├─ aiService.ts          # Génération GPT‑4o via OpenAI
-│   │   ├─ collab.ts             # Socket.io pour la collaboration en temps réel
-│   │   ├─ cloud.ts              # Stub pour stockage cloud (S3, Cloudinary…)
-│   │   ├─ exportService.ts      # Génération d’exports multi-formats
-│   │   └─ (autres services optionnels : analytics, quotas…)
-│   ├─ utils/
-│   │   ├─ jwt.ts                # Signature/vérification JWT
-│   │   ├─ hash.ts               # Bcrypt hashing
-│   │   ├─ prisma.ts             # PrismaClient singleton
-│   │   ├─ swagger.ts            # Setup Swagger
-│   │   ├─ mailer.ts             # Envoi d’emails via SMTP
-│   │   ├─ id.ts                 # Génération d’identifiants uniques
-│   │   ├─ quota.ts              # Gestion de quotas (IA, export…)
-│   │   ├─ template.ts           # Templates d’email
-│   │   ├─ analytics.ts          # Enregistrement d’événements
-│   │   ├─ helpers.ts            # Fonctions utilitaires diverses
-│   │   └─ aiModeration.ts       # Modération de prompts IA
-│   ├─ app.ts                    # Configuration Express (routes, middlewares, swagger)
-│   ├─ server.ts                 # Création du serveur HTTP + Socket.io
-│   └─ services/collab.ts        # Initialisation Socket.io
-├─ uploads/                      # Répertoire pour les fichiers téléversés
-├─ .env.example                  # Variables d’environnement (DB, JWT, OpenAI, Stripe, SMTP…)
-├─ package.json                  # Dépendances et scripts npm
-├─ README.md                     # Documentation du backend (endpoints, installation…)
-├─ tsconfig.json                 # Configuration TypeScript
-└─ uinova_schema.sql             # Script SQL initial (tables users, projects, pages, exports, badges, notifications)
+│  ├─ controllers/
+│  │  ├─ adminController.ts
+│  │  ├─ aiController.ts
+│  │  ├─ authController.ts
+│  │  ├─ badgeController.ts
+│  │  ├─ exportController.ts
+│  │  ├─ homeController.ts
+│  │  ├─ notificationController.ts
+│  │  ├─ pageController.ts
+│  │  └─ projectController.ts
+│  │
+│  ├─ middlewares/
+│  │  ├─ auth.ts                 # auth + requireRole
+│  │  ├─ errorHandler.ts
+│  │  ├─ security.ts             # helmet preset + rate limit
+│  │  ├─ upload.ts               # multer config
+│  │  └─ validate.ts
+│  │
+│  ├─ models/                    # Accès DB (facultatif si tu passes direct via Prisma)
+│  │  ├─ badgeModel.ts
+│  │  ├─ exportModel.ts
+│  │  ├─ notificationModel.ts
+│  │  ├─ pageModel.ts
+│  │  ├─ projectModel.ts
+│  │  └─ userModel.ts
+│  │
+│  ├─ routes/
+│  │  ├─ admin.ts
+│  │  ├─ ai.ts
+│  │  ├─ auth.ts
+│  │  ├─ badges.ts
+│  │  ├─ exports.ts
+│  │  ├─ home.ts                 # GET /api/home/summary (si tu l’exposes)
+│  │  ├─ notifications.ts
+│  │  ├─ pages.ts
+│  │  ├─ payments.ts
+│  │  ├─ projects.ts
+│  │  └─ upload.ts
+│  │
+│  ├─ services/
+│  │  ├─ aiService.ts
+│  │  ├─ cloud.ts                # abstraction storage (LOCAL/S3/Cloudinary…)
+│  │  ├─ collab.ts               # Socket.io (auth + rooms + rate-limit)
+│  │  ├─ exportService.ts        # export HTML/ZIP etc.
+│  │  └─ paymentService.ts       # Stripe (+ hooks PayPal/CinetPay si ajoutés)
+│  │
+│  ├─ templates/
+│  │  ├─ emails.ts               # welcome/reset/invoice (HTML)
+│  │  └─ welcomeMail.ts
+│  │
+│  ├─ utils/
+│  │  ├─ aiModeration.ts
+│  │  ├─ analytics.ts
+│  │  ├─ dto.ts
+│  │  ├─ helpers.ts
+│  │  ├─ id.ts
+│  │  ├─ jwt.ts
+│  │  ├─ logger.ts
+│  │  ├─ mailer.ts
+│  │  ├─ prisma.ts               # PrismaClient singleton + logs
+│  │  ├─ quota.ts
+│  │  └─ swagger.ts              # charge swagger.yaml + UI
+│  │
+│  ├─ app.ts                     # Express (middlewares, routes, swagger)
+│  └─ server.ts                  # HTTP server + Socket.io + shutdown propre
+│
+├─ uploads/                      # stockage local (gitkeep pour versionner le dossier)
+│  └─ .gitkeep
+│
+├─ docs/
+│  ├─ swagger.yaml               # spec OpenAPI 3.0.3
+│  └─ uinova-swagger.html        # version autonome (offline-ready)
+│
+├─ .env.example
+├─ package.json
+├─ tsconfig.json
+├─ README.md
+└─ .gitignore
