@@ -1,0 +1,129 @@
+openapi: 3.0.3
+info: { title: UInova API, version: "1.0.0" }
+servers: [{ url: http://localhost:4000 }]
+paths:
+  /api/auth/login:
+    post:
+      summary: Login
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties: { email: {type:string,format:email}, password:{type:string,minLength:6} }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken: { type: string }
+                  user:
+                    type: object
+                    properties:
+                      id: { type: string }
+                      email: { type: string }
+                      displayName: { type: string, nullable: true }
+  /api/auth/register:
+    post:
+      summary: Register
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: {type:string,format:email}
+                password: {type:string,minLength:6}
+                displayName: {type:string}
+      responses: { "200": { description: OK } }
+  /api/auth/me:
+    get:
+      security: [{ bearerAuth: [] }]
+      responses: { "200": { description: OK } }
+
+  /api/home:
+    get:
+      security: [{ bearerAuth: [] }]
+      summary: Accueil projets (cards + totals)
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  cards:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: {type:string}
+                        title: {type:string}
+                        subtitle: {type:string}
+                        status: {type:string, enum: [EN_COURS, TERMINE, PLANIFIE]}
+                        icon: {type:string}
+                        updatedAt: {type:string,format:date-time}
+                  totals:
+                    type: object
+                    properties:
+                      enCours: {type:integer}
+                      termines: {type:integer}
+                      planifies: {type:integer}
+                      total: {type:integer}
+
+  /api/projects:
+    get:
+      security: [{ bearerAuth: [] }]
+      summary: Liste filtrée des projets
+      parameters:
+        - in: query
+          name: status
+          schema: { type: string, enum: [EN_COURS, TERMINE, PLANIFIE] }
+      responses: { "200": { description: OK } }
+    post:
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: {type:string}
+                tagline: {type:string}
+                icon: {type:string}
+                status: {type:string, enum:[EN_COURS, TERMINE, PLANIFIE]}
+      responses: { "201": { description: Created } }
+
+  /api/projects/{id}:
+    get:
+      security: [{ bearerAuth: [] }]
+      parameters: [{ in: path, name: id, schema:{type:string}, required: true }]
+      responses: { "200": { description: OK } }
+    put:
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name: {type:string}
+                tagline: {type:string}
+                icon: {type:string}
+                status: {type:string, enum:[EN_COURS, TERMINE, PLANIFIE]}
+                schema: {}
+      responses: { "200": { description: OK } }
+
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
