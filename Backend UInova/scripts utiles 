@@ -1,0 +1,5 @@
+npm run dev           # dev (ts-node-dev)
+npm run build         # compile -> dist/
+npm start             # node dist/server.js
+npm run migrate:dev   # prisma migrate dev
+npm run studio        # prisma studio
