@@ -1,0 +1,9 @@
+/node_modules
+/dist
+/build
+/uploads/*
+!/uploads/.gitkeep
+.env
+.env.*
+.prisma
+npm-debug.log*
