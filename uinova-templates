@@ -1,0 +1,319 @@
+#!/usr/bin/env bash
+set -e
+
+REPO="uinova-templates"
+TEMPLATES=("landing-saas" "dashboard-admin" "marketplace" "crm" "erp-lite" "blog" "pwa-mobile-style" "reseau-social-mini" "outil-collaboratif" "seo-analytics")
+
+echo "📁 Création du repo $REPO"
+mkdir -p "$REPO/templates"
+cd "$REPO"
+
+# README
+cat > README.md <<'EOF'
+# UInova – Batch de 10 templates (React + Node)
+
+Chaque template a :
+- **frontend/** React + Vite + React Router (vite config minimal)
+- **backend/** Node.js + Express (CRUD basique, data en mémoire)
+- Scripts : `npm run dev` pour lancer
+
+Arborescence :
+templates/<template>/{frontend,backend}
+
+Exécution type :
+cd templates/landing-saas/backend && npm i && npm run dev
+cd templates/landing-saas/frontend && npm i && npm run dev
+EOF
+
+# helpers
+make_front () {
+  ROOT="$1/frontend"
+  APPTITLE="$2"
+  mkdir -p "$ROOT/src/pages"
+  # package.json
+  cat > "$ROOT/package.json" <<'EOF'
+{
+  "name": "uinova-template-frontend",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "react-router-dom": "6.26.2"
+  },
+  "devDependencies": {
+    "vite": "5.4.0",
+    "@vitejs/plugin-react": "4.3.1"
+  }
+}
+EOF
+  # vite config
+  cat > "$ROOT/vite.config.js" <<'EOF'
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+export default defineConfig({ plugins: [react()] })
+EOF
+  # index.html
+  cat > "$ROOT/index.html" <<EOF
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>$APPTITLE</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body><div id="root"></div><script type="module" src="/src/main.jsx"></script></body>
+</html>
+EOF
+  # styles
+  cat > "$ROOT/styles.css" <<'EOF'
+:root { --primary:#0D47A1; --text:#111827; --bg:#fff; }
+*{box-sizing:border-box} body{margin:0;font-family:Inter,system-ui,Segoe UI,Roboto,Arial;color:var(--text);background:var(--bg)}
+.container{max-width:1120px;margin:0 auto;padding:24px}
+.btn{background:var(--primary);color:#fff;padding:12px 18px;border-radius:10px;border:0;cursor:pointer}
+.card{border:1px solid #e5e7eb;border-radius:14px;padding:16px}
+.h1{font-size:32px;font-weight:800;margin:0 0 12px}
+.h2{font-size:22px;font-weight:700;margin:18px 0 10px}
+.sub{color:#4b5563}
+grid{display:grid;gap:16px;grid-template-columns:repeat(12,minmax(0,1fr))}
+nav a{text-decoration:none;color:inherit}
+EOF
+  # main.jsx (nav + routes)
+  cat > "$ROOT/src/main.jsx" <<'EOF'
+import React from 'react'
+import { createRoot } from 'react-dom/client'
+import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
+import '../styles.css'
+import Home from './pages/Home.jsx'
+
+function Layout({children}) {
+  return (
+    <>
+      <nav className="container" style={{display:'flex',gap:16,alignItems:'center',justifyContent:'space-between'}}>
+        <Link to="/" style={{fontWeight:800}}>UInova</Link>
+        <div style={{display:'flex',gap:12}} id="nav-links"></div>
+      </nav>
+      <div className="container">{children}</div>
+    </>
+  )
+}
+
+function App() {
+  return (
+    <BrowserRouter>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<Home/>} />
+        </Routes>
+      </Layout>
+    </BrowserRouter>
+  )
+}
+createRoot(document.getElementById('root')).render(<App/>)
+EOF
+}
+
+make_page () {
+  FILE="$1/frontend/src/pages/$2.jsx"
+  TITLE="$3"
+  SUB="$4"
+  CTA="$5"
+  cat > "$FILE" <<EOF
+export default function $2(){
+  return (
+    <div>
+      <grid>
+        <div className="card" style={{gridColumn:'1 / span 12',textAlign:'center',padding:36}}>
+          <h1 className="h1">$TITLE</h1>
+          <p className="sub">$SUB</p>
+          ${CTA:+<button className="btn">$CTA</button>}
+        </div>
+      </grid>
+    </div>
+  )
+}
+EOF
+}
+
+make_back () {
+  ROOT="$1/backend"
+  API="$2"
+  mkdir -p "$ROOT/src/routes"
+  cat > "$ROOT/package.json" <<'EOF'
+{
+  "name": "uinova-template-backend",
+  "type": "module",
+  "scripts": { "dev": "node src/index.js" },
+  "dependencies": {
+    "express": "4.19.2",
+    "cors": "2.8.5",
+    "body-parser": "1.20.2"
+  }
+}
+EOF
+  cat > "$ROOT/src/index.js" <<EOF
+import express from 'express'
+import cors from 'cors'
+import bodyParser from 'body-parser'
+$API
+const app = express()
+app.use(cors()); app.use(bodyParser.json())
+app.get('/health', (req,res)=>res.json({ok:true}))
+app.listen(3000, ()=>console.log('API http://localhost:3000'))
+EOF
+}
+
+make_crud () {
+  NAME="$1" # e.g. leads
+  cat <<EOF
+import ${NAME}Router from './routes/${NAME}.js'
+const data_${NAME} = []
+const ${NAME} = (r)=>r
+export default null
+EOF
+}
+
+crud_file () {
+  ROOT="$1/backend/src/routes/$2.js"
+  ENTITY="$3"
+  cat > "$ROOT" <<EOF
+import { Router } from 'express'
+const r = Router()
+let data = []
+r.post('/', (req,res)=>{ data.push({ id:Date.now(), ...req.body }); res.json(data.at(-1)) })
+r.get('/', (req,res)=>res.json(data))
+r.put('/:id', (req,res)=>{ const i=data.findIndex(x=>String(x.id)===req.params.id); if(i<0) return res.status(404).end(); data[i]={...data[i],...req.body}; res.json(data[i]) })
+r.delete('/:id', (req,res)=>{ data=data.filter(x=>String(x.id)!==req.params.id); res.json({ok:true}) })
+export default r
+EOF
+}
+
+# ============ TEMPLATES ============
+
+cd templates
+
+# 1) Landing SaaS
+mkdir -p landing-saas
+make_front landing-saas "UInova – Landing SaaS"
+make_page landing-saas Home "Créez en 5 minutes" "UInova — le no-code nouvelle génération" "Démarrer"
+make_page landing-saas Pricing "Des plans simples" "Gratuit, Pro, Entreprise" "Voir les prix"
+# add routes quickly (append in main.jsx)
+sed -i "" -e 's/import Home.*/&\nimport Pricing from ".\\/pages\\/Pricing.jsx"/' landing-saas/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/import Home.*/&\nimport Pricing from ".\\/pages\\/Pricing.jsx"/' landing-saas/frontend/src/main.jsx
+sed -i "" -e 's#</Routes>#  <Route path="/pricing" element={<Pricing/>} />\n        & #' landing-saas/frontend/src/main.jsx 2>/dev/null || sed -i -e 's#</Routes>#  <Route path="/pricing" element={<Pricing/>} />\n        & #' landing-saas/frontend/src/main.jsx
+# nav links injection
+sed -i "" -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/pricing">Pricing<\\/a><\\/div>/' landing-saas/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/pricing">Pricing<\\/a><\\/div>/' landing-saas/frontend/src/main.jsx
+# backend
+make_back landing-saas "import leadsRouter from './routes/leads.js'\nconst app = express()\napp.use('/leads', leadsRouter)"
+crud_file landing-saas leads "Lead"
+
+# 2) Dashboard Admin
+mkdir -p dashboard-admin
+make_front dashboard-admin "UInova – Dashboard Admin"
+make_page dashboard-admin Home "Tableau de bord" "KPIs, graphes, utilisateurs" ""
+make_page dashboard-admin Users "Gestion des utilisateurs" "Créer / mettre à jour / rôles" ""
+sed -i "" -e 's/import Home.*/&\nimport Users from ".\\/pages\\/Users.jsx"/' dashboard-admin/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/import Home.*/&\nimport Users from ".\\/pages\\/Users.jsx"/' dashboard-admin/frontend/src/main.jsx
+sed -i "" -e 's#</Routes>#  <Route path="/users" element={<Users/>} />\n        & #' dashboard-admin/frontend/src/main.jsx 2>/dev/null || sed -i -e 's#</Routes>#  <Route path="/users" element={<Users/>} />\n        & #' dashboard-admin/frontend/src/main.jsx
+sed -i "" -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/users">Utilisateurs<\\/a><\\/div>/' dashboard-admin/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/users">Utilisateurs<\\/a><\\/div>/' dashboard-admin/frontend/src/main.jsx
+make_back dashboard-admin "import usersRouter from './routes/users.js'\napp.use('/users', usersRouter)"
+crud_file dashboard-admin users "User"
+
+# 3) Marketplace
+mkdir -p marketplace
+make_front marketplace "UInova – Marketplace"
+make_page marketplace Home "Catalogue produits" "Filtres, panier, fiche produit" "Ajouter au panier"
+make_page marketplace Cart "Panier" "Valider la commande" "Payer"
+sed -i "" -e 's/import Home.*/&\nimport Cart from ".\\/pages\\/Cart.jsx"/' marketplace/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/import Home.*/&\nimport Cart from ".\\/pages\\/Cart.jsx"/' marketplace/frontend/src/main.jsx
+sed -i "" -e 's#</Routes>#  <Route path="/cart" element={<Cart/>} />\n        & #' marketplace/frontend/src/main.jsx 2>/dev/null || sed -i -e 's#</Routes>#  <Route path="/cart" element={<Cart/>} />\n        & #' marketplace/frontend/src/main.jsx
+sed -i "" -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/cart">Panier<\\/a><\\/div>/' marketplace/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/cart">Panier<\\/a><\\/div>/' marketplace/frontend/src/main.jsx
+make_back marketplace "import productsRouter from './routes/products.js'\napp.use('/products', productsRouter)"
+crud_file marketplace products "Product"
+
+# 4) CRM
+mkdir -p crm
+make_front crm "UInova – CRM"
+make_page crm Home "Pipeline" "Prospects, opportunités, étapes" ""
+make_page crm Contacts "Contacts" "Import / export / suivi" ""
+sed -i "" -e 's/import Home.*/&\nimport Contacts from ".\\/pages\\/Contacts.jsx"/' crm/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/import Home.*/&\nimport Contacts from ".\\/pages\\/Contacts.jsx"/' crm/frontend/src/main.jsx
+sed -i "" -e 's#</Routes>#  <Route path="/contacts" element={<Contacts/>} />\n        & #' crm/frontend/src/main.jsx 2>/dev/null || sed -i -e 's#</Routes>#  <Route path="/contacts" element={<Contacts/>} />\n        & #' crm/frontend/src/main.jsx
+sed -i "" -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/contacts">Contacts<\\/a><\\/div>/' crm/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/contacts">Contacts<\\/a><\\/div>/' crm/frontend/src/main.jsx
+make_back crm "import contactsRouter from './routes/contacts.js'\nimport dealsRouter from './routes/deals.js'\napp.use('/contacts', contactsRouter)\napp.use('/deals', dealsRouter)"
+crud_file crm contacts "Contact"
+crud_file crm deals "Deal"
+
+# 5) ERP Lite
+mkdir -p erp-lite
+make_front erp-lite "UInova – ERP Lite"
+make_page erp-lite Home "Stocks & Ventes" "Produits, commandes, fournisseurs" ""
+make_page erp-lite Orders "Commandes" "Suivi commandes / statuts" ""
+sed -i "" -e 's/import Home.*/&\nimport Orders from ".\\/pages\\/Orders.jsx"/' erp-lite/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/import Home.*/&\nimport Orders from ".\\/pages\\/Orders.jsx"/' erp-lite/frontend/src/main.jsx
+sed -i "" -e 's#</Routes>#  <Route path="/orders" element={<Orders/>} />\n        & #' erp-lite/frontend/src/main.jsx 2>/dev/null || sed -i -e 's#</Routes>#  <Route path="/orders" element={<Orders/>} />\n        & #' erp-lite/frontend/src/main.jsx
+sed -i "" -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/orders">Commandes<\\/a><\\/div>/' erp-lite/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/orders">Commandes<\\/a><\\/div>/' erp-lite/frontend/src/main.jsx
+make_back erp-lite "import stockRouter from './routes/stock.js'\nimport ordersRouter from './routes/orders.js'\napp.use('/stock', stockRouter)\napp.use('/orders', ordersRouter)"
+crud_file erp-lite stock "Stock"
+crud_file erp-lite orders "Order"
+
+# 6) Blog
+mkdir -p blog
+make_front blog "UInova – Blog"
+make_page blog Home "Articles" "Liste, catégories, recherche" ""
+make_page blog Post "Article" "Éditeur markdown (à intégrer)" ""
+sed -i "" -e 's/import Home.*/&\nimport Post from ".\\/pages\\/Post.jsx"/' blog/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/import Home.*/&\nimport Post from ".\\/pages\\/Post.jsx"/' blog/frontend/src/main.jsx
+sed -i "" -e 's#</Routes>#  <Route path="/post" element={<Post/>} />\n        & #' blog/frontend/src/main.jsx 2>/dev/null || sed -i -e 's#</Routes>#  <Route path="/post" element={<Post/>} />\n        & #' blog/frontend/src/main.jsx
+sed -i "" -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/post">Nouvel article<\\/a><\\/div>/' blog/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/post">Nouvel article<\\/a><\\/div>/' blog/frontend/src/main.jsx
+make_back blog "import postsRouter from './routes/posts.js'\napp.use('/posts', postsRouter)"
+crud_file blog posts "Post"
+
+# 7) PWA Mobile Style
+mkdir -p pwa-mobile-style
+make_front pwa-mobile-style "UInova – PWA Mobile"
+make_page pwa-mobile-style Home "Flux" "Navigation type app mobile" ""
+make_page pwa-mobile-style Profile "Profil" "Infos, préférences" ""
+sed -i "" -e 's/import Home.*/&\nimport Profile from ".\\/pages\\/Profile.jsx"/' pwa-mobile-style/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/import Home.*/&\nimport Profile from ".\\/pages\\/Profile.jsx"/' pwa-mobile-style/frontend/src/main.jsx
+sed -i "" -e 's#</Routes>#  <Route path="/profile" element={<Profile/>} />\n        & #' pwa-mobile-style/frontend/src/main.jsx 2>/dev/null || sed -i -e 's#</Routes>#  <Route path="/profile" element={<Profile/>} />\n        & #' pwa-mobile-style/frontend/src/main.jsx
+sed -i "" -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/profile">Profil<\\/a><\\/div>/' pwa-mobile-style/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/profile">Profil<\\/a><\\/div>/' pwa-mobile-style/frontend/src/main.jsx
+make_back pwa-mobile-style "import usersRouter from './routes/users.js'\nimport postsRouter from './routes/posts.js'\napp.use('/users', usersRouter)\napp.use('/posts', postsRouter)"
+crud_file pwa-mobile-style users "User"
+crud_file pwa-mobile-style posts "Post"
+
+# 8) Réseau Social Mini
+mkdir -p reseau-social-mini
+make_front reseau-social-mini "UInova – Réseau Social Mini"
+make_page reseau-social-mini Home "Fil d’actualité" "Posts, likes, commentaires" ""
+make_page reseau-social-mini Profile "Profil" "Bio, suivi" ""
+sed -i "" -e 's/import Home.*/&\nimport Profile from ".\\/pages\\/Profile.jsx"/' reseau-social-mini/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/import Home.*/&\nimport Profile from ".\\/pages\\/Profile.jsx"/' reseau-social-mini/frontend/src/main.jsx
+sed -i "" -e 's#</Routes>#  <Route path="/profile" element={<Profile/>} />\n        & #' reseau-social-mini/frontend/src/main.jsx 2>/dev/null || sed -i -e 's#</Routes>#  <Route path="/profile" element={<Profile/>} />\n        & #' reseau-social-mini/frontend/src/main.jsx
+sed -i "" -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/profile">Profil<\\/a><\\/div>/' reseau-social-mini/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/profile">Profil<\\/a><\\/div>/' reseau-social-mini/frontend/src/main.jsx
+make_back reseau-social-mini "import postsRouter from './routes/posts.js'\nimport followsRouter from './routes/follows.js'\napp.use('/posts', postsRouter)\napp.use('/follows', followsRouter)"
+crud_file reseau-social-mini posts "Post"
+crud_file reseau-social-mini follows "Follow"
+
+# 9) Outil Collaboratif
+mkdir -p outil-collaboratif
+make_front outil-collaboratif "UInova – Outil Collaboratif"
+make_page outil-collaboratif Home "Kanban" "Colonnes, cartes, drag & drop (à brancher)" ""
+make_page outil-collaboratif Chat "Chat" "Canaux, messages (à brancher)" ""
+sed -i "" -e 's/import Home.*/&\nimport Chat from ".\\/pages\\/Chat.jsx"/' outil-collaboratif/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/import Home.*/&\nimport Chat from ".\\/pages\\/Chat.jsx"/' outil-collaboratif/frontend/src/main.jsx
+sed -i "" -e 's#</Routes>#  <Route path="/chat" element={<Chat/>} />\n        & #' outil-collaboratif/frontend/src/main.jsx 2>/dev/null || sed -i -e 's#</Routes>#  <Route path="/chat" element={<Chat/>} />\n        & #' outil-collaboratif/frontend/src/main.jsx
+sed -i "" -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/chat">Chat<\\/a><\\/div>/' outil-collaboratif/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/chat">Chat<\\/a><\\/div>/' outil-collaboratif/frontend/src/main.jsx
+make_back outil-collaboratif "import tasksRouter from './routes/tasks.js'\nimport messagesRouter from './routes/messages.js'\napp.use('/tasks', tasksRouter)\napp.use('/messages', messagesRouter)"
+crud_file outil-collaboratif tasks "Task"
+crud_file outil-collaboratif messages "Message"
+
+# 10) SEO / Analytics
+mkdir -p seo-analytics
+make_front seo-analytics "UInova – SEO & Analytics"
+make_page seo-analytics Home "Audit SEO" "Pages, rapports, recommandations" "Lancer un audit"
+make_page seo-analytics Reports "Rapports" "Export PDF/CSV (à brancher)" "Exporter"
+sed -i "" -e 's/import Home.*/&\nimport Reports from ".\\/pages\\/Reports.jsx"/' seo-analytics/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/import Home.*/&\nimport Reports from ".\\/pages\\/Reports.jsx"/' seo-analytics/frontend/src/main.jsx
+sed -i "" -e 's#</Routes>#  <Route path="/reports" element={<Reports/>} />\n        & #' seo-analytics/frontend/src/main.jsx 2>/dev/null || sed -i -e 's#</Routes>#  <Route path="/reports" element={<Reports/>} />\n        & #' seo-analytics/frontend/src/main.jsx
+sed -i "" -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/reports">Rapports<\\/a><\\/div>/' seo-analytics/frontend/src/main.jsx 2>/dev/null || sed -i -e 's/id="nav-links"><\\/div>/id="nav-links"><a href="\\/reports">Rapports<\\/a><\\/div>/' seo-analytics/frontend/src/main.jsx
+make_back seo-analytics "import auditsRouter from './routes/audits.js'\napp.use('/audits', auditsRouter)"
+crud_file seo-analytics audits "Audit"
+
+echo "✅ Fichiers générés. Ouvre le dossier $REPO dans ton éditeur."
