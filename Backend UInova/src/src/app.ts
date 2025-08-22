@@ -6,11 +6,14 @@ import morgan from "morgan";
 import compression from "compression";
 import { nanoid } from "nanoid";
 
+// Middlewares maison
 import { securityHeaders, apiLimiter } from "./middlewares/security";
-import { setupSwagger } from "./utils/swagger";
 import { errorHandler } from "./middlewares/errorHandler";
 
-// Routes
+// Swagger
+import { setupSwagger } from "./utils/swagger";
+
+// Routes API
 import authRoutes from "./routes/auth";
 import projectRoutes from "./routes/projects";
 import pageRoutes from "./routes/pages";
@@ -22,63 +25,92 @@ import adminRoutes from "./routes/admin";
 import uploadRoutes from "./routes/upload";
 import aiRoutes from "./routes/ai";
 
+// ---- Typage: ID de requête sur Express.Request
+declare global {
+  // eslint-disable-next-line @typescript-eslint/no-namespace
+  namespace Express {
+    interface Request {
+      id?: string;
+    }
+  }
+}
+
 const app = express();
 const isProd = process.env.NODE_ENV === "production";
 
-// --- Trust proxy (nécessaire si derrière Nginx/Heroku/Render)
+// ---- Trust proxy (Nginx/Render/Heroku)
 app.set("trust proxy", 1);
 
-// --- Request ID pour traçabilité
-app.use((req: any, _res, next) => {
-  req.id = req.headers["x-request-id"] || nanoid(12);
+// ---- ID de requête + header pour traçabilité
+app.use((req: Request, res: Response, next: NextFunction) => {
+  req.id = (req.headers["x-request-id"] as string) || nanoid(12);
+  res.setHeader("x-request-id", req.id);
   next();
 });
 
-// --- Sécurité (Helmet + nos headers)
+// ---- Sécurité
 app.use(
   helmet({
-    contentSecurityPolicy: false, // désactive CSP par défaut (à définir si nécessaire pour Swagger)
+    // Désactivé par défaut pour éviter de bloquer Swagger/Socket.io.
+    // Active une CSP stricte côté prod si besoin:
+    // contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], imgSrc: ["'self'", "data:"], ... } }
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
 app.use(securityHeaders);
 
-// --- Compression
+// ---- Compression
 app.use(compression());
 
-// --- CORS piloté par .env
-const allowed = (process.env.CORS_ORIGINS || "*")
+// ---- CORS (multi-origines via .env)
+const corsEnv = process.env.CORS_ORIGINS || process.env.CORS_ORIGIN || "*";
+const allowedOrigins = corsEnv
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
+
 app.use(
   cors({
-    origin: allowed.length === 1 && allowed[0] === "*" ? "*" : allowed,
+    origin:
+      allowedOrigins.length === 1 && allowedOrigins[0] === "*" ? "*" : allowedOrigins,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
+    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-request-id"],
     maxAge: 86400,
   })
 );
 
-// --- Parsers (limites configurables)
+// Préflight global (utile si proxies stricts)
+app.options("*", cors());
+
+// ---- Parsers (limites configurables)
 app.use(express.json({ limit: process.env.JSON_LIMIT || "2mb" }));
 app.use(express.urlencoded({ extended: true, limit: process.env.URLENC_LIMIT || "2mb" }));
 
-// --- Logger HTTP (dev friendly)
+// ---- Logger HTTP
 app.use(
   morgan(isProd ? "combined" : "dev", {
     skip: () => process.env.MORGAN_SKIP === "1",
   })
 );
 
-// --- Rate limit global API
+// ---- Rate limit global sur l'API
 app.use("/api", apiLimiter);
 
-// --- Static uploads (LOCAL provider)
-app.use("/uploads", express.static("uploads", { fallthrough: true, maxAge: "7d", etag: true }));
+// ---- Fichiers statiques (uploads local)
+app.use(
+  "/uploads",
+  express.static("uploads", {
+    fallthrough: true,
+    maxAge: "7d",
+    etag: true,
+  })
+);
 
-// --- Health & version
+// ---- Health / Version
 app.get("/healthz", (_req, res) => res.json({ ok: true, ts: Date.now() }));
+app.get("/health", (_req, res) => res.json({ ok: true })); // alias simple
 app.get("/version", (_req, res) =>
   res.json({
     name: process.env.APP_NAME || "UInova API",
@@ -87,7 +119,7 @@ app.get("/version", (_req, res) =>
   })
 );
 
-// --- Routes API
+// ---- Routes API (protégées/privées à câbler dans chaque fichier si besoin)
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/pages", pageRoutes);
@@ -99,15 +131,26 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/ai", aiRoutes);
 
-// --- Swagger (UI + JSON)
+// ---- Swagger (UI + JSON)
 setupSwagger(app);
 
-// --- 404 API propre
+// ---- 404 API propre
 app.use("/api", (_req: Request, res: Response) => {
   res.status(404).json({ error: "NOT_FOUND", message: "Route API introuvable" });
 });
 
-// --- Error handler global
-app.use((err: any, req: Request, res: Response, next: NextFunction) => errorHandler(err, req, res, next));
+// ---- Gestion JSON invalide (SyntaxError) avant le handler global
+// (Express remonte une erreur si body JSON illégal)
+app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
+  if (err instanceof SyntaxError && "body" in err) {
+    return res.status(400).json({ error: "BAD_REQUEST", message: "JSON invalide" });
+  }
+  return next(err);
+});
+
+// ---- Error handler global
+app.use((err: any, req: Request, res: Response, next: NextFunction) =>
+  errorHandler(err, req, res, next)
+);
 
 export default app;
