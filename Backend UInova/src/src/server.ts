@@ -21,7 +21,9 @@ setupCollabSocket(server);
 
 // Écoute
 server.listen(PORT as number, HOST, () => {
-  const base = process.env.API_BASE_URL || `http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`;
+  const base =
+    process.env.API_BASE_URL ||
+    `http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`;
   console.log(`✅ UInova API prête sur ${base}`);
   console.log(`📚 Docs: ${base.replace(/\/+$/, "")}/api-docs`);
 });
@@ -29,14 +31,14 @@ server.listen(PORT as number, HOST, () => {
 // Gestion d'erreurs serveur
 server.on("error", onError);
 
-// Arrêt propre
+// Arrêt propre (SIGINT/SIGTERM/SIGUSR2)
 ["SIGINT", "SIGTERM", "SIGUSR2"].forEach((sig) => {
   process.once(sig as NodeJS.Signals, async () => {
     console.log(`\n⏹️  Signal ${sig} reçu: arrêt en cours...`);
     try {
       // Ferme Socket.io si initialisé
       try {
-        // @ts-ignore - close existe si io est instancié
+        // @ts-ignore: close existe si io est instancié
         collabIO?.close?.();
       } catch {}
 
@@ -66,8 +68,8 @@ process.on("uncaughtException", (err) => {
  * ====================== */
 function normalizePort(val: string): number | string {
   const port = parseInt(val, 10);
-  if (Number.isNaN(port)) return val;     // named pipe
-  if (port >= 0) return port;             // port number
+  if (Number.isNaN(port)) return val; // named pipe
+  if (port >= 0) return port; // port number
   return 5000;
 }
 
@@ -79,11 +81,9 @@ function onError(error: any) {
     case "EACCES":
       console.error(`${bind} nécessite des privilèges élevés`);
       process.exit(1);
-      break;
     case "EADDRINUSE":
       console.error(`${bind} est déjà utilisé`);
       process.exit(1);
-      break;
     default:
       throw error;
   }
