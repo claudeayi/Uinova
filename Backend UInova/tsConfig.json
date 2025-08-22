@@ -1,22 +1,44 @@
 {
   "compilerOptions": {
+    /* Plateforme / module (Node 18 + ESM) */
     "target": "ES2022",
-    "module": "ESNext",
+    "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2022", "DOM"],
+    "moduleDetection": "force",
+    "verbatimModuleSyntax": true,
+
+    /* Entrées / sorties */
     "rootDir": "./src",
     "outDir": "./dist",
-    "strict": true,
-    "esModuleInterop": true,
-    "skipLibCheck": true,
-    "resolveJsonModule": true,
-    "allowSyntheticDefaultImports": true,
-    "forceConsistentCasingInFileNames": true,
-    "noEmitOnError": true,
     "sourceMap": true,
     "incremental": true,
-    "types": ["node"]
+    "noEmitOnError": true,
+
+    /* Rigueur & qualité */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "useUnknownInCatchVariables": true,
+    "noImplicitOverride": true,
+    "noPropertyAccessFromIndexSignature": true,
+
+    /* Compat & DX */
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* Env & alias */
+    "lib": ["ES2022"],
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["src/*"]
+    },
+
+    /* Types globaux (tests, node) */
+    "types": ["node", "vitest"]
   },
-  "include": ["src/**/*"],
+  "include": ["src/**/*", "prisma/**/*.ts", "tests/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
