@@ -1,24 +1,25 @@
 src/
 ├─ components/
-│   ├─ base/
-│   │   └─ Button.tsx
-│   ├─ advanced/
-│   │   ├─ Card.tsx
-│   │   └─ Carousel.tsx
-│   ├─ onboarding/
-│   │   └─ OnboardingCoach.tsx
-│   └─ editor/
-│       ├─ LivePreview.tsx
-│       └─ EditorWrapper.tsx  (à mettre à jour)
+│  ├─ base/Button.tsx
+│  ├─ advanced/{Card.tsx, Carousel.tsx}
+│  ├─ onboarding/OnboardingCoach.tsx
+│  └─ editor/{EditorWrapper.tsx, LivePreview.tsx}
+├─ context/
+│  └─ **AuthContext.tsx**
 ├─ hooks/
-│   └─ useToast.ts
+│  ├─ useToast.ts
+│  └─ **useAuth.ts**
 ├─ services/
-│   └─ ai.ts
-├─ themes/
-│   └─ theme.ts
-├─ layouts/
-│   └─ Navbar.tsx  (à mettre à jour)
+│  ├─ ai.ts
+│  ├─ **http.ts**
+│  ├─ **auth.ts, projects.ts, pages.ts, exports.ts, payments.ts, badges.ts, notifications.ts, upload.ts**
+├─ themes/theme.ts
+├─ layouts/Navbar.tsx
 ├─ pages/
-│   └─ HelpPage.tsx
-├─ App.tsx  (à mettre à jour si ajout de HelpPage ou nouveaux routes)
-├─ index.css  (à mettre à jour)
+│  ├─ HelpPage.tsx
+│  ├─ **LoginPage.tsx, PricingPage.tsx, BillingPage.tsx**
+│  ├─ **ProjectsPage.tsx, ProjectDetailPage.tsx**
+│  └─ **SettingsPage.tsx**
+├─ **routes/ProtectedRoute.tsx**
+├─ App.tsx
+├─ index.css
