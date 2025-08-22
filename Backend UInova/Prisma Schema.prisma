@@ -8,136 +8,202 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-//// =========================
-//// Enums
-//// =========================
-
-enum Role {
-  user
-  premium
-  admin
+enum UserRole {
+  USER
+  PREMIUM
+  ADMIN
 }
 
 enum ProjectStatus {
-  PLANNED
-  IN_PROGRESS
-  DONE
+  PLANIFIE
+  EN_COURS
+  TERMINE
 }
 
-//// =========================
-//// Modèles
-//// =========================
+enum SubscriptionPlan {
+  FREE
+  PRO
+  BUSINESS
+  ENTERPRISE
+}
+
+enum SubscriptionStatus {
+  TRIAL
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+enum ExportTarget {
+  HTML
+  REACT
+  FLUTTER
+  PWA
+  ZIP
+}
+
+enum PaymentProvider {
+  STRIPE
+  PAYPAL
+  CINETPAY
+  MOCK
+}
+
+enum PaymentStatus {
+  CREATED
+  SUCCEEDED
+  FAILED
+  REFUNDED
+}
 
 model User {
-  id            String         @id @default(cuid())
-  email         String         @unique
-  password      String
-  displayName   String?
-  role          Role           @default(user)
+  id            String           @id @default(cuid())
+  email         String           @unique
+  passwordHash  String
+  name          String?
+  role          UserRole         @default(USER)
+  avatarUrl     String?
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
 
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-
-  // Relations
   projects      Project[]
-  badges        Badge[]
+  pages         Page[]           @relation("PageEditors")
   notifications Notification[]
-
-  @@index([role])
-  @@map("users")
+  userBadges    UserBadge[]
+  subscriptions Subscription[]
+  payments      Payment[]
+  uploads       Upload[]
 }
 
 model Project {
-  id        String         @id @default(cuid())
-  ownerId   String
-  owner     User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  id          String         @id @default(cuid())
+  name        String
+  description String?
+  status      ProjectStatus  @default(PLANIFIE)
+  owner       User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId     String
+  pages       Page[]
+  exports     ExportJob[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
 
-  name      String
-  tagline   String?
-  icon      String?
-  status    ProjectStatus  @default(PLANNED)
-  json      Json?
-
-  createdAt DateTime       @default(now())
-  updatedAt DateTime       @updatedAt
-
-  // Relations
-  pages     Page[]
-  exports   Export[]
-
-  @@index([ownerId, status])
-  @@index([updatedAt])
-  @@map("projects")
+  @@index([ownerId])
+  @@index([status])
 }
 
 model Page {
-  id        String   @id @default(cuid())
-  projectId String
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id          String    @id @default(cuid())
+  name        String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+  schemaJSON  Json
+  // éditeurs secondaires (collab)
+  editors     User[]    @relation("PageEditors")
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
-  name      String
-  // Aligné avec tes controllers: create/update utilisent "data"
-  data      Json?
-  order     Int       @default(0)
-
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-
-  @@index([projectId, order])
-  @@map("pages")
+  @@index([projectId])
 }
 
-model Export {
-  id        String   @id @default(cuid())
+model ExportJob {
+  id          String        @id @default(cuid())
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+  target      ExportTarget
+  status      String        @default("PENDING") // PENDING|RUNNING|DONE|ERROR
+  resultUrl   String?
+  error       String?
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
 
-  projectId String
-  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-
-  // pageId optionnel (tu listes souvent par pageId)
-  pageId    String?
-  page      Page?    @relation(fields: [pageId], references: [id], onDelete: SetNull)
-
-  // Types d’export (html, react, pwa, etc.)
-  type      String
-  // Contenu généré (long) — utilisé par saveExport/list
-  content   String?  @db.LongText
-  status    String   @default("pending")
-  // Optionnel: URL d’un bundle si tu externalises
-  bundleUrl String?
-
-  createdAt DateTime @default(now())
-
-  @@index([projectId, pageId])
-  @@index([createdAt])
-  @@map("exports")
+  @@index([projectId])
+  @@index([target])
+  @@index([status])
 }
 
-model Badge {
-  id        String   @id @default(cuid())
-  // Aligné avec awardBadge({ type, userId })
-  type      String
+model Subscription {
+  id               String             @id @default(cuid())
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId           String
+  plan             SubscriptionPlan   @default(FREE)
+  status           SubscriptionStatus @default(TRIAL)
+  currentPeriodEnd DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
 
-  userId    String
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  payments         Payment[]
 
-  createdAt DateTime @default(now())
+  @@index([userId])
+  @@index([plan, status])
+}
 
-  @@index([userId, type])
-  @@map("badges")
+model Payment {
+  id             String           @id @default(cuid())
+  provider       PaymentProvider
+  providerRef    String?          // id Stripe/PayPal/Cinetpay
+  amountCents    Int
+  currency       String           @default("EUR")
+  status         PaymentStatus    @default(CREATED)
+  rawPayload     Json?
+  createdAt      DateTime         @default(now())
+
+  // rattachement
+  user           User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId         String?
+  subscription   Subscription?    @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  subscriptionId String?
+
+  @@index([provider, status])
+  @@index([userId])
+  @@index([subscriptionId])
 }
 
 model Notification {
   id        String   @id @default(cuid())
-
-  userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  // Aligné avec notify({ message }) et markNotificationAsRead(seen)
-  message   String
-  seen      Boolean  @default(false)
-
+  userId    String
+  type      String
+  title     String
+  body      String?
+  read      Boolean  @default(false)
   createdAt DateTime @default(now())
 
-  @@index([userId, seen, createdAt])
-  @@map("notifications")
+  @@index([userId, read])
+}
+
+model Badge {
+  id        String      @id @default(cuid())
+  code      String      @unique
+  label     String
+  icon      String?
+  createdAt DateTime    @default(now())
+
+  users     UserBadge[]
+}
+
+model UserBadge {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  badgeId   String
+  earnedAt  DateTime @default(now())
+
+  @@unique([userId, badgeId])
+  @@index([userId])
+  @@index([badgeId])
+}
+
+model Upload {
+  id        String   @id @default(cuid())
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId    String?
+  key       String   // chemin stockage
+  url       String   // URL publique
+  size      Int
+  mime      String
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([mime])
 }
