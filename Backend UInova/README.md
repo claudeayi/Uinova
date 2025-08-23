@@ -1,46 +1,72 @@
-# UInova Backend
+# 🚀 UInova – Backend
 
-Plateforme **UInova** (nocode builder) – **Node.js + Express + Prisma + MySQL**.  
-API sécurisée, temps réel (Socket.io), exports multi-formats, paiements (Stripe/PayPal/CinetPay), assistant IA, badges/notifications, uploads et back-office admin.
-
----
-
-## 🚀 Fonctionnalités
-
-- **Authentification & rôles** : JWT (user/premium/admin), hash Bcrypt, middlewares `auth` + `requireRole`.
-- **Projets & pages** : CRUD complet, statuts (PLANIFIE / EN_COURS / TERMINE), schémas JSON.
-- **Exports** : HTML/React/Flutter/PWA/ZIP, `styles.css`, `sitemap.xml`, `robots.txt`, gestion des assets.
-- **Paiements** : Stripe (Payment Intents), PayPal (Orders), CinetPay (init + check), Mock.
-- **Collaboration** : Socket.io avec auth JWT, rooms projet/page, présence, cursors, rate-limit.
-- **Assistant IA** : OpenAI (`gpt-4o`), modération locale configurable.
-- **Badges & notifications** : gamification simple et messagerie utilisateur.
-- **Uploads** : Multer + abstraction cloud (LOCAL / S3 / Cloudinary).
-- **Admin** : liste/suppression d’utilisateurs (RBAC).
-- **Docs Swagger** : `/api-docs` (UI) + `/api-docs.json` (spec).
-- **Sécurité** : Helmet, rate-limit, validation (express-validator), logs & quotas.
+Plateforme **UInova** – un **nocode builder nouvelle génération**.  
+Backend en **Node.js + Express + Prisma + MySQL**, sécurisé et extensible, avec **exports multi-formats**, **collaboration temps réel**, **paiements intégrés**, **assistant IA**, et **back-office admin**.
 
 ---
 
-## 🧩 Démarrer en local
+## ✨ Fonctionnalités principales
 
-### Prérequis
-- **Node.js ≥ 18**
-- **MySQL 8** (ou compatible)
-- **npm** ou **pnpm**
+- 🔑 **Authentification & rôles**
+  - JWT (user / premium / admin)
+  - Hash Bcrypt
+  - Middlewares `auth` + `requireRole`
+  - Multi-sessions
 
-### Installation
+- 📂 **Projets & pages**
+  - CRUD complet
+  - Statuts : `PLANIFIE` / `EN_COURS` / `TERMINE`
+  - Schémas JSON persistés
+  - Gestion des versions
 
-```bash
-# 1) Dépendances
-npm install
+- 📦 **Exports**
+  - HTML / React / Flutter / PWA
+  - Export **ZIP** avec `styles.css`, `sitemap.xml`, `robots.txt`
+  - Gestion des assets optimisée
 
-# 2) Variables d'environnement
-cp .env.example .env
-# -> ouvre .env et renseigne DATABASE_URL, JWT_SECRET, OPENAI_API_KEY, STRIPE_KEY, SMTP_*
+- 💳 **Paiements**
+  - Stripe (Payment Intents)
+  - PayPal (Orders)
+  - CinetPay (init + check)
+  - Mock intégré pour tests locaux
 
-# 3) Base de données
-npx prisma migrate dev --name init
-npx prisma generate
+- 🤝 **Collaboration temps réel**
+  - Socket.io avec auth JWT
+  - Rooms par projet/page
+  - Présence utilisateurs + curseurs
+  - Rate-limit intégré
 
-# (optionnel) Inspecter la DB
-npx prisma studio
+- 🤖 **Assistant IA**
+  - OpenAI (`gpt-4o`)
+  - Génération de templates / composants
+  - Modération configurable
+
+- 🏅 **Badges & notifications**
+  - Gamification (badges par actions)
+  - Notifications push utilisateurs
+
+- 📤 **Uploads**
+  - Multer
+  - Abstraction cloud : **LOCAL / S3 / Cloudinary**
+  - Statics publics via `/uploads`
+
+- 🛠 **Admin**
+  - Gestion utilisateurs (RBAC)
+  - Suppression & rôles
+
+- 📑 **Documentation API**
+  - Swagger UI : `/api-docs`
+  - JSON spec : `/api-docs.json`
+  - Fichier : `swagger.yaml`
+
+- 🛡 **Sécurité**
+  - Helmet
+  - Rate-limit global `/api`
+  - Validation via `express-validator`
+  - Logs + quotas
+  - Headers personnalisés (`securityHeaders`)
+
+---
+
+## 📂 Structure du projet
+
