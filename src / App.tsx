@@ -21,10 +21,11 @@ import DeployPage from "./pages/DeployPage";
 import ReplayPage from "./pages/ReplayPage";
 import ARPreviewPage from "./pages/ARPreviewPage";
 import MonitoringPage from "./pages/MonitoringPage";
+import AIAssistantPage from "./pages/AIAssistantPage"; // 👈 ajout IA
 
 // ⚡ Pages admin
 import MarketplaceManager from "./pages/MarketplaceManager";
-import AdminPanel from "./pages/AdminPanel"; // 👈 nouveau panneau admin
+import AdminPanel from "./pages/AdminPanel"; // 👈 panneau admin centralisé
 
 // Routes protégées
 import ProtectedRoute from "./routes/ProtectedRoute";
@@ -58,7 +59,7 @@ export default function App() {
           <Route path="/marketplace" element={<MarketplacePage />} />
           <Route path="/marketplace/:id" element={<TemplatePage />} />
 
-          {/* ⚡ Admin Panel (hub) */}
+          {/* ⚡ Admin Panel (hub global) */}
           <Route
             path="/admin"
             element={
@@ -93,6 +94,9 @@ export default function App() {
 
           {/* ⚡ Monitoring avancé */}
           <Route path="/monitoring" element={<MonitoringPage />} />
+
+          {/* ⚡ Assistant IA */}
+          <Route path="/ai" element={<AIAssistantPage />} />
 
           {/* 404 */}
           <Route path="*" element={<NotFound />} />
