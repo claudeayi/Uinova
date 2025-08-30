@@ -1,10 +1,14 @@
 import http from "node:http";
 import app from "./app";
 import { setupCollabSocket, io as collabIO } from "./services/collab";
+import collabRoutes from "./routes/collabRoutes";   // 🔹 nouveau import
 import { prisma } from "./utils/prisma";
 
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = normalizePort(process.env.PORT || "5000");
+
+// Brancher routes collab REST
+app.use("/api/collab", collabRoutes);   // 🔹 nouveau
 
 // Expose le port à Express (utile pour certains middlewares)
 app.set("port", PORT);
@@ -24,12 +28,18 @@ server.listen(PORT as number, HOST, () => {
   const base =
     process.env.API_BASE_URL ||
     `http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`;
-  console.log(`✅ UInova API prête sur ${base}`);
+  console.log(`\x1b[32m✅ UInova API prête sur ${base}\x1b[0m`);
   console.log(`📚 Docs: ${base.replace(/\/+$/, "")}/api-docs`);
 });
 
 // Gestion d'erreurs serveur
 server.on("error", onError);
+
+// Monitoring connexions actives
+server.on("connection", () => {
+  const count = collabIO?.engine?.clientsCount || 0;
+  console.log(`🌐 Nouvelle connexion TCP | Sockets actifs: ${count}`);
+});
 
 // Arrêt propre (SIGINT/SIGTERM/SIGUSR2)
 ["SIGINT", "SIGTERM", "SIGUSR2"].forEach((sig) => {
@@ -56,8 +66,6 @@ server.on("error", onError);
 /* ======================
  * Gestion erreurs globales
  * ====================== */
-
-// Sécurité: log des erreurs non-capturées
 process.on("unhandledRejection", async (reason: any) => {
   console.error("UNHANDLED REJECTION:", reason);
 
