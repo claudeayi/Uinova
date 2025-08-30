@@ -1,14 +1,16 @@
 import http from "node:http";
 import app from "./app";
 import { setupCollabSocket, io as collabIO } from "./services/collab";
-import collabRoutes from "./routes/collabRoutes";   // 🔹 nouveau import
+import collabRoutes from "./routes/collabRoutes";
+import collabReplayRoutes from "./routes/collabReplayRoutes"; // 🔹 nouveau
 import { prisma } from "./utils/prisma";
 
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = normalizePort(process.env.PORT || "5000");
 
 // Brancher routes collab REST
-app.use("/api/collab", collabRoutes);   // 🔹 nouveau
+app.use("/api/collab", collabRoutes);
+app.use("/api/collab/replay", collabReplayRoutes); // 🔹 nouveau
 
 // Expose le port à Express (utile pour certains middlewares)
 app.set("port", PORT);
