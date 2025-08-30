@@ -1,7 +1,7 @@
-// src/server.ts
 import http from "node:http";
 import app from "./app";
 import { setupCollabSocket, io as collabIO } from "./services/collab";
+import { prisma } from "./utils/prisma";
 
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = normalizePort(process.env.PORT || "5000");
@@ -38,7 +38,6 @@ server.on("error", onError);
     try {
       // Ferme Socket.io si initialisé
       try {
-        // @ts-ignore: close existe si io est instancié
         collabIO?.close?.();
       } catch {}
 
@@ -54,13 +53,42 @@ server.on("error", onError);
   });
 });
 
+/* ======================
+ * Gestion erreurs globales
+ * ====================== */
+
 // Sécurité: log des erreurs non-capturées
-process.on("unhandledRejection", (reason) => {
+process.on("unhandledRejection", async (reason: any) => {
   console.error("UNHANDLED REJECTION:", reason);
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        action: "unhandledRejection",
+        metadata: { reason: String(reason) },
+      },
+    });
+  } catch (e) {
+    console.error("❌ Impossible d'écrire dans AuditLog:", e);
+  }
 });
-process.on("uncaughtException", (err) => {
+
+process.on("uncaughtException", async (err: Error) => {
   console.error("UNCAUGHT EXCEPTION:", err);
-  // Option: process.exit(1) si tu préfères tuer le process
+
+  try {
+    await prisma.auditLog.create({
+      data: {
+        action: "uncaughtException",
+        metadata: { message: err.message, stack: err.stack },
+      },
+    });
+  } catch (e) {
+    console.error("❌ Impossible d'écrire dans AuditLog:", e);
+  }
+
+  // Optionnel: tuer le process si tu veux forcer un redémarrage
+  // process.exit(1);
 });
 
 /* ======================
