@@ -1,37 +1,13 @@
 openapi: 3.0.3
 info:
   title: UInova API
-  version: "2.0.0"
-  description: >
-    Documentation de l’API **UInova Phase 2**  
-    Inclut auth, projets, pages, paiements, exports, collaboration, notifications, badges, uploads.
-
+  version: "3.0.0"
 servers:
-  - url: http://localhost:4000
-
-components:
-  securitySchemes:
-    bearerAuth:
-      type: http
-      scheme: bearer
-      bearerFormat: JWT
-
-tags:
-  - name: Auth
-  - name: Projects
-  - name: Pages
-  - name: Exports
-  - name: Payments
-  - name: Badges
-  - name: Notifications
-  - name: Uploads
-  - name: Collaboration
-  - name: Health
+  - url: http://localhost:5000
 
 paths:
   /api/auth/login:
     post:
-      tags: [Auth]
       summary: Login utilisateur
       requestBody:
         required: true
@@ -51,17 +27,16 @@ paths:
               schema:
                 type: object
                 properties:
-                  accessToken: { type: string }
+                  token: { type: string }
                   user:
                     type: object
                     properties:
                       id: { type: string }
                       email: { type: string }
-                      displayName: { type: string, nullable: true }
+                      role: { type: string, enum: [USER, PREMIUM, ADMIN] }
 
   /api/auth/register:
     post:
-      tags: [Auth]
       summary: Inscription utilisateur
       requestBody:
         required: true
@@ -73,213 +48,181 @@ paths:
               properties:
                 email: { type: string, format: email }
                 password: { type: string, minLength: 6 }
-                displayName: { type: string }
+                name: { type: string }
       responses:
         "200": { description: OK }
-
-  /api/auth/me:
-    get:
-      tags: [Auth]
-      security: [{ bearerAuth: [] }]
-      summary: Infos utilisateur courant
-      responses:
-        "200": { description: OK }
-
-  /api/home:
-    get:
-      tags: [Projects]
-      security: [{ bearerAuth: [] }]
-      summary: Accueil projets (cards + totals)
-      responses:
-        "200":
-          description: OK
 
   /api/projects:
     get:
-      tags: [Projects]
-      security: [{ bearerAuth: [] }]
-      summary: Liste filtrée des projets
-      parameters:
-        - in: query
-          name: status
-          schema: { type: string, enum: [EN_COURS, TERMINE, PLANIFIE] }
-      responses:
-        "200": { description: OK }
+      summary: Liste des projets
+      security: [ { bearerAuth: [] } ]
+      responses: { "200": { description: OK } }
+
+  # ⚡ Marketplace
+  /api/marketplace/items:
+    get:
+      summary: Liste des templates marketplace
+      security: [ { bearerAuth: [] } ]
+      responses: { "200": { description: OK } }
     post:
-      tags: [Projects]
-      security: [{ bearerAuth: [] }]
-      summary: Créer un projet
+      summary: Publier un template marketplace
+      security: [ { bearerAuth: [] } ]
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [name]
               properties:
-                name: { type: string }
-                tagline: { type: string }
-                icon: { type: string }
-                status: { type: string, enum: [EN_COURS, TERMINE, PLANIFIE] }
-      responses:
-        "201": { description: Created }
+                title: { type: string }
+                description: { type: string }
+                price: { type: number }
+                contentUrl: { type: string }
+      responses: { "201": { description: Created } }
 
-  /api/projects/{id}:
+  /api/marketplace/items/{id}:
     get:
-      tags: [Projects]
-      security: [{ bearerAuth: [] }]
+      summary: Détail d’un template marketplace
       parameters:
         - in: path
           name: id
           required: true
           schema: { type: string }
-      responses:
-        "200": { description: OK }
-    put:
-      tags: [Projects]
-      security: [{ bearerAuth: [] }]
-      summary: Mettre à jour un projet
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              properties:
-                name: { type: string }
-                tagline: { type: string }
-                icon: { type: string }
-                status: { type: string, enum: [EN_COURS, TERMINE, PLANIFIE] }
-                schema: {}
-      responses:
-        "200": { description: OK }
+      responses: { "200": { description: OK } }
 
-  /api/pages:
+  /api/marketplace/purchase:
     post:
-      tags: [Pages]
-      security: [{ bearerAuth: [] }]
-      summary: Créer une page
+      summary: Acheter un template marketplace
+      security: [ { bearerAuth: [] } ]
       requestBody:
         required: true
         content:
           application/json:
             schema:
               type: object
-              required: [projectId, name]
               properties:
-                projectId: { type: string }
-                name: { type: string }
-                schemaJSON: { type: object }
-      responses:
-        "201": { description: Created }
+                itemId: { type: string }
+      responses: { "200": { description: OK } }
 
-  /api/exports:
+  # ⚡ Deploy
+  /api/deploy/{projectId}:
     post:
-      tags: [Exports]
-      security: [{ bearerAuth: [] }]
-      summary: Lancer un export
+      summary: Lancer un déploiement cloud
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses: { "201": { description: Déploiement lancé } }
+
+  /api/deploy/{projectId}/status:
+    get:
+      summary: Statut du dernier déploiement
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses: { "200": { description: OK } }
+
+  /api/deploy/{projectId}/history:
+    get:
+      summary: Historique des déploiements d’un projet
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses: { "200": { description: OK } }
+
+  # ⚡ Replay
+  /api/replay/{projectId}/start:
+    post:
+      summary: Démarrer un replay collaboratif
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
+      responses: { "201": { description: Replay démarré } }
+
+  /api/replay/{projectId}/stop:
+    post:
+      summary: Arrêter un replay collaboratif
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: projectId
+          required: true
+          schema: { type: string }
       requestBody:
+        required: true
         content:
           application/json:
             schema:
               type: object
-              required: [projectId, target]
               properties:
-                projectId: { type: string }
-                target: { type: string, enum: [HTML, REACT, FLUTTER, PWA, ZIP] }
-      responses:
-        "200": { description: Export lancé }
+                replayId: { type: string }
+                dataUrl: { type: string }
+      responses: { "200": { description: Replay arrêté } }
 
-  /api/payments/checkout:
-    post:
-      tags: [Payments]
-      security: [{ bearerAuth: [] }]
-      summary: Démarrer un paiement
-      requestBody:
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [provider, amountCents, currency]
-              properties:
-                provider: { type: string, enum: [STRIPE, PAYPAL, CINETPAY] }
-                amountCents: { type: integer }
-                currency: { type: string }
-      responses:
-        "200": { description: URL ou secret de paiement }
-
-  /api/badges:
+  /api/replay/{projectId}:
     get:
-      tags: [Badges]
-      security: [{ bearerAuth: [] }]
-      summary: Liste des badges
-      responses:
-        "200": { description: OK }
-
-  /api/notifications:
-    get:
-      tags: [Notifications]
-      security: [{ bearerAuth: [] }]
-      summary: Récupérer les notifications
-      responses:
-        "200": { description: OK }
-
-  /api/upload:
-    post:
-      tags: [Uploads]
-      security: [{ bearerAuth: [] }]
-      summary: Upload fichier
-      requestBody:
-        content:
-          multipart/form-data:
-            schema:
-              type: object
-              properties:
-                file:
-                  type: string
-                  format: binary
-      responses:
-        "200": { description: Fichier uploadé }
-
-  /api/collab/history/{projectId}:
-    get:
-      tags: [Collaboration]
-      security: [{ bearerAuth: [] }]
-      summary: Récupère l’historique des modifications d’un projet
+      summary: Liste des replays d’un projet
+      security: [ { bearerAuth: [] } ]
       parameters:
-        - name: projectId
-          in: path
+        - in: path
+          name: projectId
           required: true
           schema: { type: string }
-      responses:
-        "200": { description: Historique }
-    delete:
-      tags: [Collaboration]
-      security: [{ bearerAuth: [] }]
-      summary: Supprime l’historique d’un projet (admin)
+      responses: { "200": { description: OK } }
+
+  /api/replay/{projectId}/{replayId}:
+    get:
+      summary: Détail d’un replay collaboratif
+      security: [ { bearerAuth: [] } ]
       parameters:
-        - name: projectId
-          in: path
+        - in: path
+          name: projectId
           required: true
           schema: { type: string }
-      responses:
-        "200": { description: OK }
-
-  /api/collab/replay/{projectId}:
-    get:
-      tags: [Collaboration]
-      security: [{ bearerAuth: [] }]
-      summary: Rejoue l’historique et renvoie l’état final
-      parameters:
-        - name: projectId
-          in: path
+        - in: path
+          name: replayId
           required: true
           schema: { type: string }
-      responses:
-        "200": { description: Replay }
+      responses: { "200": { description: OK } }
 
-  /api/health:
+  # ⚡ Monitoring
+  /api/monitoring/metrics:
     get:
-      tags: [Health]
-      summary: Vérifie l’état du serveur
-      responses:
-        "200": { description: OK }
+      summary: Récupérer métriques système (JSON)
+      security: [ { bearerAuth: [] } ]
+      responses: { "200": { description: OK } }
+
+  /api/monitoring/logs:
+    get:
+      summary: Derniers AuditLogs
+      security: [ { bearerAuth: [] } ]
+      responses: { "200": { description: OK } }
+
+  /api/monitoring/health:
+    get:
+      summary: État du serveur
+      security: [ { bearerAuth: [] } ]
+      responses: { "200": { description: OK } }
+
+  /api/monitoring/prometheus:
+    get:
+      summary: Métriques format Prometheus (Grafana)
+      responses: { "200": { description: OK, content: { "text/plain": { schema: { type: string } } } } }
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
