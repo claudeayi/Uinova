@@ -1,20 +1,25 @@
 backend/
 ├─ src/
-│  ├─ app.ts                     # App Express : middlewares globaux + routes
-│  ├─ server.ts                  # Lancement serveur HTTP + Socket.io + arrêts propres
+│  ├─ app.ts                 # Configuration Express (middlewares, routes, Swagger, etc.)
+│  ├─ server.ts              # Entrée serveur HTTP + Socket.io collab
 │  │
-│  ├─ controllers/               # Contrôleurs (logique métier)
-│  │  ├─ authController.ts        # Authentification / JWT
-│  │  ├─ projectController.ts     # CRUD projets
-│  │  ├─ pageController.ts        # CRUD pages
-│  │  ├─ exportController.ts      # Lancer un export (HTML, React, Flutter, PWA…)
-│  │  ├─ paymentController.ts     # Paiements (Stripe, PayPal, CinetPay)
-│  │  ├─ badgeController.ts       # Gestion des badges
-│  │  ├─ notificationController.ts# Notifications utilisateurs
-│  │  ├─ adminController.ts       # Gestion admin (utilisateurs, quotas…)
-│  │  └─ uploadController.ts      # Upload fichiers (images, assets…)
+│  ├─ controllers/           # Logique métiers
+│  │  ├─ authController.ts
+│  │  ├─ projectController.ts
+│  │  ├─ pageController.ts
+│  │  ├─ exportController.ts
+│  │  ├─ paymentController.ts
+│  │  ├─ badgeController.ts
+│  │  ├─ notificationController.ts
+│  │  ├─ adminController.ts
+│  │  ├─ uploadController.ts
+│  │  ├─ aiController.ts
+│  │  ├─ marketplaceController.ts     # ⚡ Nouveau V3
+│  │  ├─ deployController.ts          # ⚡ Nouveau V3
+│  │  ├─ replayController.ts          # ⚡ Nouveau V3
+│  │  └─ monitoringController.ts      # ⚡ Nouveau V3
 │  │
-│  ├─ routes/                     # Routes Express
+│  ├─ routes/                # Routes Express reliées aux contrôleurs
 │  │  ├─ auth.ts
 │  │  ├─ projects.ts
 │  │  ├─ pages.ts
@@ -24,39 +29,53 @@ backend/
 │  │  ├─ notifications.ts
 │  │  ├─ admin.ts
 │  │  ├─ upload.ts
-│  │  ├─ ai.ts                     # API AI (assistant, onboarding)
-│  │  └─ health.ts                 # Endpoint de santé (/health)
+│  │  ├─ ai.ts
+│  │  ├─ marketplace.ts       # ⚡ Nouveau V3
+│  │  ├─ deploy.ts            # ⚡ Nouveau V3
+│  │  ├─ replay.ts            # ⚡ Nouveau V3
+│  │  └─ monitoring.ts        # ⚡ Nouveau V3
 │  │
 │  ├─ middlewares/
-│  │  ├─ security.ts              # Headers sécurisés, CORS, helmet
-│  │  ├─ rateLimit.ts             # Limiteur de requêtes
-│  │  └─ errorHandler.ts          # Middleware global erreurs
+│  │  ├─ security.ts          # headers, JWT auth
+│  │  ├─ rateLimit.ts         # rate limiter global
+│  │  └─ errorHandler.ts      # handler global erreurs
 │  │
 │  ├─ services/
-│  │  ├─ collab.ts                # Collaboration temps réel (Socket.io)
-│  │  ├─ paymentServices.ts       # Intégration Stripe, PayPal, CinetPay
-│  │  ├─ exportService.ts         # Gestion exports
-│  │  ├─ aiServices.ts            # Appels IA (OpenAI, ML interne)
-│  │  └─ cloud.ts                 # Stockage cloud (S3, GCP, etc.)
+│  │  ├─ collab.ts            # Socket.io collab temps réel
+│  │  ├─ paymentServices.ts   # Stripe / PayPal / CinetPay
+│  │  ├─ exportService.ts     # Génération HTML/React/Flutter
+│  │  ├─ aiServices.ts        # OpenAI (Assistant IA)
+│  │  ├─ deployService.ts     # ⚡ Infra-as-code déploiement mock
+│  │  └─ cloud.ts             # stockage fichiers / uploads
 │  │
 │  ├─ utils/
-│  │  ├─ prisma.ts                # Prisma client
-│  │  ├─ jwt.ts                   # Gestion JWT
-│  │  ├─ hash.ts                  # Hashing mots de passe
-│  │  ├─ mailer.ts                # Envoi d’emails
-│  │  ├─ logger.ts                # Logger centralisé (pino/winston)
-│  │  └─ swagger.ts               # Loader swagger.yaml
+│  │  ├─ prisma.ts            # client Prisma
+│  │  ├─ jwt.ts               # gestion JWT
+│  │  ├─ hash.ts              # hash mot de passe
+│  │  ├─ mailer.ts            # envoi mails
+│  │  ├─ logger.ts            # logger Winston/Pino
+│  │  └─ swagger.ts           # setup Swagger + Redoc
 │  │
-│  └─ __tests__/                  # Tests unitaires / e2e (si actif)
+│  ├─ __tests__/              # Tests unitaires + intégration
+│  │  ├─ auth.test.ts
+│  │  ├─ projects.test.ts
+│  │  └─ ...
+│  │
+│  └─ types/                  # Types globaux
+│     └─ express.d.ts
 │
 ├─ prisma/
-│  ├─ schema.prisma               # Modèle de données complet
-│  └─ seed.ts                     # Script de seed initial
+│  ├─ schema.prisma           # ✅ version enrichie V3 (Replay, Deploy, Marketplace, AuditLog…)
+│  └─ seed.ts                 # script seed (badges, templates, etc.)
 │
-├─ swagger.yaml                   # Documentation API
+├─ uploads/                   # Fichiers statiques
+│
+├─ swagger.yaml               # Documentation OpenAPI (auth, projects, marketplace, deploy, replay, monitoring)
+│
 ├─ package.json
 ├─ tsconfig.json
 ├─ Dockerfile
+├─ docker-compose.yml         # ⚡ Backend + MySQL + Prometheus + Grafana
 ├─ .dockerignore
-├─ .env.example                   # Variables env (DB, JWT, APIs, paiements…)
-└─ .github/workflows/ci.yml       # CI/CD (build + tests + déploiement)
+├─ .env.example               # Clés Stripe/PayPal/OpenAI/CinetPay, etc.
+└─ .github/workflows/ci.yml   # CI/CD GitHub Actions (lint, tests, swagger validation)
