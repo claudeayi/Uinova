@@ -10,16 +10,23 @@ import PreviewPage from "./pages/PreviewPage";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import MarketplacePage from "./pages/MarketplacePage";
+import TemplatePage from "./pages/TemplatePage";
 import PricingPage from "./pages/PricingPage";
 import PaymentPage from "./pages/PaymentPage";
 import NotFound from "./pages/NotFound";
 
 // ⚡ Nouvelles pages Phase 3
+import ProjectsPage from "./pages/ProjectsPage";
 import DeployPage from "./pages/DeployPage";
-import TemplatePage from "./pages/TemplatePage";
 import ReplayPage from "./pages/ReplayPage";
 import ARPreviewPage from "./pages/ARPreviewPage";
 import MonitoringPage from "./pages/MonitoringPage";
+
+// ⚡ Pages admin
+import MarketplaceManager from "./pages/MarketplaceManager";
+
+// Routes protégées
+import ProtectedRoute from "./routes/ProtectedRoute";
 
 export default function App() {
   return (
@@ -32,6 +39,9 @@ export default function App() {
         <Routes>
           {/* Accueil / Dashboard */}
           <Route path="/" element={<Dashboard />} />
+
+          {/* Projets */}
+          <Route path="/projects" element={<ProjectsPage />} />
 
           {/* Éditeur */}
           <Route path="/editor/:id" element={<EditorPage />} />
@@ -46,6 +56,16 @@ export default function App() {
           {/* Marketplace */}
           <Route path="/marketplace" element={<MarketplacePage />} />
           <Route path="/marketplace/:id" element={<TemplatePage />} />
+
+          {/* ⚡ Admin Marketplace */}
+          <Route
+            path="/marketplace/manage"
+            element={
+              <ProtectedRoute role="admin">
+                <MarketplaceManager />
+              </ProtectedRoute>
+            }
+          />
 
           {/* Tarifs & Paiement */}
           <Route path="/pricing" element={<PricingPage />} />
