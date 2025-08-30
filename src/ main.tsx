@@ -1,20 +1,22 @@
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="description" content="UInova – éditeur no-code avancé pour créer sites, apps et interfaces." />
+import React from "react";
+import ReactDOM from "react-dom/client";
+import { BrowserRouter } from "react-router-dom";
 
-    <!-- Favicon -->
-    <link rel="icon" type="image/png" href="/favicon.png" />
+import App from "./App";
+import { AuthProvider } from "./context/AuthContext";
+import { ProjectProvider } from "./context/ProjectContext";
 
-    <!-- Titre -->
-    <title>UInova</title>
+import "./index.css"; // Tailwind + styles globaux
 
-    <!-- Styles injectés par Vite + Tailwind -->
-  </head>
-  <body class="bg-gray-50 dark:bg-gray-900 text-gray-900 dark:text-gray-100">
-    <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
-  </body>
-</html>
+// Point d’entrée React
+ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+  <React.StrictMode>
+    <BrowserRouter>
+      <AuthProvider>
+        <ProjectProvider>
+          <App />
+        </ProjectProvider>
+      </AuthProvider>
+    </BrowserRouter>
+  </React.StrictMode>
+);
