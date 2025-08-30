@@ -78,6 +78,7 @@ model User {
   collabs       CollabHistory[]
   purchases     Purchase[]       // ⚡ Achats marketplace
   items         MarketplaceItem[]// ⚡ Templates publiés
+  replays       ReplaySession[]  // ⚡ Sessions replay
 }
 
 model Project {
@@ -106,7 +107,7 @@ model Page {
   project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId   String
   schemaJSON  Json
-  editors     User[]    @relation("PageEditors") // collab éditeurs secondaires
+  editors     User[]    @relation("PageEditors")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -148,14 +149,13 @@ model Subscription {
 model Payment {
   id             String           @id @default(cuid())
   provider       PaymentProvider
-  providerRef    String?          // id Stripe/PayPal/Cinetpay
+  providerRef    String?
   amountCents    Int
   currency       String           @default("EUR")
   status         PaymentStatus    @default(CREATED)
   rawPayload     Json?
   createdAt      DateTime         @default(now())
 
-  // rattachement
   user           User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
   userId         String?
   subscription   Subscription?    @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
@@ -206,8 +206,8 @@ model Upload {
   id        String   @id @default(cuid())
   user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   userId    String?
-  key       String   // chemin stockage
-  url       String   // URL publique
+  key       String
+  url       String
   size      Int
   mime      String
   createdAt DateTime @default(now())
@@ -216,9 +216,8 @@ model Upload {
   @@index([mime])
 }
 
-/* ----------------------------- NEW MODELS PHASE 2 ----------------------------- */
+/* ----------------------------- PHASE 2 ----------------------------- */
 
-// Audit & Sécurité
 model AuditLog {
   id        String   @id @default(cuid())
   userId    String?
@@ -228,7 +227,6 @@ model AuditLog {
   createdAt DateTime @default(now())
 }
 
-// Partage & Preview public
 model ShareLink {
   id        String   @id @default(cuid())
   projectId String
@@ -238,7 +236,6 @@ model ShareLink {
   createdAt DateTime @default(now())
 }
 
-// Collaboration avancée
 model CollabHistory {
   id        String   @id @default(cuid())
   projectId String
@@ -249,15 +246,15 @@ model CollabHistory {
   createdAt DateTime @default(now())
 }
 
-/* ----------------------------- NEW MODELS PHASE 3 ----------------------------- */
+/* ----------------------------- PHASE 3 ----------------------------- */
 
-// Marketplace (templates & composants)
 model MarketplaceItem {
   id          String   @id @default(cuid())
   title       String
   description String?
   priceCents  Int      @default(0)
   currency    String   @default("EUR")
+  published   Boolean  @default(true)
   owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerId     String
   createdAt   DateTime @default(now())
@@ -275,22 +272,24 @@ model Purchase {
   createdAt   DateTime         @default(now())
 }
 
-// Déploiements auto (infra-as-code)
 model Deployment {
   id          String   @id @default(cuid())
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId   String
   status      String   @default("PENDING") // PENDING | RUNNING | SUCCESS | ERROR
   logs        String?
+  targetUrl   String?  // URL du déploiement généré
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
 
-// Replays collaboratifs
 model ReplaySession {
   id          String   @id @default(cuid())
   project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId   String
-  dataUrl     String   // URL vers le film de la session
-  createdAt   DateTime @default(now())
+  user        User     @relation(fields: [userId], references: [id])
+  userId      String
+  dataUrl     String   // URL vers le replay (JSON/vidéo)
+  startedAt   DateTime @default(now())
+  endedAt     DateTime?
 }
