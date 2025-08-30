@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { authenticate } from "../middlewares/security";
 import {
   getMetrics,
   getPrometheusMetrics,
@@ -9,12 +8,16 @@ import {
 
 const router = Router();
 
-// ⚡ Protégé (admin/premium recommandé sauf prometheus)
-router.get("/metrics", authenticate, getMetrics);
-router.get("/logs", authenticate, getLogs);
-router.get("/health", authenticate, getHealth);
+// ✅ Monitoring JSON
+router.get("/metrics", getMetrics);
 
-// ⚡ Endpoint spécial Prometheus (en clair, pas d'auth sinon Prometheus bloque)
+// ✅ Monitoring Prometheus (scraping)
 router.get("/prometheus", getPrometheusMetrics);
+
+// ✅ Audit logs (dernier 50 logs + user lié)
+router.get("/logs", getLogs);
+
+// ✅ Health check détaillé
+router.get("/health", getHealth);
 
 export default router;
