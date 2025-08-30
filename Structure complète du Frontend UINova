@@ -1,25 +1,56 @@
 src/
-├─ components/
-│  ├─ base/Button.tsx
-│  ├─ advanced/{Card.tsx, Carousel.tsx}
-│  ├─ onboarding/OnboardingCoach.tsx
-│  └─ editor/{EditorWrapper.tsx, LivePreview.tsx}
-├─ context/
-│  └─ **AuthContext.tsx**
-├─ hooks/
-│  ├─ useToast.ts
-│  └─ **useAuth.ts**
-├─ services/
-│  ├─ ai.ts
-│  ├─ **http.ts**
-│  ├─ **auth.ts, projects.ts, pages.ts, exports.ts, payments.ts, badges.ts, notifications.ts, upload.ts**
-├─ themes/theme.ts
-├─ layouts/Navbar.tsx
-├─ pages/
-│  ├─ HelpPage.tsx
-│  ├─ **LoginPage.tsx, PricingPage.tsx, BillingPage.tsx**
-│  ├─ **ProjectsPage.tsx, ProjectDetailPage.tsx**
-│  └─ **SettingsPage.tsx**
-├─ **routes/ProtectedRoute.tsx**
-├─ App.tsx
-├─ index.css
+├─ components/                 # Composants UI réutilisables
+│  ├─ base/                    # Composants basiques (fondations UI)
+│  │   └─ Button.tsx
+│  │
+│  ├─ advanced/                # Composants UI avancés
+│  │   ├─ Card.tsx
+│  │   └─ Carousel.tsx
+│  │
+│  ├─ onboarding/              # Onboarding interactif
+│  │   └─ OnboardingCoach.tsx  # Coach IA (guide utilisateur)
+│  │
+│  └─ editor/                  # Composants de l’éditeur visuel
+│      ├─ EditorWrapper.tsx    # Conteneur de l’éditeur
+│      └─ LivePreview.tsx      # Mode aperçu en direct
+│
+├─ context/                    # Context API (gestion état global)
+│  └─ AuthContext.tsx          # Fournit l’utilisateur courant et ses infos
+│
+├─ hooks/                      # Hooks personnalisés
+│  ├─ useToast.ts              # Notifications/toasts
+│  └─ useAuth.ts               # Hook pour gérer login/logout
+│
+├─ services/                   # Services (appel API backend)
+│  ├─ ai.ts                    # API IA (assistant, onboarding, auto-génération)
+│  ├─ http.ts                  # Instance Axios/Fetch centralisée
+│  ├─ auth.ts                  # API Auth (login/register/logout)
+│  ├─ projects.ts              # API Projets (CRUD projets/pages)
+│  ├─ pages.ts                 # API Pages (CRUD contenu page)
+│  ├─ exports.ts               # API Exports (HTML, React, Flutter, PWA…)
+│  ├─ payments.ts              # API Paiements (Stripe, PayPal, CinetPay)
+│  ├─ badges.ts                # API Badges utilisateurs
+│  ├─ notifications.ts         # API Notifications
+│  └─ upload.ts                # API Upload (fichiers/images)
+│
+├─ themes/
+│  └─ theme.ts                 # Thème global (couleurs, typographie, etc.)
+│
+├─ layouts/
+│  └─ Navbar.tsx               # Barre de navigation principale
+│
+├─ pages/                      # Pages accessibles via routes
+│  ├─ HelpPage.tsx             # Page d’aide
+│  ├─ LoginPage.tsx            # Page login
+│  ├─ PricingPage.tsx          # Page tarifs/abonnements
+│  ├─ BillingPage.tsx          # Page facturation
+│  ├─ ProjectsPage.tsx         # Liste des projets
+│  ├─ ProjectDetailPage.tsx    # Détail d’un projet
+│  └─ SettingsPage.tsx         # Page paramètres utilisateur
+│
+├─ routes/
+│  └─ ProtectedRoute.tsx       # Route protégée (redirige si pas authentifié)
+│
+├─ App.tsx                     # App principale (routing global)
+├─ index.css                   # Styles globaux
+└─ index.tsx                   # Point d’entrée React
