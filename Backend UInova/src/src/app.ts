@@ -1,4 +1,3 @@
-// src/app.ts
 import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -24,6 +23,12 @@ import notificationRoutes from "./routes/notifications";
 import adminRoutes from "./routes/admin";
 import uploadRoutes from "./routes/upload";
 import aiRoutes from "./routes/ai";
+
+// ⚡ Nouveaux modules V3
+import marketplaceRoutes from "./routes/marketplace";
+import deployRoutes from "./routes/deploy";
+import replayRoutes from "./routes/replay";
+import monitoringRoutes from "./routes/monitoring";
 
 // ---- Typage: ID de requête sur Express.Request
 declare global {
@@ -52,8 +57,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 app.use(
   helmet({
     // Désactivé par défaut pour éviter de bloquer Swagger/Socket.io.
-    // Active une CSP stricte côté prod si besoin:
-    // contentSecurityPolicy: { directives: { defaultSrc: ["'self'"], imgSrc: ["'self'", "data:"], ... } }
+    // Active une CSP stricte côté prod si besoin.
     contentSecurityPolicy: false,
     crossOriginResourcePolicy: { policy: "cross-origin" },
   })
@@ -81,7 +85,7 @@ app.use(
   })
 );
 
-// Préflight global (utile si proxies stricts)
+// Préflight global
 app.options("*", cors());
 
 // ---- Parsers (limites configurables)
@@ -95,7 +99,7 @@ app.use(
   })
 );
 
-// ---- Rate limit global sur l'API
+// ---- Rate limit global
 app.use("/api", apiLimiter);
 
 // ---- Fichiers statiques (uploads local)
@@ -119,7 +123,7 @@ app.get("/version", (_req, res) =>
   })
 );
 
-// ---- Routes API (protégées/privées à câbler dans chaque fichier si besoin)
+// ---- Routes API (core V2/V2.5)
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/pages", pageRoutes);
@@ -131,6 +135,12 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/ai", aiRoutes);
 
+// ---- Routes API V3
+app.use("/api/marketplace", marketplaceRoutes); // ⚡ templates & achats
+app.use("/api/deploy", deployRoutes);           // ⚡ déploiement infra
+app.use("/api/replay", replayRoutes);           // ⚡ replays collaboratifs
+app.use("/api/monitoring", monitoringRoutes);   // ⚡ metrics & logs
+
 // ---- Swagger (UI + JSON)
 setupSwagger(app);
 
@@ -139,8 +149,7 @@ app.use("/api", (_req: Request, res: Response) => {
   res.status(404).json({ error: "NOT_FOUND", message: "Route API introuvable" });
 });
 
-// ---- Gestion JSON invalide (SyntaxError) avant le handler global
-// (Express remonte une erreur si body JSON illégal)
+// ---- Gestion JSON invalide
 app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
   if (err instanceof SyntaxError && "body" in err) {
     return res.status(400).json({ error: "BAD_REQUEST", message: "JSON invalide" });
