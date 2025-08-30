@@ -1,18 +1,20 @@
 backend/
 ├─ src/
-│  ├─ app.ts
-│  ├─ server.ts
-│  ├─ controllers/
-│  │  ├─ authController.ts
-│  │  ├─ projectController.ts
-│  │  ├─ pageController.ts
-│  │  ├─ exportController.ts
-│  │  ├─ paymentController.ts
-│  │  ├─ badgeController.ts
-│  │  ├─ notificationController.ts
-│  │  ├─ adminController.ts
-│  │  └─ uploadController.ts
-│  ├─ routes/
+│  ├─ app.ts                     # App Express : middlewares globaux + routes
+│  ├─ server.ts                  # Lancement serveur HTTP + Socket.io + arrêts propres
+│  │
+│  ├─ controllers/               # Contrôleurs (logique métier)
+│  │  ├─ authController.ts        # Authentification / JWT
+│  │  ├─ projectController.ts     # CRUD projets
+│  │  ├─ pageController.ts        # CRUD pages
+│  │  ├─ exportController.ts      # Lancer un export (HTML, React, Flutter, PWA…)
+│  │  ├─ paymentController.ts     # Paiements (Stripe, PayPal, CinetPay)
+│  │  ├─ badgeController.ts       # Gestion des badges
+│  │  ├─ notificationController.ts# Notifications utilisateurs
+│  │  ├─ adminController.ts       # Gestion admin (utilisateurs, quotas…)
+│  │  └─ uploadController.ts      # Upload fichiers (images, assets…)
+│  │
+│  ├─ routes/                     # Routes Express
 │  │  ├─ auth.ts
 │  │  ├─ projects.ts
 │  │  ├─ pages.ts
@@ -22,33 +24,39 @@ backend/
 │  │  ├─ notifications.ts
 │  │  ├─ admin.ts
 │  │  ├─ upload.ts
-│  │  ├─ ai.ts
-│  │  └─ health.ts
+│  │  ├─ ai.ts                     # API AI (assistant, onboarding)
+│  │  └─ health.ts                 # Endpoint de santé (/health)
+│  │
 │  ├─ middlewares/
-│  │  ├─ security.ts        (headers + CORS helpers)
-│  │  ├─ rateLimit.ts       (apiLimiter)
-│  │  └─ errorHandler.ts
+│  │  ├─ security.ts              # Headers sécurisés, CORS, helmet
+│  │  ├─ rateLimit.ts             # Limiteur de requêtes
+│  │  └─ errorHandler.ts          # Middleware global erreurs
+│  │
 │  ├─ services/
-│  │  ├─ collab.ts          (Socket.io)
-│  │  ├─ paymentServices.ts (Stripe/PayPal/CinetPay)
-│  │  ├─ exportService.ts
-│  │  ├─ aiServices.ts
-│  │  └─ cloud.ts
+│  │  ├─ collab.ts                # Collaboration temps réel (Socket.io)
+│  │  ├─ paymentServices.ts       # Intégration Stripe, PayPal, CinetPay
+│  │  ├─ exportService.ts         # Gestion exports
+│  │  ├─ aiServices.ts            # Appels IA (OpenAI, ML interne)
+│  │  └─ cloud.ts                 # Stockage cloud (S3, GCP, etc.)
+│  │
 │  ├─ utils/
-│  │  ├─ prisma.ts
-│  │  ├─ jwt.ts
-│  │  ├─ hash.ts
-│  │  ├─ mailer.ts
-│  │  ├─ logger.ts
-│  │  └─ swagger.ts
-│  └─ __tests__/ (si actif)
+│  │  ├─ prisma.ts                # Prisma client
+│  │  ├─ jwt.ts                   # Gestion JWT
+│  │  ├─ hash.ts                  # Hashing mots de passe
+│  │  ├─ mailer.ts                # Envoi d’emails
+│  │  ├─ logger.ts                # Logger centralisé (pino/winston)
+│  │  └─ swagger.ts               # Loader swagger.yaml
+│  │
+│  └─ __tests__/                  # Tests unitaires / e2e (si actif)
+│
 ├─ prisma/
-│  ├─ schema.prisma
-│  └─ seed.ts
-├─ swagger.yaml
+│  ├─ schema.prisma               # Modèle de données complet
+│  └─ seed.ts                     # Script de seed initial
+│
+├─ swagger.yaml                   # Documentation API
 ├─ package.json
 ├─ tsconfig.json
 ├─ Dockerfile
 ├─ .dockerignore
-├─ .env.example
-└─ .github/workflows/ci.yml
+├─ .env.example                   # Variables env (DB, JWT, APIs, paiements…)
+└─ .github/workflows/ci.yml       # CI/CD (build + tests + déploiement)
