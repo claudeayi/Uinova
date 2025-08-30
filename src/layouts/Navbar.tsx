@@ -45,13 +45,17 @@ export default function Navbar() {
             Marketplace
           </NavLink>
 
-          {/* ⚙️ Gestion Marketplace → visible uniquement pour admin */}
+          {/* ⚙️ Gestion Marketplace → admin uniquement */}
           {user?.role === "admin" && (
-            <NavLink
-              to="/marketplace/manage"
-              className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}
-            >
+            <NavLink to="/marketplace/manage" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
               ⚙️ Gestion Marketplace
+            </NavLink>
+          )}
+
+          {/* 🛠️ Admin Panel → admin uniquement */}
+          {user?.role === "admin" && (
+            <NavLink to="/admin" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
+              🛠️ Admin Panel
             </NavLink>
           )}
 
@@ -103,9 +107,15 @@ export default function Navbar() {
               </NavLink>
             </>
           ) : (
-            <span className="text-sm text-gray-600 dark:text-gray-300">
-              👋 {user.email}
-            </span>
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-gray-600 dark:text-gray-300">
+                👋 {user.email}
+              </span>
+              {/* Bouton Logout → à connecter plus tard */}
+              <button className="text-xs px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600">
+                Déconnexion
+              </button>
+            </div>
           )}
 
           {/* Bouton Dark/Light */}
