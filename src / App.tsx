@@ -24,6 +24,7 @@ import MonitoringPage from "./pages/MonitoringPage";
 
 // ⚡ Pages admin
 import MarketplaceManager from "./pages/MarketplaceManager";
+import AdminPanel from "./pages/AdminPanel"; // 👈 nouveau panneau admin
 
 // Routes protégées
 import ProtectedRoute from "./routes/ProtectedRoute";
@@ -56,6 +57,16 @@ export default function App() {
           {/* Marketplace */}
           <Route path="/marketplace" element={<MarketplacePage />} />
           <Route path="/marketplace/:id" element={<TemplatePage />} />
+
+          {/* ⚡ Admin Panel (hub) */}
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute role="admin">
+                <AdminPanel />
+              </ProtectedRoute>
+            }
+          />
 
           {/* ⚡ Admin Marketplace */}
           <Route
