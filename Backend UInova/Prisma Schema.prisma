@@ -1,4 +1,3 @@
-// prisma/schema.prisma
 generator client {
   provider = "prisma-client-js"
 }
@@ -56,6 +55,8 @@ enum PaymentStatus {
   REFUNDED
 }
 
+/* ----------------------------- CORE MODELS ----------------------------- */
+
 model User {
   id            String           @id @default(cuid())
   email         String           @unique
@@ -73,6 +74,8 @@ model User {
   subscriptions Subscription[]
   payments      Payment[]
   uploads       Upload[]
+  auditLogs     AuditLog[]
+  collabs       CollabHistory[]
 }
 
 model Project {
@@ -84,6 +87,8 @@ model Project {
   ownerId     String
   pages       Page[]
   exports     ExportJob[]
+  shareLinks  ShareLink[]
+  collabs     CollabHistory[]
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
@@ -97,8 +102,7 @@ model Page {
   project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId   String
   schemaJSON  Json
-  // éditeurs secondaires (collab)
-  editors     User[]    @relation("PageEditors")
+  editors     User[]    @relation("PageEditors") // collab éditeurs secondaires
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
@@ -206,4 +210,37 @@ model Upload {
 
   @@index([userId])
   @@index([mime])
+}
+
+/* ----------------------------- NEW MODELS PHASE 2 ----------------------------- */
+
+// Audit & Sécurité
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  metadata  Json?
+  createdAt DateTime @default(now())
+}
+
+// Partage & Preview public
+model ShareLink {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  token     String   @unique
+  isPublic  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// Collaboration avancée
+model CollabHistory {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  changes   Json
+  createdAt DateTime @default(now())
 }
