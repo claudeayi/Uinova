@@ -76,6 +76,8 @@ model User {
   uploads       Upload[]
   auditLogs     AuditLog[]
   collabs       CollabHistory[]
+  purchases     Purchase[]       // ⚡ Achats marketplace
+  items         MarketplaceItem[]// ⚡ Templates publiés
 }
 
 model Project {
@@ -89,6 +91,8 @@ model Project {
   exports     ExportJob[]
   shareLinks  ShareLink[]
   collabs     CollabHistory[]
+  deployments Deployment[]   // ⚡ Historique déploiements
+  replays     ReplaySession[]// ⚡ Sessions replay
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
@@ -243,4 +247,50 @@ model CollabHistory {
   user      User     @relation(fields: [userId], references: [id])
   changes   Json
   createdAt DateTime @default(now())
+}
+
+/* ----------------------------- NEW MODELS PHASE 3 ----------------------------- */
+
+// Marketplace (templates & composants)
+model MarketplaceItem {
+  id          String   @id @default(cuid())
+  title       String
+  description String?
+  priceCents  Int      @default(0)
+  currency    String   @default("EUR")
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId     String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  purchases   Purchase[]
+}
+
+model Purchase {
+  id          String           @id @default(cuid())
+  item        MarketplaceItem  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemId      String
+  buyer       User             @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  buyerId     String
+  createdAt   DateTime         @default(now())
+}
+
+// Déploiements auto (infra-as-code)
+model Deployment {
+  id          String   @id @default(cuid())
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+  status      String   @default("PENDING") // PENDING | RUNNING | SUCCESS | ERROR
+  logs        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// Replays collaboratifs
+model ReplaySession {
+  id          String   @id @default(cuid())
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String
+  dataUrl     String   // URL vers le film de la session
+  createdAt   DateTime @default(now())
 }
