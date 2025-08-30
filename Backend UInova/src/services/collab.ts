@@ -1,10 +1,10 @@
-// src/services/collab.ts
 import { Server, Socket } from "socket.io";
 import { verifyToken, JWTPayload } from "../utils/jwt";
+import { prisma } from "../utils/prisma";
 
-// (optionnel) branche un module policy si tu veux du RBAC serveur fin
-// export async function canAccessProject(userId: string, projectId: string|number, need: "VIEW"|"EDIT") { ... }
-
+/* -----------------------------
+ * Types & Auth
+ * ----------------------------- */
 type AppRole = "user" | "premium" | "admin";
 type AuthedUser = { id: string; email?: string; role: AppRole };
 
@@ -19,13 +19,15 @@ export let io: Server | null = null;
 const MAX_ROOM_SIZE = Number(process.env.COLLAB_MAX_ROOM || 200);
 const CORS_ORIGINS = (process.env.CORS_ORIGINS || "*")
   .split(",")
-  .map(s => s.trim())
+  .map((s) => s.trim())
   .filter(Boolean);
 
 const roomKey = (projectId: string | number, pageId?: string | number) =>
   pageId === undefined ? `project:${projectId}` : `project:${projectId}:page:${pageId}`;
 
-// ==== Rate limit simple par socket (token bucket) ====
+/* -----------------------------
+ * Rate limiting simple par socket
+ * ----------------------------- */
 function makeRateLimit(perSec = 30, burst = 60) {
   let tokens = burst;
   let last = Date.now();
@@ -39,7 +41,9 @@ function makeRateLimit(perSec = 30, burst = 60) {
   };
 }
 
-// ==== Auth au handshake ====
+/* -----------------------------
+ * Auth JWT au handshake
+ * ----------------------------- */
 function authMiddleware(socket: Socket, next: (err?: any) => void) {
   try {
     const raw =
@@ -65,15 +69,17 @@ function authMiddleware(socket: Socket, next: (err?: any) => void) {
   }
 }
 
-// ==== (Optionnel) RBAC projet ====
+/* -----------------------------
+ * (Optionnel) RBAC projet
+ * ----------------------------- */
 async function ensureAccess(_userId: string, _projectId: string | number, _need: "VIEW" | "EDIT") {
-  // Si tu as une policy serveur, vérifie ici :
-  // const ok = await canAccessProject(userId, projectId, need);
-  // if (!ok) throw new Error("FORBIDDEN");
+  // Ici tu peux brancher ta vraie logique RBAC si nécessaire
   return;
 }
 
-// ==== API publique ====
+/* -----------------------------
+ * Setup Socket.io
+ * ----------------------------- */
 export function setupCollabSocket(server: any) {
   io = new Server(server, {
     cors: {
@@ -97,14 +103,16 @@ export function setupCollabSocket(server: any) {
       io!.to(room).emit("usersCount", size);
     }
 
-    // Join d'une page
+    /* -----------------------------
+     * Join d’une room
+     * ----------------------------- */
     socket.on("joinRoom", async ({ projectId, pageId }: { projectId: string | number; pageId?: string | number }) => {
       try {
         if (!socket.user) throw new Error("UNAUTHORIZED");
         if (!projectId) throw new Error("BAD_REQUEST");
         await ensureAccess(socket.user.id, projectId, "VIEW");
 
-        // Quitter d'anciennes rooms project:
+        // Quitter anciennes rooms
         for (const r of socket.rooms) if (r.startsWith("project:")) socket.leave(r);
 
         const pRoom = roomKey(projectId);
@@ -125,12 +133,16 @@ export function setupCollabSocket(server: any) {
         }
 
         socket.emit("joined", { projectRoom: pRoom, pageRoom: pgRoom });
+
+        console.log(`👥 User ${socket.user.id} joined ${pRoom}${pgRoom ? " / " + pgRoom : ""}`);
       } catch (e: any) {
         socket.emit("errorMessage", { code: e?.message || "JOIN_FAILED" });
       }
     });
 
-    // Quit
+    /* -----------------------------
+     * Quitter une room
+     * ----------------------------- */
     socket.on("leaveRoom", async ({ projectId, pageId }: { projectId: string | number; pageId?: string | number }) => {
       const pRoom = roomKey(projectId);
       const pgRoom = pageId !== undefined ? roomKey(projectId, pageId) : null;
@@ -140,12 +152,13 @@ export function setupCollabSocket(server: any) {
       await emitUsersCount(pRoom);
     });
 
-    // Update d'éléments (diff/ops)
+    /* -----------------------------
+     * Update Elements (diff/ops) + historique
+     * ----------------------------- */
     socket.on("updateElements", async (payload: {
       projectId: string | number;
       pageId: string | number;
-      ops: any;              // patch JSON / CRDT ops
-      version?: number;
+      ops: any; version?: number;
     }) => {
       try {
         if (!rlUpdate()) return socket.emit("rateLimited", { event: "updateElements" });
@@ -154,20 +167,37 @@ export function setupCollabSocket(server: any) {
         if (!projectId || pageId === undefined) throw new Error("BAD_REQUEST");
         await ensureAccess(socket.user.id, projectId, "EDIT");
 
+        // Broadcast
         io!.to(roomKey(projectId, pageId)).except(socket.id).emit("updateElements", {
           projectId, pageId, ops, version, actor: socket.user.id,
+        });
+
+        // Historique DB
+        await prisma.collabHistory.create({
+          data: {
+            projectId: String(projectId),
+            userId: socket.user.id,
+            changes: ops,
+          },
+        });
+
+        // Audit log
+        await prisma.auditLog.create({
+          data: {
+            userId: socket.user.id,
+            action: "COLLAB_UPDATE",
+            metadata: { projectId, pageId, ops, version },
+          },
         });
       } catch (e: any) {
         socket.emit("errorMessage", { code: e?.message || "UPDATE_FAILED" });
       }
     });
 
-    // Curseur / sélection (présence fine)
-    socket.on("cursor", (payload: {
-      projectId: string | number; pageId: string | number;
-      x: number; y: number; zoom?: number;
-      selection?: string[]; color?: string;
-    }) => {
+    /* -----------------------------
+     * Curseurs (présence fine)
+     * ----------------------------- */
+    socket.on("cursor", (payload: { projectId: string | number; pageId: string | number; x: number; y: number; zoom?: number; selection?: string[]; color?: string }) => {
       if (!rlCursor()) return socket.emit("rateLimited", { event: "cursor" });
       if (!socket.user) return;
       const { projectId, pageId, ...rest } = payload || ({} as any);
@@ -175,11 +205,10 @@ export function setupCollabSocket(server: any) {
       socket.to(roomKey(projectId, pageId)).emit("cursor", { userId: socket.user.id, ...rest });
     });
 
-    // Métadonnées (locks, titre, etc.)
-    socket.on("pageMeta", (payload: {
-      projectId: string | number; pageId: string | number;
-      locks?: Record<string, string>; title?: string;
-    }) => {
+    /* -----------------------------
+     * Métadonnées page (locks, titre, etc.)
+     * ----------------------------- */
+    socket.on("pageMeta", (payload: { projectId: string | number; pageId: string | number; locks?: Record<string, string>; title?: string }) => {
       if (!rlMeta()) return socket.emit("rateLimited", { event: "pageMeta" });
       if (!socket.user) return;
       const { projectId, pageId, ...rest } = payload || ({} as any);
@@ -187,21 +216,26 @@ export function setupCollabSocket(server: any) {
       socket.to(roomKey(projectId, pageId)).emit("pageMeta", { ...rest, actor: socket.user.id });
     });
 
-    // Heartbeat
+    /* -----------------------------
+     * Heartbeat
+     * ----------------------------- */
     socket.on("pingMe", () => socket.emit("pongMe", { t: Date.now() }));
 
     socket.on("disconnect", async () => {
       try {
-        const rooms = [...socket.rooms].filter(r => r.startsWith("project:"));
+        const rooms = [...socket.rooms].filter((r) => r.startsWith("project:"));
         for (const r of rooms) await emitUsersCount(r);
-      } catch {/* ignore */}
+        console.log(`⚡ User ${socket.user?.id} disconnected (${socket.id})`);
+      } catch { /* ignore */ }
     });
   });
 
   return io;
 }
 
-// ==== Helpers pour émettre depuis tes controllers ====
+/* -----------------------------
+ * Helpers pour controllers REST
+ * ----------------------------- */
 export function emitToProject(projectId: string | number, event: string, payload: any) {
   io?.to(roomKey(projectId)).emit(event, payload);
 }
