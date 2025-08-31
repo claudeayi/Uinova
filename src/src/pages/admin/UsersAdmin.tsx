@@ -1,5 +1,6 @@
+// src/pages/admin/UsersAdmin.tsx
 import { useEffect, useState } from "react";
-import { getUsers, updateUserRole, updateUserPlan } from "@/services/admin";
+import { getUsers, updateUserRole, updateUserPlan, deleteUser } from "@/services/admin";
 import toast from "react-hot-toast";
 
 export default function UsersAdmin() {
@@ -11,6 +12,7 @@ export default function UsersAdmin() {
 
   async function fetchUsers() {
     try {
+      setLoading(true);
       const res = await getUsers();
       setUsers(res || []);
     } catch (err) {
@@ -24,10 +26,10 @@ export default function UsersAdmin() {
   async function handleRoleChange(userId: string, role: string) {
     try {
       await updateUserRole(userId, role);
-      toast.success("Rôle mis à jour ✅");
+      toast.success("✅ Rôle mis à jour");
       fetchUsers();
     } catch (err) {
-      console.error("❌ Erreur update role:", err);
+      console.error("❌ Erreur update rôle:", err);
       toast.error("Erreur mise à jour rôle");
     }
   }
@@ -35,7 +37,7 @@ export default function UsersAdmin() {
   async function handlePlanChange(userId: string, plan: string) {
     try {
       await updateUserPlan(userId, plan);
-      toast.success("Plan mis à jour ✅");
+      toast.success("✅ Plan mis à jour");
       fetchUsers();
     } catch (err) {
       console.error("❌ Erreur update plan:", err);
@@ -43,13 +45,31 @@ export default function UsersAdmin() {
     }
   }
 
+  async function handleDelete(userId: string) {
+    if (!confirm("Voulez-vous vraiment supprimer cet utilisateur ?")) return;
+    try {
+      await deleteUser(userId);
+      toast.success("🗑️ Utilisateur supprimé");
+      fetchUsers();
+    } catch (err) {
+      console.error("❌ Erreur suppression:", err);
+      toast.error("Erreur suppression utilisateur");
+    }
+  }
+
   useEffect(() => {
     fetchUsers();
   }, []);
 
-  if (loading) return <p className="p-4 text-gray-500">Chargement...</p>;
+  if (loading) {
+    return (
+      <div className="p-6 text-center text-gray-500">
+        ⏳ Chargement des utilisateurs...
+      </div>
+    );
+  }
 
-  // 🔎 Filtre + pagination
+  // 🔎 Filtrage + pagination
   const filtered = users.filter(
     (u) =>
       u.email.toLowerCase().includes(search.toLowerCase()) ||
@@ -59,43 +79,49 @@ export default function UsersAdmin() {
   const totalPages = Math.ceil(filtered.length / pageSize);
 
   return (
-    <div className="max-w-6xl mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-6">👤 Gestion des utilisateurs</h1>
+    <div className="max-w-7xl mx-auto p-6 space-y-6">
+      <header className="flex flex-col md:flex-row justify-between items-center">
+        <h1 className="text-2xl font-bold mb-4 md:mb-0">👤 Gestion des utilisateurs</h1>
+        <div className="flex gap-2">
+          <input
+            type="text"
+            placeholder="Rechercher par email ou nom..."
+            value={search}
+            onChange={(e) => {
+              setSearch(e.target.value);
+              setPage(1);
+            }}
+            className="border rounded px-3 py-2 w-full md:w-72"
+          />
+          <button
+            onClick={fetchUsers}
+            className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            🔄 Rafraîchir
+          </button>
+        </div>
+      </header>
 
-      {/* 🔎 Recherche */}
-      <div className="flex justify-between items-center mb-4">
-        <input
-          type="text"
-          placeholder="Rechercher par email ou nom..."
-          value={search}
-          onChange={(e) => {
-            setSearch(e.target.value);
-            setPage(1);
-          }}
-          className="border rounded px-3 py-2 w-full md:w-1/3"
-        />
-        <p className="text-sm text-gray-500 ml-4">
-          {filtered.length} utilisateur(s)
-        </p>
-      </div>
+      <p className="text-sm text-gray-500">{filtered.length} utilisateur(s)</p>
 
-      {/* Tableau */}
+      {/* Tableau utilisateurs */}
       <div className="overflow-x-auto rounded shadow">
-        <table className="w-full border-collapse">
+        <table className="w-full border-collapse text-sm">
           <thead>
-            <tr className="bg-gray-100 dark:bg-slate-800">
+            <tr className="bg-gray-100 dark:bg-slate-800 text-left">
               <th className="p-3 border">Email</th>
               <th className="p-3 border">Nom</th>
               <th className="p-3 border">Rôle</th>
               <th className="p-3 border">Plan</th>
               <th className="p-3 border">Créé le</th>
+              <th className="p-3 border text-center">Actions</th>
             </tr>
           </thead>
           <tbody>
             {paginated.map((u) => (
               <tr
                 key={u.id}
-                className="text-center border-b dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800"
+                className="border-b dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800"
               >
                 <td className="p-3">{u.email}</td>
                 <td className="p-3">{u.name || "—"}</td>
@@ -109,17 +135,6 @@ export default function UsersAdmin() {
                     <option value="PREMIUM">PREMIUM</option>
                     <option value="ADMIN">ADMIN</option>
                   </select>
-                  <span
-                    className={`ml-2 px-2 py-1 text-xs rounded ${
-                      u.role === "ADMIN"
-                        ? "bg-red-100 text-red-600"
-                        : u.role === "PREMIUM"
-                        ? "bg-green-100 text-green-600"
-                        : "bg-gray-100 text-gray-600"
-                    }`}
-                  >
-                    {u.role}
-                  </span>
                 </td>
                 <td className="p-3">
                   <select
@@ -132,22 +147,17 @@ export default function UsersAdmin() {
                     <option value="BUSINESS">BUSINESS</option>
                     <option value="ENTERPRISE">ENTERPRISE</option>
                   </select>
-                  <span
-                    className={`ml-2 px-2 py-1 text-xs rounded ${
-                      u.subscriptions?.[0]?.plan === "ENTERPRISE"
-                        ? "bg-purple-100 text-purple-600"
-                        : u.subscriptions?.[0]?.plan === "BUSINESS"
-                        ? "bg-blue-100 text-blue-600"
-                        : u.subscriptions?.[0]?.plan === "PRO"
-                        ? "bg-green-100 text-green-600"
-                        : "bg-gray-100 text-gray-600"
-                    }`}
-                  >
-                    {u.subscriptions?.[0]?.plan || "FREE"}
-                  </span>
                 </td>
                 <td className="p-3">
                   {new Date(u.createdAt).toLocaleDateString("fr-FR")}
+                </td>
+                <td className="p-3 text-center">
+                  <button
+                    onClick={() => handleDelete(u.id)}
+                    className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs"
+                  >
+                    🗑️ Supprimer
+                  </button>
                 </td>
               </tr>
             ))}
