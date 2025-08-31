@@ -21,11 +21,15 @@ import DeployPage from "./pages/DeployPage";
 import ReplayPage from "./pages/ReplayPage";
 import ARPreviewPage from "./pages/ARPreviewPage";
 import MonitoringPage from "./pages/MonitoringPage";
-import AIAssistantPage from "./pages/AIAssistantPage"; // 👈 ajout IA
+import AIAssistantPage from "./pages/AIAssistantPage";
 
 // ⚡ Pages admin
+import AdminPanel from "./pages/AdminPanel";
 import MarketplaceManager from "./pages/MarketplaceManager";
-import AdminPanel from "./pages/AdminPanel"; // 👈 panneau admin centralisé
+import UsersAdmin from "./pages/admin/UsersAdmin";
+import ProjectsAdmin from "./pages/admin/ProjectsAdmin";
+import LogsAdmin from "./pages/admin/LogsAdmin";
+import ReplaysAdmin from "./pages/admin/ReplaysAdmin";
 
 // Routes protégées
 import ProtectedRoute from "./routes/ProtectedRoute";
@@ -58,8 +62,16 @@ export default function App() {
           {/* Marketplace */}
           <Route path="/marketplace" element={<MarketplacePage />} />
           <Route path="/marketplace/:id" element={<TemplatePage />} />
+          <Route
+            path="/marketplace/manage"
+            element={
+              <ProtectedRoute role="admin">
+                <MarketplaceManager />
+              </ProtectedRoute>
+            }
+          />
 
-          {/* ⚡ Admin Panel (hub global) */}
+          {/* ⚡ Admin Hub */}
           <Route
             path="/admin"
             element={
@@ -68,13 +80,35 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-
-          {/* ⚡ Admin Marketplace */}
           <Route
-            path="/marketplace/manage"
+            path="/admin/users"
             element={
               <ProtectedRoute role="admin">
-                <MarketplaceManager />
+                <UsersAdmin />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/projects"
+            element={
+              <ProtectedRoute role="admin">
+                <ProjectsAdmin />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/logs"
+            element={
+              <ProtectedRoute role="admin">
+                <LogsAdmin />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/replays"
+            element={
+              <ProtectedRoute role="admin">
+                <ReplaysAdmin />
               </ProtectedRoute>
             }
           />
