@@ -1,10 +1,8 @@
+// src/services/collabService.ts
 import { Server, Socket } from "socket.io";
 import { verifyToken, JWTPayload } from "../utils/jwt";
 import { prisma } from "../utils/prisma";
 
-/* -----------------------------
- * Types & Auth
- * ----------------------------- */
 type AppRole = "user" | "premium" | "admin";
 type AuthedUser = { id: string; email?: string; role: AppRole };
 
@@ -78,6 +76,14 @@ async function ensureAccess(_userId: string, _projectId: string | number, _need:
 }
 
 /* -----------------------------
+ * Présence : liste des users connectés par room
+ * ----------------------------- */
+async function getUsersInRoom(room: string) {
+  const sockets = await io!.in(room).fetchSockets();
+  return sockets.map((s) => s.user);
+}
+
+/* -----------------------------
  * Setup Socket.io
  * ----------------------------- */
 export function setupCollabSocket(server: any) {
@@ -99,8 +105,8 @@ export function setupCollabSocket(server: any) {
     const rlMeta = makeRateLimit(20, 40);
 
     async function emitUsersCount(room: string) {
-      const size = (await io!.in(room).fetchSockets()).length;
-      io!.to(room).emit("usersCount", size);
+      const users = await getUsersInRoom(room);
+      io!.to(room).emit("usersUpdate", { count: users.length, users });
     }
 
     /* -----------------------------
@@ -112,7 +118,6 @@ export function setupCollabSocket(server: any) {
         if (!projectId) throw new Error("BAD_REQUEST");
         await ensureAccess(socket.user.id, projectId, "VIEW");
 
-        // Quitter anciennes rooms
         for (const r of socket.rooms) if (r.startsWith("project:")) socket.leave(r);
 
         const pRoom = roomKey(projectId);
@@ -121,7 +126,7 @@ export function setupCollabSocket(server: any) {
         if (pgRoom) {
           const socketsInPage = await io!.in(pgRoom).fetchSockets();
           if (socketsInPage.length >= MAX_ROOM_SIZE) {
-            return socket.emit("roomFull", { room: pgRoom, max: MAX_ROOM_SIZE });
+            return socket.emit("errorMessage", { code: "ROOM_FULL", room: pgRoom, max: MAX_ROOM_SIZE });
           }
         }
 
@@ -134,6 +139,14 @@ export function setupCollabSocket(server: any) {
 
         socket.emit("joined", { projectRoom: pRoom, pageRoom: pgRoom });
 
+        await prisma.auditLog.create({
+          data: {
+            action: "COLLAB_JOIN",
+            userId: socket.user.id,
+            details: `Joined project ${projectId}`,
+          },
+        });
+
         console.log(`👥 User ${socket.user.id} joined ${pRoom}${pgRoom ? " / " + pgRoom : ""}`);
       } catch (e: any) {
         socket.emit("errorMessage", { code: e?.message || "JOIN_FAILED" });
@@ -144,22 +157,31 @@ export function setupCollabSocket(server: any) {
      * Quitter une room
      * ----------------------------- */
     socket.on("leaveRoom", async ({ projectId, pageId }: { projectId: string | number; pageId?: string | number }) => {
-      const pRoom = roomKey(projectId);
-      const pgRoom = pageId !== undefined ? roomKey(projectId, pageId) : null;
-      if (pgRoom) socket.leave(pgRoom);
-      socket.leave(pRoom);
-      if (pgRoom) await emitUsersCount(pgRoom);
-      await emitUsersCount(pRoom);
+      try {
+        const pRoom = roomKey(projectId);
+        const pgRoom = pageId !== undefined ? roomKey(projectId, pageId) : null;
+        if (pgRoom) socket.leave(pgRoom);
+        socket.leave(pRoom);
+
+        if (pgRoom) await emitUsersCount(pgRoom);
+        await emitUsersCount(pRoom);
+
+        await prisma.auditLog.create({
+          data: {
+            action: "COLLAB_LEAVE",
+            userId: socket.user?.id || null,
+            details: `Left project ${projectId}`,
+          },
+        });
+      } catch (e) {
+        console.error("❌ leaveRoom error:", e);
+      }
     });
 
     /* -----------------------------
-     * Update Elements (diff/ops) + historique
+     * Update Elements (diff/ops)
      * ----------------------------- */
-    socket.on("updateElements", async (payload: {
-      projectId: string | number;
-      pageId: string | number;
-      ops: any; version?: number;
-    }) => {
+    socket.on("updateElements", async (payload: { projectId: string | number; pageId: string | number; ops: any; version?: number }) => {
       try {
         if (!rlUpdate()) return socket.emit("rateLimited", { event: "updateElements" });
         if (!socket.user) throw new Error("UNAUTHORIZED");
@@ -167,27 +189,16 @@ export function setupCollabSocket(server: any) {
         if (!projectId || pageId === undefined) throw new Error("BAD_REQUEST");
         await ensureAccess(socket.user.id, projectId, "EDIT");
 
-        // Broadcast
         io!.to(roomKey(projectId, pageId)).except(socket.id).emit("updateElements", {
           projectId, pageId, ops, version, actor: socket.user.id,
         });
 
-        // Historique DB
         await prisma.collabHistory.create({
-          data: {
-            projectId: String(projectId),
-            userId: socket.user.id,
-            changes: ops,
-          },
+          data: { projectId: String(projectId), userId: socket.user.id, changes: ops },
         });
 
-        // Audit log
         await prisma.auditLog.create({
-          data: {
-            userId: socket.user.id,
-            action: "COLLAB_UPDATE",
-            metadata: { projectId, pageId, ops, version },
-          },
+          data: { userId: socket.user.id, action: "COLLAB_UPDATE", metadata: { projectId, pageId, ops, version } },
         });
       } catch (e: any) {
         socket.emit("errorMessage", { code: e?.message || "UPDATE_FAILED" });
@@ -206,7 +217,7 @@ export function setupCollabSocket(server: any) {
     });
 
     /* -----------------------------
-     * Métadonnées page (locks, titre, etc.)
+     * Métadonnées page
      * ----------------------------- */
     socket.on("pageMeta", (payload: { projectId: string | number; pageId: string | number; locks?: Record<string, string>; title?: string }) => {
       if (!rlMeta()) return socket.emit("rateLimited", { event: "pageMeta" });
@@ -234,11 +245,27 @@ export function setupCollabSocket(server: any) {
 }
 
 /* -----------------------------
- * Helpers pour controllers REST
+ * Helpers externes
  * ----------------------------- */
 export function emitToProject(projectId: string | number, event: string, payload: any) {
   io?.to(roomKey(projectId)).emit(event, payload);
 }
 export function emitToPage(projectId: string | number, pageId: string | number, event: string, payload: any) {
   io?.to(roomKey(projectId, pageId)).emit(event, payload);
+}
+export function emitToUser(userId: string, event: string, payload: any) {
+  io?.sockets.sockets.forEach((s) => {
+    if (s.user?.id === userId) s.emit(event, payload);
+  });
+}
+
+/* -----------------------------
+ * Graceful shutdown
+ * ----------------------------- */
+export async function shutdownCollab() {
+  if (io) {
+    await io.close();
+    io = null;
+    console.log("🛑 Collab service stopped");
+  }
 }
