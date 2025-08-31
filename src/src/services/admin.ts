@@ -1,11 +1,19 @@
 import http from "./http";
 
-/**
- * 👤 Gestion des utilisateurs
- */
-export async function getUsers() {
+/* -------------------------------------------------------------------------- */
+/* 👤 Gestion des utilisateurs                                                 */
+/* -------------------------------------------------------------------------- */
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  role: "USER" | "PREMIUM" | "ADMIN";
+  createdAt: string;
+}
+
+export async function getUsers(): Promise<AdminUser[]> {
   const res = await http.get("/admin/users");
-  return res.data; // [{id,email,role,createdAt}, ...]
+  return res.data || [];
 }
 
 export async function updateUserRole(userId: string, role: string) {
@@ -13,12 +21,24 @@ export async function updateUserRole(userId: string, role: string) {
   return res.data; // { success:true }
 }
 
-/**
- * 📦 Gestion des projets
- */
-export async function getAllProjects() {
-  const res = await http.get("/admin/projects");
-  return res.data; // [{id,name,owner:{id,email}}, ...]
+/* -------------------------------------------------------------------------- */
+/* 📦 Gestion des projets                                                      */
+/* -------------------------------------------------------------------------- */
+
+export interface AdminProject {
+  id: string;
+  name: string;
+  owner: { id: string; email: string };
+  createdAt: string;
+}
+
+export async function getAllProjects(params?: { search?: string; limit?: number }) {
+  const query = new URLSearchParams();
+  if (params?.search) query.set("search", params.search);
+  if (params?.limit) query.set("limit", String(params.limit));
+
+  const res = await http.get(`/admin/projects${query.toString() ? `?${query.toString()}` : ""}`);
+  return res.data || [];
 }
 
 export async function deleteProject(projectId: string) {
@@ -26,12 +46,21 @@ export async function deleteProject(projectId: string) {
   return res.data; // { success:true }
 }
 
-/**
- * 🎬 Gestion des replays
- */
-export async function getAllReplays() {
-  const res = await http.get("/admin/replays");
-  return res.data; // [{id,projectId,dataUrl,createdAt}, ...]
+/* -------------------------------------------------------------------------- */
+/* 🎬 Gestion des replays collaboratifs                                        */
+/* -------------------------------------------------------------------------- */
+
+export interface AdminReplay {
+  id: string;
+  projectId: string;
+  dataUrl: string;
+  createdAt: string;
+}
+
+export async function getAllReplays(params?: { limit?: number }) {
+  const query = params?.limit ? `?limit=${params.limit}` : "";
+  const res = await http.get(`/admin/replays${query}`);
+  return res.data || [];
 }
 
 export async function deleteReplay(replayId: string) {
@@ -39,10 +68,23 @@ export async function deleteReplay(replayId: string) {
   return res.data; // { success:true }
 }
 
-/**
- * 📜 Logs système
- */
-export async function getAuditLogs(limit = 50) {
-  const res = await http.get(`/admin/logs?limit=${limit}`);
-  return res.data; // [{id,action,metadata,createdAt,user:{id,email}}, ...]
+/* -------------------------------------------------------------------------- */
+/* 📜 Logs système / Audit                                                     */
+/* -------------------------------------------------------------------------- */
+
+export interface AuditLog {
+  id: string;
+  action: string;
+  metadata?: Record<string, any>;
+  createdAt: string;
+  user?: { id: string; email: string };
+}
+
+export async function getAuditLogs(params?: { limit?: number; search?: string }) {
+  const query = new URLSearchParams();
+  if (params?.limit) query.set("limit", String(params.limit));
+  if (params?.search) query.set("search", params.search);
+
+  const res = await http.get(`/admin/logs${query.toString() ? `?${query.toString()}` : ""}`);
+  return res.data || [];
 }
