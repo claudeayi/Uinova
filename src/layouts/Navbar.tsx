@@ -1,17 +1,19 @@
 import { useState, useEffect } from "react";
-import { Link, NavLink } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useProject } from "@/context/ProjectContext";
 import { useAuth } from "@/hooks/useAuth";
 import ProjectSelector from "@/components/projects/ProjectSelector";
 
 export default function Navbar() {
-  const [dark, setDark] = useState(false);
+  const [dark, setDark] = useState(() => localStorage.getItem("theme") === "dark");
   const [menuOpen, setMenuOpen] = useState(false); // ⚡ mobile
   const { projectId } = useProject();
   const { user, logout } = useAuth();
+  const navigate = useNavigate();
 
   useEffect(() => {
     document.body.className = dark ? "dark" : "";
+    localStorage.setItem("theme", dark ? "dark" : "light");
   }, [dark]);
 
   const linkClass =
@@ -22,14 +24,19 @@ export default function Navbar() {
     "px-3 py-2 rounded text-gray-400 cursor-not-allowed";
 
   return (
-    <nav className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shadow-sm">
+    <nav className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shadow-sm sticky top-0 z-50">
       <div className="container mx-auto flex items-center justify-between py-3">
         {/* Logo */}
         <Link
           to="/"
-          className="text-xl font-bold text-blue-600 dark:text-blue-400"
+          className="text-xl font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1"
         >
-          UInova
+          <span>UInova</span>
+          {user?.role === "premium" && (
+            <span className="ml-1 px-2 py-0.5 text-xs rounded bg-yellow-400 text-slate-900 font-semibold">
+              Premium
+            </span>
+          )}
         </Link>
 
         {/* Menu desktop */}
@@ -66,30 +73,38 @@ export default function Navbar() {
             Paiement
           </NavLink>
 
-          {/* Phase 3 */}
+          {/* Phase 3 – si projet actif */}
           {projectId ? (
             <>
               <NavLink to={`/deploy/${projectId}`} className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-                Deploy
+                🚀 Deploy
               </NavLink>
               <NavLink to={`/replay/${projectId}`} className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-                Replay
+                🎬 Replay
               </NavLink>
               <NavLink to={`/ar/${projectId}`} className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-                AR/VR
+                🕶️ AR/VR
               </NavLink>
             </>
           ) : (
             <>
-              <span className={disabledClass}>Deploy</span>
-              <span className={disabledClass}>Replay</span>
-              <span className={disabledClass}>AR/VR</span>
+              <span className={disabledClass}>🚀 Deploy</span>
+              <span className={disabledClass}>🎬 Replay</span>
+              <span className={disabledClass}>🕶️ AR/VR</span>
             </>
           )}
 
           <NavLink to="/monitoring" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-            Monitoring
+            📊 Monitoring
           </NavLink>
+
+          {/* 🚀 Shortcut IA */}
+          <button
+            onClick={() => navigate("/ai")}
+            className="px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 transition"
+          >
+            🤖 Copilot
+          </button>
         </div>
 
         {/* Zone droite */}
@@ -166,7 +181,10 @@ export default function Navbar() {
             Paiement
           </NavLink>
           <NavLink to="/monitoring" onClick={() => setMenuOpen(false)} className={linkClass}>
-            Monitoring
+            📊 Monitoring
+          </NavLink>
+          <NavLink to="/ai" onClick={() => setMenuOpen(false)} className={linkClass}>
+            🤖 Copilot
           </NavLink>
           {!user ? (
             <>
