@@ -23,15 +23,20 @@ function ensureDir(p: string) {
  *  Générateurs
  * ========================================================================== */
 function generateHTML(project: any): string {
+  const head = `
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>${project.name}</title>
+    <style>
+      body { font-family: sans-serif; margin: 0; padding: 0; background: #fafafa; color: #111; }
+      section { padding: 1rem; border-bottom: 1px solid #ddd; }
+      h1 { margin: 0 0 .5rem; }
+    </style>
+  `;
+
   return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8">
-  <title>${project.name}</title>
-  <style>
-    body { font-family: sans-serif; margin: 0; padding: 0; }
-  </style>
-</head>
+<html lang="fr">
+<head>${head}</head>
 <body>
   ${project.pages
     .map(
@@ -90,34 +95,52 @@ export async function exportProject({
   outputDir,
   userId,
 }: ExportOptions): Promise<{ path?: string; content: string }> {
-  // Récupère le projet et ses pages
-  const project = await prisma.project.findUnique({
-    where: { id: projectId },
-    include: { pages: true },
-  });
-  if (!project) throw new Error("Project not found");
+  try {
+    // 1. Récupérer projet + pages
+    const project = await prisma.project.findUnique({
+      where: { id: projectId },
+      include: { pages: true },
+    });
+    if (!project) throw new Error(`Project not found: ${projectId}`);
+    if (!project.pages || project.pages.length === 0) {
+      throw new Error(`Project ${projectId} has no pages to export`);
+    }
 
-  let content = "";
-  if (format === "html") content = generateHTML(project);
-  else if (format === "flutter") content = generateFlutter(project);
-  else content = generateJSON(project);
+    // 2. Générer le contenu
+    let content = "";
+    if (format === "html") content = generateHTML(project);
+    else if (format === "flutter") content = generateFlutter(project);
+    else content = generateJSON(project);
 
-  let filePath: string | undefined;
-  if (outputDir) {
-    ensureDir(outputDir);
-    const ext = format === "json" ? "json" : format === "flutter" ? "dart" : "html";
-    filePath = path.join(outputDir, `${project.name}_${projectId}.${ext}`);
-    fs.writeFileSync(filePath, content, "utf-8");
+    // 3. Sauvegarde éventuelle
+    let filePath: string | undefined;
+    const safeOutput = outputDir || path.join(process.cwd(), "exports");
+    if (safeOutput) {
+      ensureDir(safeOutput);
+      const ext = format === "json" ? "json" : format === "flutter" ? "dart" : "html";
+      const safeName = project.name?.replace(/[^a-z0-9_-]+/gi, "_") || "uinova_project";
+      filePath = path.join(safeOutput, `${safeName}_${projectId}.${ext}`);
+      fs.writeFileSync(filePath, content, "utf-8");
+    }
+
+    // 4. Audit log
+    await prisma.auditLog.create({
+      data: {
+        userId: userId || null,
+        action: "EXPORT_PROJECT",
+        details: JSON.stringify({
+          projectId,
+          format,
+          pages: project.pages.length,
+          filePath: filePath || "in-memory",
+          ts: new Date().toISOString(),
+        }),
+      },
+    });
+
+    return { path: filePath, content };
+  } catch (err: any) {
+    console.error("❌ exportProject error:", err);
+    throw new Error(err?.message || "Failed to export project");
   }
-
-  // Audit log
-  await prisma.auditLog.create({
-    data: {
-      userId: userId || null,
-      action: "EXPORT_PROJECT",
-      details: `Exported project ${projectId} as ${format}`,
-    },
-  });
-
-  return { path: filePath, content };
 }
