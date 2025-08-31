@@ -1,37 +1,39 @@
 // src/routes/badges.ts
 import { Router } from "express";
-import { requireAuth, requireAdmin } from "../middlewares/auth";
 import { give, list, revoke } from "../controllers/badgeController";
+import { authenticate, authorize } from "../middlewares/security";
 import { validateBadgeGive, handleValidationErrors } from "../middlewares/validate";
 
 const router = Router();
 
-// Toutes les routes badges nécessitent l'authentification
-router.use(requireAuth);
+/* ============================================================================
+ *  BADGE ROUTES – nécessite authentification
+ * ========================================================================== */
+router.use(authenticate);
 
 /**
- * Créer/attribuer un badge
  * POST /api/badges/give
- * Body: { type: "EARLY_ADOPTER"|..., userId?, meta? }
- * - USER : se l’attribue à lui-même
- * - ADMIN : peut cibler un autre user via userId
+ * Attribuer un badge
+ * Body: { type, userId?, meta? }
+ * - USER : ne peut que s’attribuer un badge (selon la logique du controller)
+ * - ADMIN : peut cibler n’importe quel user avec userId
  */
 router.post("/give", validateBadgeGive, handleValidationErrors, give);
 
 /**
- * Lister les badges
  * GET /api/badges
+ * Lister les badges
  * Query: ?userId=&type=&page=&pageSize=&sort=
  * - USER : liste ses badges
- * - ADMIN : peut lister pour un autre user via ?userId=
+ * - ADMIN : peut lister les badges d’un autre user via userId
  */
 router.get("/", list);
 
 /**
- * (Optionnel) Révoquer un badge
  * DELETE /api/badges/:id
- * - ADMIN uniquement (ou propriétaire si tu l’as autorisé dans le controller)
+ * Révoquer un badge
+ * - ADMIN uniquement (ou propriétaire si autorisé dans le controller)
  */
-router.delete("/:id", requireAdmin, revoke);
+router.delete("/:id", authorize(["admin"]), revoke);
 
 export default router;
