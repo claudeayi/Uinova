@@ -7,6 +7,9 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+/* ============================================================================
+ * ENUMS
+ * ========================================================================== */
 enum UserRole {
   USER
   PREMIUM
@@ -55,8 +58,16 @@ enum PaymentStatus {
   REFUNDED
 }
 
-/* ----------------------------- CORE MODELS ----------------------------- */
+enum DeploymentStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  ERROR
+}
 
+/* ============================================================================
+ * CORE MODELS
+ * ========================================================================== */
 model User {
   id            String           @id @default(cuid())
   email         String           @unique
@@ -160,10 +171,13 @@ model Payment {
   userId         String?
   subscription   Subscription?    @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
   subscriptionId String?
+  project        Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull) // ⚡ Lien direct projet
+  projectId      String?
 
   @@index([provider, status])
   @@index([userId])
   @@index([subscriptionId])
+  @@index([projectId])
 }
 
 model Notification {
@@ -196,6 +210,7 @@ model UserBadge {
   badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
   badgeId   String
   earnedAt  DateTime @default(now())
+  meta      Json?    // ⚡ infos additionnelles (ex: raison d’attribution)
 
   @@unique([userId, badgeId])
   @@index([userId])
@@ -216,8 +231,9 @@ model Upload {
   @@index([mime])
 }
 
-/* ----------------------------- PHASE 2 ----------------------------- */
-
+/* ============================================================================
+ * LOGS / COLLAB
+ * ========================================================================== */
 model AuditLog {
   id        String   @id @default(cuid())
   userId    String?
@@ -246,8 +262,9 @@ model CollabHistory {
   createdAt DateTime @default(now())
 }
 
-/* ----------------------------- PHASE 3 ----------------------------- */
-
+/* ============================================================================
+ * V3 MODULES
+ * ========================================================================== */
 model MarketplaceItem {
   id          String   @id @default(cuid())
   title       String
@@ -273,14 +290,14 @@ model Purchase {
 }
 
 model Deployment {
-  id          String   @id @default(cuid())
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  id          String           @id @default(cuid())
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId   String
-  status      String   @default("PENDING") // PENDING | RUNNING | SUCCESS | ERROR
+  status      DeploymentStatus @default(PENDING)
   logs        String?
-  targetUrl   String?  // URL du déploiement généré
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  targetUrl   String?          // URL du déploiement généré
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 }
 
 model ReplaySession {
