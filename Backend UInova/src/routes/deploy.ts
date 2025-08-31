@@ -1,3 +1,4 @@
+// src/routes/deploy.ts
 import { Router } from "express";
 import {
   startDeployment,
@@ -14,40 +15,28 @@ import { deploySchema } from "../validators/deploy.schema";
 const router = Router();
 
 /* ============================================================================
- *  DEPLOYMENT ROUTES
- *  Toutes les routes nécessitent authentification
+ *  DEPLOYMENT ROUTES – utilisateur authentifié
  * ========================================================================== */
+router.use(authenticate);
 
 // 🚀 Lancer un déploiement (user sur son projet, admin sur tout projet)
-router.post(
-  "/:projectId",
-  authenticate,
-  validateBody(deploySchema),
-  startDeployment
-);
+router.post("/:projectId", validateBody(deploySchema), startDeployment);
 
 // 📊 Statut actuel d’un déploiement
-router.get("/:projectId/status", authenticate, getDeploymentStatus);
+router.get("/:projectId/status", getDeploymentStatus);
 
 // 🕒 Historique des déploiements d’un projet
-router.get("/:projectId/history", authenticate, getDeploymentHistory);
+router.get("/:projectId/history", getDeploymentHistory);
 
 // ❌ Annuler un déploiement en cours
-router.post("/:projectId/cancel", authenticate, cancelDeployment);
+router.delete("/:projectId/cancel", cancelDeployment);
 
 // 🔄 Relancer le dernier déploiement échoué
-router.post("/:projectId/restart", authenticate, restartDeployment);
+router.post("/:projectId/restart", restartDeployment);
 
 /* ============================================================================
- *  ADMIN ROUTES
+ *  ADMIN ROUTES – accessibles uniquement aux administrateurs
  * ========================================================================== */
-
-// 📋 Liste globale de tous les déploiements (admin uniquement)
-router.get(
-  "/admin/all",
-  authenticate,
-  authorize(["admin"]),
-  listAllDeployments
-);
+router.get("/admin/deployments", authorize(["admin"]), listAllDeployments);
 
 export default router;
