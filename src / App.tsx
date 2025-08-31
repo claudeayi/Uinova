@@ -1,4 +1,3 @@
-// src/App.tsx
 import { Routes, Route } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { Suspense, lazy } from "react";
@@ -6,10 +5,15 @@ import { Suspense, lazy } from "react";
 import Navbar from "./layouts/Navbar";
 import ProtectedRoute from "./routes/ProtectedRoute";
 
-// 🌀 Spinner de fallback pro
+/* ============================================================================
+ *  Spinner de fallback pro & accessible
+ * ========================================================================== */
 function Loader() {
   return (
-    <div className="flex justify-center items-center py-20 text-indigo-500">
+    <div
+      className="flex justify-center items-center py-20 text-indigo-500"
+      role="status"
+    >
       <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
       <span className="ml-3">Chargement...</span>
     </div>
@@ -31,14 +35,19 @@ const ReplayPage = lazy(() => import("./pages/ReplayPage"));
 const MonitoringPage = lazy(() => import("./pages/MonitoringPage"));
 const AIAssistantPage = lazy(() => import("./pages/AIAssistantPage"));
 
+// Auth
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const RegisterPage = lazy(() => import("./pages/RegisterPage"));
 
+// Marketplace & Paiements
 const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
 const TemplatePage = lazy(() => import("./pages/TemplatePage"));
 const PricingPage = lazy(() => import("./pages/PricingPage"));
 const PaymentPage = lazy(() => import("./pages/PaymentPage"));
+const PaymentSuccessPage = lazy(() => import("./pages/PaymentSuccessPage"));
+const PaymentCancelPage = lazy(() => import("./pages/PaymentCancelPage"));
 
+// Divers
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // 🔐 Admin
@@ -55,10 +64,10 @@ const ReplaysAdmin = lazy(() => import("./pages/admin/ReplaysAdmin"));
 export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-100 dark:bg-slate-900 text-slate-900 dark:text-slate-100">
-      {/* Barre de navigation */}
+      {/* ✅ Barre de navigation persistante */}
       <Navbar />
 
-      {/* Contenu des pages */}
+      {/* ✅ Contenu principal */}
       <main className="flex-1 container mx-auto px-4 py-6">
         <Suspense fallback={<Loader />}>
           <Routes>
@@ -73,15 +82,17 @@ export default function App() {
             <Route path="/monitoring" element={<MonitoringPage />} />
             <Route path="/ai" element={<AIAssistantPage />} />
 
-            {/* Auth */}
+            {/* 🔑 Auth */}
             <Route path="/login" element={<LoginPage />} />
             <Route path="/register" element={<RegisterPage />} />
 
-            {/* Marketplace & Paiements */}
+            {/* 🛒 Marketplace & Paiements */}
             <Route path="/marketplace" element={<MarketplacePage />} />
             <Route path="/marketplace/:id" element={<TemplatePage />} />
             <Route path="/pricing" element={<PricingPage />} />
             <Route path="/payment" element={<PaymentPage />} />
+            <Route path="/payment/success" element={<PaymentSuccessPage />} />
+            <Route path="/payment/cancel" element={<PaymentCancelPage />} />
 
             {/* 🔐 Admin */}
             <Route
@@ -133,14 +144,29 @@ export default function App() {
               }
             />
 
-            {/* 404 */}
+            {/* ❌ 404 */}
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>
       </main>
 
-      {/* Notifications globales */}
-      <Toaster position="top-right" toastOptions={{ duration: 4000 }} />
+      {/* ✅ Notifications globales */}
+      <Toaster
+        position="top-right"
+        toastOptions={{
+          duration: 4000,
+          style: {
+            background: "#1e293b",
+            color: "#fff",
+          },
+          success: {
+            style: { background: "#16a34a" },
+          },
+          error: {
+            style: { background: "#dc2626" },
+          },
+        }}
+      />
     </div>
   );
 }
