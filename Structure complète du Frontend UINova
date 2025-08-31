@@ -1,5 +1,5 @@
 src/
-├─ App.tsx                # Routing global
+├─ App.tsx                # Routing global (toutes routes V3 incluses)
 ├─ main.tsx               # Entrée React
 ├─ index.css              # Styles globaux (Tailwind)
 │
@@ -10,25 +10,33 @@ src/
 │  └─ ProjectContext.tsx  # Gestion projet actif
 │
 ├─ hooks/
-│  ├─ useAuth.ts          # Hook auth (user, login, logout)
-│  └─ useToast.ts         # Notifications
+│  ├─ useAuth.ts          # Hook auth (user, login, logout, role)
+│  └─ useToast.ts         # Notifications centralisées
 │
 ├─ services/
 │  ├─ http.ts             # Axios configuré (baseURL, auth header)
 │  ├─ auth.ts             # Login/Register/Me
 │  ├─ projects.ts         # CRUD projets
 │  ├─ marketplace.ts      # Marketplace (items, publish, purchase)
-│  ├─ payments.ts         # Paiements
-│  ├─ badges.ts           # Badges
-│  ├─ notifications.ts    # Notifications
-│  └─ upload.ts           # Uploads fichiers
+│  ├─ payments.ts         # Paiements (Stripe, PayPal, Mobile Money, CinetPay…)
+│  ├─ badges.ts           # Gestion des badges
+│  ├─ notifications.ts    # Notifications (in-app + push)
+│  ├─ upload.ts           # Uploads fichiers
+│  ├─ ai.ts               # ⚡ IA générative (chat, projet, page, UI suggest)
+│  └─ admin.ts            # ⚡ Admin services (users, projects, replays, logs)
 │
 ├─ components/
 │  ├─ base/Button.tsx
-│  ├─ advanced/{Card.tsx, Carousel.tsx}
-│  ├─ onboarding/OnboardingCoach.tsx
-│  ├─ editor/{EditorWrapper.tsx, LivePreview.tsx}
-│  └─ projects/ProjectSelector.tsx
+│  ├─ advanced/
+│  │   ├─ Card.tsx
+│  │   └─ Carousel.tsx
+│  ├─ onboarding/
+│  │   └─ OnboardingCoach.tsx
+│  ├─ editor/
+│  │   ├─ EditorWrapper.tsx
+│  │   └─ LivePreview.tsx
+│  └─ projects/
+│      └─ ProjectSelector.tsx
 │
 ├─ routes/
 │  └─ ProtectedRoute.tsx  # Protection par rôle (admin/user)
@@ -41,13 +49,22 @@ src/
 │  ├─ PreviewPage.tsx
 │  ├─ MarketplacePage.tsx
 │  ├─ TemplatePage.tsx
-│  ├─ MarketplaceManager.tsx   # Admin Marketplace
+│  ├─ MarketplaceManager.tsx   # Admin gestion marketplace
 │  ├─ PricingPage.tsx
 │  ├─ PaymentPage.tsx
 │  ├─ DeployPage.tsx
 │  ├─ ReplayPage.tsx
 │  ├─ ARPreviewPage.tsx
 │  ├─ MonitoringPage.tsx
+│  ├─ AIAssistantPage.tsx      # ⚡ Assistant IA conversationnel (Deepseek natif)
 │  ├─ LoginPage.tsx
 │  ├─ RegisterPage.tsx
-│  └─ NotFound.tsx
+│  ├─ NotFound.tsx
+│  │
+│  └─ admin/                  # ⚡ Sous-section Admin
+│       ├─ UsersAdmin.tsx     # Gestion utilisateurs (roles, plans)
+│       ├─ ProjectsAdmin.tsx  # Gestion projets
+│       ├─ LogsAdmin.tsx      # Audit logs
+│       └─ ReplaysAdmin.tsx   # Gestion replays collaboratifs
+│
+└─ pages/AdminPanel.tsx       # ⚡ Hub principal Admin (liens vers toutes sections)
