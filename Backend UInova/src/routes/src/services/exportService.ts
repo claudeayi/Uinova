@@ -1,12 +1,14 @@
 // src/services/exportService.ts
 import JSZip from "jszip";
+import fs from "fs";
+import path from "path";
 
-/**
+/* ============================================================================
  * Types (adapte si besoin à ton schéma réel)
- */
+ * ========================================================================== */
 export type UINovaElement = {
   id: string;
-  type: string; // "text" | "image" | "button" | ...
+  type: string;
   props?: Record<string, any>;
   children?: UINovaElement[];
 };
@@ -14,13 +16,10 @@ export type UINovaElement = {
 export type UINovaPage = {
   id: string | number;
   name: string;
-  path?: string;        // ex: "home" -> home.html
+  path?: string;
   elements?: UINovaElement[];
-  css?: string;         // CSS spécifique à la page
-  meta?: {
-    title?: string;
-    description?: string;
-  };
+  css?: string;
+  meta?: { title?: string; description?: string };
 };
 
 export type UINovaProject = {
@@ -29,25 +28,27 @@ export type UINovaProject = {
   tagline?: string;
   icon?: string | null;
   pages?: UINovaPage[];
-  css?: string;         // CSS global projet
+  css?: string;
 };
 
-/**
- * Options d’export
- */
+export type ExportFormat = "html" | "json" | "flutter";
+
 export type ExportOptions = {
-  minify?: boolean;         // minifie le HTML si html-minifier-terser est dispo
+  format: ExportFormat;
+  minify?: boolean;
   includeReadme?: boolean;
   includeRobots?: boolean;
   includeSitemap?: boolean;
-  pretty?: boolean;         // force indentation simple si pas de minify
-  outputDirName?: string;   // nom du dossier racine dans le zip
-  assetsDir?: string;       // dossier assets dans le zip
+  pretty?: boolean;
+  outputDirName?: string;
+  assetsDir?: string;
+  saveToDisk?: string; // chemin optionnel pour sauvegarder le zip
+  onAudit?: (action: string, details: any) => Promise<void> | void;
 };
 
-/* =========================
+/* ============================================================================
  * Utils
- * ========================= */
+ * ========================================================================== */
 function slugify(s: string): string {
   return (s || "")
     .normalize("NFKD")
@@ -69,9 +70,9 @@ function resolveText(el: UINovaElement): string {
   return escapeHtml(String(txt));
 }
 
-/**
- * Rend un élément en HTML simple (adapte selon ton modèle)
- */
+/* ============================================================================
+ * Rendu HTML simple pour chaque élément
+ * ========================================================================== */
 function renderElement(el: UINovaElement): string {
   switch (el.type) {
     case "text":
@@ -82,9 +83,7 @@ function renderElement(el: UINovaElement): string {
     case "image": {
       const src = el.props?.src || "";
       const alt = escapeHtml(el.props?.alt || "");
-      const width = el.props?.width ? ` width="${Number(el.props.width)}"` : "";
-      const height = el.props?.height ? ` height="${Number(el.props.height)}"` : "";
-      return `<img src="${src}" alt="${alt}"${width}${height} />`;
+      return `<img src="${src}" alt="${alt}" />`;
     }
     case "button": {
       const label = resolveText(el);
@@ -111,82 +110,95 @@ function renderElement(el: UINovaElement): string {
   }
 }
 
-/**
- * Génère le <head> avec meta basiques
- */
 function renderHead(title: string, desc?: string) {
-  const safeTitle = escapeHtml(title || "UINova");
-  const safeDesc = escapeHtml(desc || "");
   return `
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
-    <title>${safeTitle}</title>
-    ${safeDesc ? `<meta name="description" content="${safeDesc}" />` : ""}
+    <title>${escapeHtml(title)}</title>
+    ${desc ? `<meta name="description" content="${escapeHtml(desc)}" />` : ""}
     <link rel="stylesheet" href="./styles.css" />
   `;
 }
 
-/**
- * Feuille de style par défaut (sobre et responsive)
- */
 function defaultCss() {
   return `
-    :root { --bg:#0b0c10; --fg:#f4f4f5; --muted:#9aa0a6; --accent:#6c5ce7; --card:#111217; }
-    * { box-sizing: border-box; }
-    html, body { margin:0; padding:0; background:var(--bg); color:var(--fg); font: 16px/1.5 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, "Helvetica Neue", Arial; }
-    a { color: var(--accent); text-decoration: none; }
-    .container { max-width: 1160px; margin: 0 auto; padding: 2rem; }
-    .section { background: var(--card); border: 1px solid #1e2030; border-radius: 12px; padding: 1.25rem; margin: 1rem 0; }
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 0; }
+    .container { max-width: 1160px; margin: auto; padding: 1.25rem; }
+    .btn { background: #6c5ce7; color: #fff; padding: .6rem 1rem; border-radius: 8px; }
+    img { max-width: 100%; height: auto; }
     .row { display: flex; flex-wrap: wrap; gap: 1rem; }
     .col { flex: 1 1 280px; }
-    img { max-width: 100%; height: auto; border-radius: 8px; }
-    .btn { display: inline-block; padding: .6rem 1rem; border-radius: 10px; background: var(--accent); color:white; font-weight: 600; }
-    header, footer { opacity:.9 }
-    nav a { margin-right: .75rem; }
-    .muted { color: var(--muted); }
   `.trim();
 }
 
-/* =========================
- * Rendu Page → HTML
- * ========================= */
+/* ============================================================================
+ * Export formats
+ * ========================================================================== */
 export function exportPageToHTML(page: UINovaPage, project?: UINovaProject): string {
   const bodyContent = (page.elements || []).map(renderElement).join("\n");
   const title = page.meta?.title || page.name || project?.name || "UINova";
   const desc = page.meta?.description || project?.tagline || "";
-
-  // wrapper container
-  const pageCss = page.css ? `<style id="page-css">\n${page.css}\n</style>` : "";
 
   return [
     "<!doctype html>",
     `<html lang="fr">`,
     "<head>",
     renderHead(title, desc),
-    pageCss,
+    page.css ? `<style>${page.css}</style>` : "",
     "</head>",
     "<body>",
-    `<header class="container"><h1>${escapeHtml(project?.name || "UINova")}</h1><p class="muted">${escapeHtml(
-      project?.tagline || ""
-    )}</p></header>`,
+    `<header class="container"><h1>${escapeHtml(project?.name || "UINova")}</h1></header>`,
     `<main class="container">`,
     bodyContent,
-    `</main>`,
-    `<footer class="container"><small class="muted">Exporté avec UINova</small></footer>`,
+    "</main>",
+    `<footer class="container"><small>Exporté avec UInova</small></footer>`,
     "</body>",
     "</html>",
   ].join("\n");
 }
 
-/* =========================
+export function exportProjectToJSON(project: UINovaProject): string {
+  return JSON.stringify(project, null, 2);
+}
+
+export function exportProjectToFlutter(project: UINovaProject): string {
+  return `
+import 'package:flutter/material.dart';
+
+void main() => runApp(const UInovaApp());
+
+class UInovaApp extends StatelessWidget {
+  const UInovaApp({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: '${escapeHtml(project.name)}',
+      home: Scaffold(
+        appBar: AppBar(title: const Text('${escapeHtml(project.name)}')),
+        body: ListView(
+          children: [
+            ${project.pages
+              ?.map((p) => `ListTile(title: Text("${escapeHtml(p.name)}"))`)
+              .join(",\n") || ""}
+          ],
+        ),
+      ),
+    );
+  }
+}
+  `.trim();
+}
+
+/* ============================================================================
  * Export Projet → ZIP
- * ========================= */
-export async function exportProjectToZip(
+ * ========================================================================== */
+export async function exportProject(
   project: UINovaProject,
-  pages: UINovaPage[],
-  options: ExportOptions = {}
+  options: ExportOptions = { format: "html" }
 ): Promise<Buffer> {
   const {
+    format,
     minify = false,
     includeReadme = true,
     includeRobots = true,
@@ -194,178 +206,81 @@ export async function exportProjectToZip(
     pretty = true,
     outputDirName,
     assetsDir = "assets",
+    saveToDisk,
+    onAudit,
   } = options;
+
+  if (!project.pages?.length) throw new Error("Project has no pages");
 
   const zip = new JSZip();
   const root = zip.folder(outputDirName || slugify(project.name) || "uinova")!;
   const assets = root.folder(assetsDir)!;
 
-  // 1) Styles globaux
-  const css = [defaultCss(), project.css || ""].filter(Boolean).join("\n\n");
-  root.file("styles.css", css);
+  // CSS
+  root.file("styles.css", [defaultCss(), project.css || ""].join("\n\n"));
 
-  // 2) Pages HTML
+  // Pages
   const indexLinks: { href: string; title: string }[] = [];
-  for (const page of pages) {
+  for (const page of project.pages) {
     const base = slugify(page.path || page.name);
-    const filename = `${base || "page"}.html`;
-    let html = exportPageToHTML(page, project);
+    const filename = `${base}.html`;
 
+    let html = exportPageToHTML(page, project);
     if (minify) {
       try {
-        // Optional dependency: html-minifier-terser
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const { minify: htmlMinify } = require("html-minifier-terser");
         html = await htmlMinify(html, {
           collapseWhitespace: true,
           removeComments: true,
-          removeRedundantAttributes: true,
           minifyCSS: true,
-          minifyJS: true,
         });
       } catch {
-        // si lib absente, fallback pretty
         if (pretty) html = html.replace(/\n{3,}/g, "\n\n");
       }
-    } else if (pretty) {
-      html = html.replace(/\n{3,}/g, "\n\n");
     }
-
     root.file(filename, html);
-    indexLinks.push({ href: `./${filename}`, title: page.meta?.title || page.name });
+    indexLinks.push({ href: `./${filename}`, title: page.name });
   }
 
-  // 3) Index.html (menu + liste des pages)
+  // Index.html
   const indexHtml = [
     "<!doctype html>",
     `<html lang="fr">`,
     "<head>",
-    renderHead(project.name || "UINova", project.tagline),
+    renderHead(project.name, project.tagline),
     "</head>",
     "<body>",
-    `<header class="container"><h1>${escapeHtml(project.name || "UINova")}</h1><p class="muted">${escapeHtml(
-      project.tagline || ""
-    )}</p></header>`,
+    `<header class="container"><h1>${escapeHtml(project.name)}</h1></header>`,
     `<nav class="container">`,
     indexLinks.map((l) => `<a href="${l.href}">${escapeHtml(l.title)}</a>`).join(" "),
-    `</nav>`,
-    `<main class="container">`,
-    `<ul>`,
-    indexLinks.map((l) => `<li><a href="${l.href}">${escapeHtml(l.title)}</a></li>`).join("\n"),
-    `</ul>`,
-    `</main>`,
-    `<footer class="container"><small class="muted">Export UINova</small></footer>`,
-    "</body>",
-    "</html>",
+    "</nav>",
+    "</body></html>",
   ].join("\n");
   root.file("index.html", indexHtml);
 
-  // 4) README.md
+  // README
   if (includeReadme) {
-    root.file(
-      "README.md",
-      [
-        `# ${project.name || "UINova Export"}`,
-        project.tagline ? `> ${project.tagline}` : "",
-        "",
-        "## Structure",
-        "- `index.html` : page d’accueil avec les liens vers toutes les pages",
-        "- `styles.css` : styles globaux",
-        `- \`${assetsDir}/\` : assets (images, polices...)`,
-        "",
-        "## Déploiement",
-        "- Déposez le contenu du ZIP sur un hébergement statique (Netlify, Vercel, S3, Nginx).",
-        "- Les pages sont autonomes (HTML/CSS).",
-        "",
-        "## Licence",
-        "Export généré par UINova.",
-        "",
-      ]
-        .filter(Boolean)
-        .join("\n")
-    );
+    root.file("README.md", `# ${project.name}\n\nExport généré avec UInova.`);
   }
 
-  // 5) robots.txt & sitemap.xml
-  if (includeRobots) {
-    root.file(
-      "robots.txt",
-      ["User-agent: *", "Allow: /", ""].join("\n")
-    );
-  }
+  // robots.txt & sitemap.xml
+  if (includeRobots) root.file("robots.txt", "User-agent: *\nAllow: /");
   if (includeSitemap) {
-    const urls = indexLinks
-      .map((l) => `  <url><loc>${escapeHtml(l.href.replace("./", ""))}</loc></url>`)
-      .join("\n");
-    root.file(
-      "sitemap.xml",
-      [
-        `<?xml version="1.0" encoding="UTF-8"?>`,
-        `<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">`,
-        urls,
-        `</urlset>`,
-      ].join("\n")
-    );
+    const urls = indexLinks.map((l) => `<url><loc>${l.href}</loc></url>`).join("\n");
+    root.file("sitemap.xml", `<?xml version="1.0"?><urlset>${urls}</urlset>`);
   }
 
-  // 6) Exemple d’asset (si tu veux copier des images encodées base64 depuis les props)
-  //    Ici, on extrait des dataURL d’images de tes éléments pour les déposer dans /assets
-  //    et remplacer les src des <img> par un chemin relatif (améliore compat)
-  //    ⚠️ Si tu veux activer cette étape, passe les pages avec leurs éléments bruts.
-  await extractAndEmbedAssets(pages, assets, root);
+  // JSON / Flutter en plus
+  if (format === "json") root.file("project.json", exportProjectToJSON(project));
+  if (format === "flutter") root.file("main.dart", exportProjectToFlutter(project));
 
-  // 7) Build ZIP
-  return await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE", compressionOptions: { level: 9 } });
-}
+  const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
 
-/* =========================
- * Assets (dataURL -> fichiers)
- * ========================= */
-async function extractAndEmbedAssets(pages: UINovaPage[], assets: JSZip, root: JSZip) {
-  const tasks: Promise<void>[] = [];
+  if (saveToDisk) {
+    fs.writeFileSync(path.join(saveToDisk, `${slugify(project.name)}.zip`), buffer);
+  }
 
-  // Recherche d’images en dataURL dans les éléments
-  const visit = (el?: UINovaElement) => {
-    if (!el) return;
-    if (el.type === "image" && typeof el.props?.src === "string" && el.props.src.startsWith("data:")) {
-      const src: string = el.props.src;
-      const m = /^data:(.*?);base64,(.*)$/i.exec(src);
-      if (m) {
-        const mime = m[1];
-        const base64 = m[2];
-        const ext = mimeToExt(mime);
-        const fileName = `img_${el.id || Math.random().toString(36).slice(2)}.${ext}`;
+  if (onAudit) await onAudit("EXPORT_PROJECT", { projectId: project.id, format });
 
-        tasks.push(
-          assets.file(fileName, base64, { base64: true })
-            .async("nodebuffer")
-            .then(() => {
-              // remplace la source par le chemin relatif
-              el.props.src = `./assets/${fileName}`;
-              // met à jour toutes les pages .html (grossier : si tu veux un rendu différé, il faudrait re-générer)
-              // Ici on ne régénère pas car l'étape d'injection doit se faire avant exportPageToHTML.
-            }) as any
-        );
-      }
-    }
-    (el.children || []).forEach(visit);
-  };
-
-  pages.forEach((p) => (p.elements || []).forEach(visit));
-
-  await Promise.all(tasks);
-
-  // NOTE: pour une parfaite cohérence, fais l’extraction AVANT d’appeler exportPageToHTML,
-  // puis passe les pages modifiées à exportProjectToZip. Ici, on propose un fallback
-  // simple qui convient à 90% des cas avec des pages statiques.
-}
-
-function mimeToExt(mime: string): string {
-  if (mime.includes("png")) return "png";
-  if (mime.includes("jpeg") || mime.includes("jpg")) return "jpg";
-  if (mime.includes("webp")) return "webp";
-  if (mime.includes("gif")) return "gif";
-  if (mime.includes("svg")) return "svg";
-  if (mime.includes("pdf")) return "pdf";
-  return "bin";
+  return buffer;
 }
