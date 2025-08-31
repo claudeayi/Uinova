@@ -1,48 +1,84 @@
 // src/routes/admin.ts
 import { Router } from "express";
-import { requireAuth, requireAdmin } from "../middlewares/auth";
-import { listUsers, deleteUser } from "../controllers/adminController";
+import { authenticate, authorize } from "../middlewares/security";
 import { handleValidationErrors } from "../middlewares/validate";
 import { checkSchema } from "express-validator";
 
-const router = Router();
+import {
+  listUsers,
+  getUserById,
+  updateUser,
+  deleteUser,
+  suspendUser,
+} from "../controllers/admin/usersAdminController";
 
-// Valide :id (numérique ou cuid/uuid-like)
-const validateUserIdParam = checkSchema(
+import {
+  listProjects,
+  getProjectById,
+  deleteProject,
+  validateProject,
+} from "../controllers/admin/projectsAdminController";
+
+import {
+  listMarketplaceItems,
+  validateMarketplaceItem,
+  deleteMarketplaceItem,
+} from "../controllers/admin/marketplaceAdminController";
+
+import {
+  listReplaySessions,
+  getReplayById,
+  deleteReplay,
+} from "../controllers/admin/replaysAdminController";
+
+import { getLogs } from "../controllers/monitoringController";
+
+/* ============================================================================
+ *  VALIDATORS
+ * ========================================================================== */
+const validateIdParam = checkSchema(
   {
     id: {
       in: ["params"],
       custom: {
-        options: (v) => {
-          if (typeof v === "number") return Number.isFinite(v);
-          if (typeof v === "string") {
-            if (/^\d+$/.test(v)) return true;              // numérique
-            if (/^c[a-z0-9]{24,}$/i.test(v)) return true;  // cuid-like
-            if (/^[0-9a-f-]{10,}$/i.test(v)) return true;  // uuid-like
-          }
-          return false;
-        },
+        options: (v) => typeof v === "string" && v.length > 5,
       },
-      errorMessage: "Identifiant utilisateur invalide",
+      errorMessage: "Identifiant invalide",
     },
   },
   ["params"]
 );
 
-/**
- * Admin endpoints
- * GET /api/admin/users      -> liste paginée/safe (cf. adminController)
- * DELETE /api/admin/users/:id -> supprime un utilisateur
- */
-router.use(requireAuth, requireAdmin);
+/* ============================================================================
+ *  ADMIN ROUTES – toutes nécessitent authentification + rôle admin
+ * ========================================================================== */
+const router = Router();
+router.use(authenticate, authorize(["admin"]));
 
+/* ---------------- USERS ADMIN ---------------- */
 router.get("/users", listUsers);
+router.get("/users/:id", validateIdParam, handleValidationErrors, getUserById);
+router.patch("/users/:id", validateIdParam, handleValidationErrors, updateUser);
+router.delete("/users/:id", validateIdParam, handleValidationErrors, deleteUser);
+router.post("/users/:id/suspend", validateIdParam, handleValidationErrors, suspendUser);
 
-router.delete(
-  "/users/:id",
-  validateUserIdParam,
-  handleValidationErrors,
-  deleteUser
-);
+/* ---------------- PROJECTS ADMIN ---------------- */
+router.get("/projects", listProjects);
+router.get("/projects/:id", validateIdParam, handleValidationErrors, getProjectById);
+router.delete("/projects/:id", validateIdParam, handleValidationErrors, deleteProject);
+router.post("/projects/:id/validate", validateIdParam, handleValidationErrors, validateProject);
+
+/* ---------------- MARKETPLACE ADMIN ---------------- */
+router.get("/marketplace/items", listMarketplaceItems);
+router.post("/marketplace/items/:id/validate", validateIdParam, handleValidationErrors, validateMarketplaceItem);
+router.delete("/marketplace/items/:id", validateIdParam, handleValidationErrors, deleteMarketplaceItem);
+
+/* ---------------- REPLAYS ADMIN ---------------- */
+router.get("/replays", listReplaySessions);
+router.get("/replays/:id", validateIdParam, handleValidationErrors, getReplayById);
+router.delete("/replays/:id", validateIdParam, handleValidationErrors, deleteReplay);
+
+/* ---------------- LOGS ADMIN ---------------- */
+router.get("/logs", getLogs);
 
 export default router;
