@@ -36,9 +36,9 @@ export async function startReplay(req: Request, res: Response) {
     });
 
     res.status(201).json({ success: true, message: "Replay démarré", data: replay });
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ startReplay error:", err);
-    res.status(500).json({ success: false, message: "Erreur serveur" });
+    res.status(500).json({ success: false, message: err.message || "Erreur serveur" });
   }
 }
 
@@ -50,11 +50,20 @@ export async function stopReplay(req: Request, res: Response) {
     const user = (req as any).user;
     if (!user?.id) return res.status(401).json({ success: false, message: "Non autorisé" });
 
+    if (!replayId) return res.status(400).json({ success: false, message: "replayId requis" });
+
     const replay = await prisma.replaySession.findUnique({ where: { id: replayId } });
     if (!replay) return res.status(404).json({ success: false, message: "Replay introuvable" });
 
     if (replay.projectId !== projectId) {
       return res.status(400).json({ success: false, message: "Replay invalide pour ce projet" });
+    }
+
+    // Vérif propriétaire/admin
+    const project = await prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) return res.status(404).json({ success: false, message: "Projet introuvable" });
+    if (project.ownerId !== user.id && user.role !== "ADMIN") {
+      return res.status(403).json({ success: false, message: "Accès interdit" });
     }
 
     const updated = await prisma.replaySession.update({
@@ -66,14 +75,14 @@ export async function stopReplay(req: Request, res: Response) {
       data: {
         userId: user.id,
         action: "REPLAY_STOP",
-        metadata: { projectId, replayId },
+        metadata: { projectId, replayId, dataUrl: updated.dataUrl },
       },
     });
 
     res.json({ success: true, message: "Replay enregistré", data: updated });
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ stopReplay error:", err);
-    res.status(500).json({ success: false, message: "Erreur serveur" });
+    res.status(500).json({ success: false, message: err.message || "Erreur serveur" });
   }
 }
 
@@ -81,9 +90,9 @@ export async function stopReplay(req: Request, res: Response) {
 export async function listReplays(req: Request, res: Response) {
   try {
     const { projectId } = req.params;
-    const { page = 1, limit = 20 } = req.query;
-
-    const skip = (Number(page) - 1) * Number(limit);
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
+    const skip = (page - 1) * limit;
 
     const [replays, total] = await Promise.all([
       prisma.replaySession.findMany({
@@ -91,7 +100,7 @@ export async function listReplays(req: Request, res: Response) {
         include: { user: { select: { id: true, email: true } } },
         orderBy: { createdAt: "desc" },
         skip,
-        take: Number(limit),
+        take: limit,
       }),
       prisma.replaySession.count({ where: { projectId } }),
     ]);
@@ -99,11 +108,11 @@ export async function listReplays(req: Request, res: Response) {
     res.json({
       success: true,
       data: replays,
-      pagination: { total, page: Number(page), limit: Number(limit) },
+      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ listReplays error:", err);
-    res.status(500).json({ success: false, message: "Erreur serveur" });
+    res.status(500).json({ success: false, message: err.message || "Erreur serveur" });
   }
 }
 
@@ -111,6 +120,8 @@ export async function listReplays(req: Request, res: Response) {
 export async function getReplay(req: Request, res: Response) {
   try {
     const { replayId } = req.params;
+    if (!replayId) return res.status(400).json({ success: false, message: "replayId requis" });
+
     const replay = await prisma.replaySession.findUnique({
       where: { id: replayId },
       include: { user: { select: { id: true, email: true } } },
@@ -119,9 +130,9 @@ export async function getReplay(req: Request, res: Response) {
     if (!replay) return res.status(404).json({ success: false, message: "Replay introuvable" });
 
     res.json({ success: true, data: replay });
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ getReplay error:", err);
-    res.status(500).json({ success: false, message: "Erreur serveur" });
+    res.status(500).json({ success: false, message: err.message || "Erreur serveur" });
   }
 }
 
@@ -155,9 +166,9 @@ export async function deleteReplay(req: Request, res: Response) {
     });
 
     res.json({ success: true, message: "Replay supprimé" });
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ deleteReplay error:", err);
-    res.status(500).json({ success: false, message: "Erreur serveur" });
+    res.status(500).json({ success: false, message: err.message || "Erreur serveur" });
   }
 }
 
@@ -169,7 +180,9 @@ export async function deleteReplay(req: Request, res: Response) {
 export async function listAllReplays(req: Request, res: Response) {
   try {
     const role = (req as any).user?.role;
-    if (role !== "ADMIN") return res.status(403).json({ success: false, message: "Accès admin requis" });
+    if (role !== "ADMIN") {
+      return res.status(403).json({ success: false, message: "Accès admin requis" });
+    }
 
     const replays = await prisma.replaySession.findMany({
       include: {
@@ -181,8 +194,8 @@ export async function listAllReplays(req: Request, res: Response) {
     });
 
     res.json({ success: true, data: replays });
-  } catch (err) {
+  } catch (err: any) {
     console.error("❌ listAllReplays error:", err);
-    res.status(500).json({ success: false, message: "Erreur serveur" });
+    res.status(500).json({ success: false, message: err.message || "Erreur serveur" });
   }
 }
