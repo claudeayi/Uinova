@@ -3,38 +3,32 @@ import { Request, Response } from "express";
 import Stripe from "stripe";
 import { z } from "zod";
 import crypto from "node:crypto";
+import { prisma } from "../utils/prisma"; // pour audit log & DB persistence
 
 const STRIPE_SECRET = process.env.STRIPE_SECRET || process.env.STRIPE_KEY;
 if (!STRIPE_SECRET) {
-  throw new Error("Missing STRIPE_SECRET (or STRIPE_KEY) in environment.");
+  throw new Error("❌ Missing STRIPE_SECRET (or STRIPE_KEY) in environment.");
 }
 
 export const stripe = new Stripe(STRIPE_SECRET, {
-  // apiVersion facultatif mais conseillé à fixer dans .env/stripe config
+  // apiVersion conseillé à fixer
   // apiVersion: "2024-06-20",
 });
 
-// ----------- Validation
+/* ============================================================================
+ *  SCHEMAS VALIDATION
+ * ========================================================================== */
 const PaymentIntentSchema = z.object({
-  // MODE 1 (recommandé) : priceId + quantity -> le serveur calcule amount
   priceId: z.string().trim().optional(),
   quantity: z.coerce.number().int().min(1).max(100).optional(),
-
-  // MODE 2 (moins sûr) : amount (en centimes). À n'utiliser que pour debug/achats personnalisés sécurisés serveur.
-  amount: z.coerce.number().int().min(100).max(2_000_000).optional(), // 1€ .. 20 000€
-
+  amount: z.coerce.number().int().min(100).max(2_000_000).optional(),
   currency: z.string().default("eur"),
   description: z.string().max(200).optional(),
-
-  // pour tracer côté Stripe
   orgId: z.string().optional(),
   projectId: z.string().optional(),
-
-  // pour idempotence côté client (rejouer sans double débit)
   idempotencyKey: z.string().uuid().optional(),
 });
 
-// ----------- Helpers
 function getUser(req: Request) {
   const u = (req as any).user;
   if (!u?.sub && !u?.id) {
@@ -47,22 +41,20 @@ function getUser(req: Request) {
 
 async function getOrCreateCustomer(email?: string, userId?: string) {
   if (!email) return undefined;
-  // Idéalement, tu stockes customerId sur le User pour éviter la recherche
   const customers = await stripe.customers.list({ email, limit: 1 });
   if (customers.data.length > 0) return customers.data[0];
-
   return stripe.customers.create({
     email,
     metadata: userId ? { userId } : undefined,
   });
 }
 
+/* ============================================================================
+ *  CONTROLLERS
+ * ========================================================================== */
+
 /**
  * POST /api/payments/intent
- * Body:
- *  - Recommandé: { priceId: "price_XXX", quantity?: number, currency?: "eur" }
- *  - Ou fallback: { amount: 1299, currency?: "eur" }
- * Response: { clientSecret, paymentIntentId }
  */
 export const createPaymentIntent = async (req: Request, res: Response) => {
   try {
@@ -72,29 +64,16 @@ export const createPaymentIntent = async (req: Request, res: Response) => {
     if (!parsed.success) {
       return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
     }
-    const {
-      priceId,
-      quantity = 1,
-      amount,
-      currency,
-      description,
-      orgId,
-      projectId,
-      idempotencyKey,
-    } = parsed.data;
+    const { priceId, quantity = 1, amount, currency, description, orgId, projectId, idempotencyKey } =
+      parsed.data;
 
-    // Idempotence (évite double débit si re-submit)
     const key = idempotencyKey || crypto.randomUUID();
-
-    // Préparer customer
     const customer = await getOrCreateCustomer(email, userId);
 
-    // MODE RECOMMANDÉ : on calcule amount depuis priceId
     let finalAmount = amount;
     let finalDescription = description;
 
     if (priceId) {
-      // Récupère le prix chez Stripe
       const price = await stripe.prices.retrieve(priceId);
       if (!price.active || price.currency !== currency) {
         return res.status(400).json({ error: "Invalid or inactive priceId/currency mismatch" });
@@ -110,7 +89,6 @@ export const createPaymentIntent = async (req: Request, res: Response) => {
       return res.status(400).json({ error: "Missing amount (provide priceId or amount in cents)" });
     }
 
-    // Crée le PaymentIntent
     const pi = await stripe.paymentIntents.create(
       {
         amount: finalAmount,
@@ -125,11 +103,18 @@ export const createPaymentIntent = async (req: Request, res: Response) => {
           source: "uinova",
           mode: priceId ? "priceId" : "amount",
         },
-        // Optionnel: pour des reçus automatiques
-        // receipt_email: customer?.email,
       },
-      { idempotencyKey: key },
+      { idempotencyKey: key }
     );
+
+    // Audit log
+    await prisma.auditLog.create({
+      data: {
+        action: "PAYMENT_INTENT_CREATED",
+        userId,
+        details: `Intent ${pi.id} for ${pi.amount} ${pi.currency}`,
+      },
+    });
 
     return res.status(201).json({
       clientSecret: pi.client_secret,
@@ -138,8 +123,95 @@ export const createPaymentIntent = async (req: Request, res: Response) => {
       currency: pi.currency,
     });
   } catch (e: any) {
-    console.error("[Stripe] createPaymentIntent error:", e?.message || e);
+    console.error("❌ [Stripe] createPaymentIntent error:", e?.message || e);
     const status = (e as any)?.statusCode || 500;
     return res.status(status).json({ error: "Stripe error", details: e?.message || "unknown_error" });
+  }
+};
+
+/**
+ * GET /api/payments/:id/status
+ * → Récupère le statut d’un PaymentIntent
+ */
+export const getPaymentStatus = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const pi = await stripe.paymentIntents.retrieve(id);
+    res.json({
+      success: true,
+      id: pi.id,
+      status: pi.status,
+      amount: pi.amount,
+      currency: pi.currency,
+    });
+  } catch (e: any) {
+    console.error("❌ getPaymentStatus error:", e?.message);
+    res.status(500).json({ success: false, error: e?.message || "Erreur récupération paiement" });
+  }
+};
+
+/**
+ * GET /api/payments/prices
+ * → Liste des plans (PricingPage)
+ */
+export const listPrices = async (_req: Request, res: Response) => {
+  try {
+    const prices = await stripe.prices.list({ active: true, expand: ["data.product"] });
+    res.json({ success: true, data: prices.data });
+  } catch (e: any) {
+    console.error("❌ listPrices error:", e?.message);
+    res.status(500).json({ success: false, error: "Erreur récupération tarifs" });
+  }
+};
+
+/**
+ * POST /api/payments/webhook
+ * → Stripe envoie les événements (paiement réussi/échoué/remboursé)
+ */
+export const stripeWebhook = async (req: Request, res: Response) => {
+  try {
+    const sig = req.headers["stripe-signature"];
+    if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
+      return res.status(400).send("Missing Stripe signature or webhook secret");
+    }
+
+    let event: Stripe.Event;
+    try {
+      event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
+    } catch (err: any) {
+      console.error("❌ Stripe webhook signature error:", err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    switch (event.type) {
+      case "payment_intent.succeeded": {
+        const pi = event.data.object as Stripe.PaymentIntent;
+        await prisma.payment.create({
+          data: {
+            id: pi.id,
+            amount: pi.amount,
+            currency: pi.currency,
+            status: pi.status,
+            userId: pi.metadata.userId || null,
+            projectId: pi.metadata.projectId || null,
+            provider: "stripe",
+          },
+        });
+        console.log("✅ Payment succeeded:", pi.id);
+        break;
+      }
+      case "payment_intent.payment_failed": {
+        const pi = event.data.object as Stripe.PaymentIntent;
+        console.warn("⚠️ Payment failed:", pi.id);
+        break;
+      }
+      default:
+        console.log(`ℹ️ Stripe event: ${event.type}`);
+    }
+
+    res.json({ received: true });
+  } catch (e: any) {
+    console.error("❌ stripeWebhook error:", e?.message);
+    res.status(500).json({ success: false, error: "Erreur webhook Stripe" });
   }
 };
