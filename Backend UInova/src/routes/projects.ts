@@ -1,6 +1,6 @@
 // src/routes/projects.ts
 import { Router } from "express";
-import { requireAuth } from "../middlewares/auth";
+import { authenticate, authorize } from "../middlewares/security";
 import {
   validateProjectIdParam,
   validateProjectCreate,
@@ -13,41 +13,41 @@ import {
   createProject,
   updateProject,
   removeProject,
+  duplicateProject,
+  publishProject,
+  shareProject,
 } from "../controllers/projectController";
 
 const router = Router();
 
-// Toutes les routes "projects" nécessitent d'être connecté
-router.use(requireAuth);
+/* ============================================================================
+ *  PROJECT ROUTES – nécessite authentification
+ * ========================================================================== */
+router.use(authenticate);
 
 /**
- * Lister tous les projets de l'utilisateur
  * GET /api/projects
+ * Lister tous les projets de l'utilisateur connecté
  */
 router.get("/", listProjects);
 
 /**
- * Récupérer un projet précis
  * GET /api/projects/:id
+ * Récupérer un projet précis
  */
 router.get("/:id", validateProjectIdParam, handleValidationErrors, getProject);
 
 /**
- * Créer un nouveau projet
  * POST /api/projects
+ * Créer un nouveau projet
  */
-router.post(
-  "/",
-  validateProjectCreate,
-  handleValidationErrors,
-  createProject
-);
+router.post("/", validateProjectCreate, handleValidationErrors, createProject);
 
 /**
- * Mettre à jour un projet
- * PUT /api/projects/:id
+ * PATCH /api/projects/:id
+ * Mettre à jour un projet (partiellement)
  */
-router.put(
+router.patch(
   "/:id",
   validateProjectIdParam,
   validateProjectUpdate,
@@ -56,14 +56,36 @@ router.put(
 );
 
 /**
- * Supprimer un projet
  * DELETE /api/projects/:id
+ * Supprimer un projet
  */
-router.delete(
-  "/:id",
-  validateProjectIdParam,
-  handleValidationErrors,
-  removeProject
-);
+router.delete("/:id", validateProjectIdParam, handleValidationErrors, removeProject);
+
+/* ============================================================================
+ *  EXTENDED ROUTES – pour actions spécifiques
+ * ========================================================================== */
+
+/**
+ * POST /api/projects/:id/duplicate
+ * Dupliquer un projet existant
+ */
+router.post("/:id/duplicate", validateProjectIdParam, handleValidationErrors, duplicateProject);
+
+/**
+ * POST /api/projects/:id/publish
+ * Publier/déployer un projet (simple flag, pas le déploiement Docker)
+ */
+router.post("/:id/publish", validateProjectIdParam, handleValidationErrors, publishProject);
+
+/**
+ * POST /api/projects/:id/share
+ * Générer un lien de partage public
+ */
+router.post("/:id/share", validateProjectIdParam, handleValidationErrors, shareProject);
+
+/* ============================================================================
+ *  ADMIN ROUTES – gestion globale des projets
+ * ========================================================================== */
+router.get("/admin/all", authorize(["admin"]), listProjects);
 
 export default router;
