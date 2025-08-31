@@ -1,21 +1,29 @@
+// src/pages/AdminPanel.tsx
 import { Link } from "react-router-dom";
 import { useAuth } from "@/hooks/useAuth";
 import { useEffect, useState } from "react";
 import http from "@/services/http";
+import toast from "react-hot-toast";
 
 export default function AdminPanel() {
   const { user } = useAuth();
   const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  async function fetchStats() {
+    try {
+      setLoading(true);
+      const res = await http.get("/admin/stats");
+      setStats(res.data);
+    } catch (err) {
+      console.error("❌ Erreur chargement stats:", err);
+      toast.error("Impossible de charger les statistiques.");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   useEffect(() => {
-    async function fetchStats() {
-      try {
-        const res = await http.get("/admin/stats");
-        setStats(res.data);
-      } catch (err) {
-        console.error("❌ Erreur chargement stats:", err);
-      }
-    }
     fetchStats();
   }, []);
 
@@ -31,45 +39,56 @@ export default function AdminPanel() {
   }
 
   return (
-    <div className="max-w-6xl mx-auto space-y-6 p-6">
+    <div className="max-w-7xl mx-auto space-y-8 p-6">
       {/* En-tête */}
-      <header className="mb-6">
-        <h1 className="text-3xl font-bold flex items-center space-x-3">
-          <span>⚙️ Panneau d’administration</span>
-          <span className="px-2 py-1 text-xs bg-red-600 text-white rounded">
-            ADMIN
-          </span>
-        </h1>
-        <p className="text-gray-600 dark:text-gray-300 mt-1">
-          Bienvenue <strong>{user.email}</strong>, vous avez un contrôle complet
-          sur la plateforme <span className="font-semibold">UInova</span>.
-        </p>
+      <header className="mb-6 flex flex-col md:flex-row md:items-center md:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold flex items-center space-x-3">
+            <span>⚙️ Panneau d’administration</span>
+            <span className="px-2 py-1 text-xs bg-red-600 text-white rounded">ADMIN</span>
+          </h1>
+          <p className="text-gray-600 dark:text-gray-300 mt-1">
+            Bienvenue <strong>{user.email}</strong>, vous avez un contrôle complet
+            sur la plateforme <span className="font-semibold">UInova</span>.
+          </p>
+        </div>
+        <button
+          onClick={fetchStats}
+          disabled={loading}
+          className="mt-4 md:mt-0 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50"
+        >
+          {loading ? "⏳ Chargement..." : "🔄 Rafraîchir"}
+        </button>
       </header>
 
       {/* Statistiques rapides */}
-      {stats && (
-        <section className="grid md:grid-cols-4 gap-4 mb-8">
-          <div className="p-4 rounded-lg shadow bg-white dark:bg-slate-800 text-center">
-            <h3 className="text-lg font-semibold">👤 Utilisateurs</h3>
-            <p className="text-2xl font-bold">{stats.users || 0}</p>
-          </div>
-          <div className="p-4 rounded-lg shadow bg-white dark:bg-slate-800 text-center">
-            <h3 className="text-lg font-semibold">📂 Projets</h3>
-            <p className="text-2xl font-bold">{stats.projects || 0}</p>
-          </div>
-          <div className="p-4 rounded-lg shadow bg-white dark:bg-slate-800 text-center">
-            <h3 className="text-lg font-semibold">🛒 Templates</h3>
-            <p className="text-2xl font-bold">{stats.templates || 0}</p>
-          </div>
-          <div className="p-4 rounded-lg shadow bg-white dark:bg-slate-800 text-center">
-            <h3 className="text-lg font-semibold">💳 Paiements</h3>
-            <p className="text-2xl font-bold">{stats.payments || 0}</p>
-          </div>
-        </section>
+      {loading ? (
+        <div className="text-center text-gray-500">⏳ Chargement des statistiques...</div>
+      ) : (
+        stats && (
+          <section className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+            <div className="p-4 rounded-lg shadow bg-white dark:bg-slate-800 text-center">
+              <h3 className="text-lg font-semibold">👤 Utilisateurs</h3>
+              <p className="text-3xl font-bold">{stats.users || 0}</p>
+            </div>
+            <div className="p-4 rounded-lg shadow bg-white dark:bg-slate-800 text-center">
+              <h3 className="text-lg font-semibold">📂 Projets</h3>
+              <p className="text-3xl font-bold">{stats.projects || 0}</p>
+            </div>
+            <div className="p-4 rounded-lg shadow bg-white dark:bg-slate-800 text-center">
+              <h3 className="text-lg font-semibold">🛒 Templates</h3>
+              <p className="text-3xl font-bold">{stats.templates || 0}</p>
+            </div>
+            <div className="p-4 rounded-lg shadow bg-white dark:bg-slate-800 text-center">
+              <h3 className="text-lg font-semibold">💳 Paiements</h3>
+              <p className="text-3xl font-bold">{stats.payments || 0}</p>
+            </div>
+          </section>
+        )
       )}
 
       {/* Grille des sections */}
-      <div className="grid md:grid-cols-2 gap-6">
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
         {/* Utilisateurs */}
         <Link
           to="/admin/users"
