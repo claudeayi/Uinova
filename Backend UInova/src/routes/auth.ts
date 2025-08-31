@@ -7,7 +7,7 @@ import {
   logout,
   me,
 } from "../controllers/authController";
-import { requireAuth } from "../middlewares/auth";
+import { authenticate } from "../middlewares/security";
 import {
   validateRegister,
   validateLogin,
@@ -17,27 +17,48 @@ import { authLimiter } from "../middlewares/security";
 
 const router = Router();
 
-/**
- * Auth endpoints
- * - /register  : crée un compte et émet { accessToken, user } + cookie refresh httpOnly
- * - /login     : émet { accessToken, user } + cookie refresh httpOnly
- * - /refresh   : rotation du refresh token (cookie) → { accessToken, user }
- * - /logout    : révoque le refresh courant + clear cookie
- * - /me        : retourne le profil (JWT d'accès requis)
- */
+/* ============================================================================
+ *  AUTH ROUTES
+ *  Flux complet : Register → Login → Refresh → Logout → Me
+ * ========================================================================== */
 
-// Applique un rate-limit plus strict sur les endpoints sensibles
+// 🔒 Applique un rate-limit strict sur les endpoints sensibles
 router.use(authLimiter);
 
-// Register & Login
+/**
+ * POST /api/auth/register
+ * Créer un compte utilisateur
+ * Body: { email, password, name? }
+ * Response: { accessToken, user } + cookie refresh httpOnly
+ */
 router.post("/register", validateRegister, handleValidationErrors, register);
+
+/**
+ * POST /api/auth/login
+ * Authentifier un utilisateur
+ * Body: { email, password }
+ * Response: { accessToken, user } + cookie refresh httpOnly
+ */
 router.post("/login", validateLogin, handleValidationErrors, login);
 
-// Refresh & Logout (utilisent le cookie httpOnly "uinova_rt")
+/**
+ * POST /api/auth/refresh
+ * Rafraîchir le token d’accès
+ * Utilise le cookie httpOnly "uinova_rt"
+ * Response: { accessToken, user }
+ */
 router.post("/refresh", refresh);
+
+/**
+ * POST /api/auth/logout
+ * Révoquer le refresh token courant + clear cookie
+ */
 router.post("/logout", logout);
 
-// Profil
-router.get("/me", requireAuth, me);
+/**
+ * GET /api/auth/me
+ * Récupérer le profil utilisateur courant (JWT access requis)
+ */
+router.get("/me", authenticate, me);
 
 export default router;
