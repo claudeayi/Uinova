@@ -1,6 +1,6 @@
 // src/routes/pages.ts
 import { Router } from "express";
-import { requireAuth } from "../middlewares/auth";
+import { authenticate, authorize } from "../middlewares/security";
 import {
   validateProjectIdParam,
   validatePageIdParam,
@@ -17,16 +17,21 @@ import {
   reorder,
   duplicate,
   remove,
+  preview,
+  publish,
+  unpublish,
 } from "../controllers/pageController";
 
 const router = Router();
 
-// Toutes les routes Pages nécessitent l'authentification
-router.use(requireAuth);
+/* ============================================================================
+ *  PAGES ROUTES – nécessite authentification
+ * ========================================================================== */
+router.use(authenticate);
 
 /**
- * Lister les pages d’un projet
  * GET /api/projects/:projectId/pages
+ * Lister toutes les pages d’un projet
  */
 router.get(
   "/projects/:projectId/pages",
@@ -36,8 +41,8 @@ router.get(
 );
 
 /**
- * Créer une page dans un projet
  * POST /api/projects/:projectId/pages
+ * Créer une nouvelle page dans un projet
  */
 router.post(
   "/projects/:projectId/pages",
@@ -48,8 +53,8 @@ router.post(
 );
 
 /**
- * Réordonner les pages d’un projet
  * POST /api/projects/:projectId/pages/reorder
+ * Réordonner les pages d’un projet
  * Body: { items: [{ id, sortOrder }] }
  */
 router.post(
@@ -60,22 +65,21 @@ router.post(
   reorder
 );
 
-/**
- * Obtenir le détail d’une page
- * GET /api/pages/:id
- */
-router.get(
-  "/pages/:id",
-  validatePageIdParam,
-  handleValidationErrors,
-  get
-);
+/* ============================================================================
+ *  ROUTES PAR PAGE (indépendantes du projet)
+ * ========================================================================== */
 
 /**
- * Mettre à jour une page
- * PUT /api/pages/:id
+ * GET /api/pages/:id
+ * Obtenir le détail d’une page
  */
-router.put(
+router.get("/pages/:id", validatePageIdParam, handleValidationErrors, get);
+
+/**
+ * PATCH /api/pages/:id
+ * Mettre à jour une page (partiellement)
+ */
+router.patch(
   "/pages/:id",
   validatePageIdParam,
   validatePageUpdate,
@@ -84,8 +88,8 @@ router.put(
 );
 
 /**
- * Dupliquer une page
  * POST /api/pages/:id/duplicate
+ * Dupliquer une page
  */
 router.post(
   "/pages/:id/duplicate",
@@ -95,14 +99,46 @@ router.post(
 );
 
 /**
- * Supprimer une page
  * DELETE /api/pages/:id
+ * Supprimer une page
  */
-router.delete(
-  "/pages/:id",
+router.delete("/pages/:id", validatePageIdParam, handleValidationErrors, remove);
+
+/* ============================================================================
+ *  ROUTES EXTENDUES (Preview / Publication)
+ * ========================================================================== */
+
+/**
+ * GET /api/pages/:id/preview
+ * Prévisualiser une page (JSON/HTML pour LivePreview)
+ */
+router.get(
+  "/pages/:id/preview",
   validatePageIdParam,
   handleValidationErrors,
-  remove
+  preview
+);
+
+/**
+ * POST /api/pages/:id/publish
+ * Publier une page (disponible publiquement)
+ */
+router.post(
+  "/pages/:id/publish",
+  validatePageIdParam,
+  handleValidationErrors,
+  publish
+);
+
+/**
+ * POST /api/pages/:id/unpublish
+ * Retirer une page de la publication
+ */
+router.post(
+  "/pages/:id/unpublish",
+  validatePageIdParam,
+  handleValidationErrors,
+  unpublish
 );
 
 export default router;
