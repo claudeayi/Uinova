@@ -10,16 +10,16 @@ export async function startDeployment(req: Request, res: Response) {
   try {
     const { projectId } = req.params;
     const user = (req as any).user;
-    if (!user?.id) return res.status(401).json({ error: "UNAUTHORIZED", message: "Non autorisé" });
+    if (!user?.id) {
+      return res.status(401).json({ error: "UNAUTHORIZED", message: "Non autorisé" });
+    }
 
-    // Vérifier projet
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) return res.status(404).json({ error: "NOT_FOUND", message: "Projet introuvable" });
     if (project.ownerId !== user.id && user.role !== "ADMIN") {
       return res.status(403).json({ error: "FORBIDDEN", message: "Accès interdit à ce projet" });
     }
 
-    // Créer enregistrement
     const deployment = await prisma.deployment.create({
       data: {
         projectId,
@@ -29,13 +29,22 @@ export async function startDeployment(req: Request, res: Response) {
       },
     });
 
-    // ⚡ Simulation async (à remplacer par CI/CD ou IaC)
+    // Audit
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "DEPLOY_START",
+        metadata: { projectId, deployId: deployment.id },
+      },
+    });
+
+    // ⚡ Simulation async
     setTimeout(async () => {
       await prisma.deployment.update({
         where: { id: deployment.id },
         data: {
           status: "RUNNING",
-          logs: deployment.logs + "\n⚙️ Build en cours...",
+          logs: (deployment.logs || "") + "\n⚙️ Build en cours...",
         },
       });
     }, 2000);
@@ -45,7 +54,7 @@ export async function startDeployment(req: Request, res: Response) {
         where: { id: deployment.id },
         data: {
           status: "SUCCESS",
-          logs: deployment.logs + "\n✅ Déploiement terminé avec succès.",
+          logs: (deployment.logs || "") + "\n✅ Déploiement terminé avec succès.",
         },
       });
     }, 6000);
@@ -102,13 +111,20 @@ export async function rollbackDeployment(req: Request, res: Response) {
       return res.status(404).json({ error: "NOT_FOUND", message: "Déploiement introuvable" });
     }
 
-    // Simule rollback
     const rollback = await prisma.deployment.create({
       data: {
         projectId,
         status: "SUCCESS",
         logs: "↩️ Rollback vers version précédente effectué avec succès.",
         targetUrl: deployment.targetUrl,
+      },
+    });
+
+    await prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        action: "DEPLOY_ROLLBACK",
+        metadata: { projectId, rollbackId: rollback.id, from: deployId },
       },
     });
 
@@ -119,7 +135,7 @@ export async function rollbackDeployment(req: Request, res: Response) {
   }
 }
 
-// ✅ GET /deploy/:projectId/:deployId/logs → streaming des logs
+// ✅ GET /deploy/:projectId/:deployId/logs → logs déploiement
 export async function getDeploymentLogs(req: Request, res: Response) {
   try {
     const { deployId } = req.params;
@@ -131,6 +147,33 @@ export async function getDeploymentLogs(req: Request, res: Response) {
     res.send(deployment.logs || "Aucun log disponible.");
   } catch (err) {
     console.error("❌ getDeploymentLogs error:", err);
+    res.status(500).json({ error: "SERVER_ERROR", message: "Erreur serveur" });
+  }
+}
+
+/* ============================================================================
+ *  ADMIN ENDPOINTS – pour ProjectsAdmin / Monitoring
+ * ========================================================================== */
+
+// ✅ GET /admin/deployments → tous les déploiements (admin only)
+export async function listAllDeployments(req: Request, res: Response) {
+  try {
+    const role = (req as any).user?.role;
+    if (role !== "ADMIN") {
+      return res.status(403).json({ error: "FORBIDDEN", message: "Accès admin requis" });
+    }
+
+    const deployments = await prisma.deployment.findMany({
+      include: {
+        project: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: "desc" },
+      take: 100,
+    });
+
+    res.json({ success: true, data: deployments });
+  } catch (err) {
+    console.error("❌ listAllDeployments error:", err);
     res.status(500).json({ error: "SERVER_ERROR", message: "Erreur serveur" });
   }
 }
