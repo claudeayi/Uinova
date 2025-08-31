@@ -2,78 +2,106 @@
 import { Router } from "express";
 import {
   stripeIntent,
+  stripeWebhook,
+  listStripePrices,
+  getStripePaymentStatus,
   paypalCreateOrder,
   paypalCaptureOrder,
+  paypalWebhook,
   cinetpayInitPayment,
   cinetpayCheckPayment,
-  mockPayment
+  mockPayment,
 } from "../controllers/paymentController";
 import { requireAuth } from "../middlewares/auth";
-import { body } from "express-validator";
+import { body, param } from "express-validator";
 import { handleValidationErrors } from "../middlewares/validate";
 
 const router = Router();
 
-// Toutes les routes de paiement nécessitent une authentification
-router.use(requireAuth);
+/* ============================================================================
+ *  STRIPE
+ * ========================================================================== */
 
-/**
- * Stripe Payment Intent
- * POST /api/payments/stripe
- */
+// ✅ Créer un PaymentIntent
 router.post(
   "/stripe",
+  requireAuth,
   body("amount").isInt({ min: 50 }).withMessage("Montant invalide"),
   handleValidationErrors,
   stripeIntent
 );
 
-/**
- * PayPal - Créer une commande
- * POST /api/payments/paypal/create
- */
+// ✅ Lister les plans (PricingPage)
+router.get("/stripe/prices", listStripePrices);
+
+// ✅ Vérifier statut d’un paiement
+router.get(
+  "/stripe/status/:paymentIntentId",
+  requireAuth,
+  param("paymentIntentId").isString().notEmpty(),
+  handleValidationErrors,
+  getStripePaymentStatus
+);
+
+// ✅ Webhook Stripe (⚠️ public, appelé par Stripe)
+router.post("/stripe/webhook", stripeWebhook);
+
+/* ============================================================================
+ *  PAYPAL
+ * ========================================================================== */
+
+// ✅ Créer une commande PayPal
 router.post(
   "/paypal/create",
+  requireAuth,
   body("amount").isFloat({ min: 1 }).withMessage("Montant invalide"),
   handleValidationErrors,
   paypalCreateOrder
 );
 
-/**
- * PayPal - Capturer une commande
- * POST /api/payments/paypal/capture
- */
+// ✅ Capturer une commande PayPal
 router.post(
   "/paypal/capture",
+  requireAuth,
   body("orderId").isString().notEmpty().withMessage("orderId requis"),
   handleValidationErrors,
   paypalCaptureOrder
 );
 
-/**
- * CinetPay - Initialiser un paiement
- * POST /api/payments/cinetpay/init
- */
+// ✅ Webhook PayPal (⚠️ public)
+router.post("/paypal/webhook", paypalWebhook);
+
+/* ============================================================================
+ *  CINETPAY
+ * ========================================================================== */
+
+// ✅ Initialiser un paiement CinetPay
 router.post(
   "/cinetpay/init",
+  requireAuth,
   body("amount").isFloat({ min: 1 }).withMessage("Montant invalide"),
   body("currency").isString().isLength({ min: 3, max: 3 }).withMessage("Devise invalide"),
   handleValidationErrors,
   cinetpayInitPayment
 );
 
-/**
- * CinetPay - Vérifier un paiement
- * GET /api/payments/cinetpay/check/:transactionId
- */
-router.get("/cinetpay/check/:transactionId", cinetpayCheckPayment);
+// ✅ Vérifier un paiement CinetPay
+router.get(
+  "/cinetpay/check/:transactionId",
+  requireAuth,
+  param("transactionId").isString().notEmpty(),
+  handleValidationErrors,
+  cinetpayCheckPayment
+);
 
-/**
- * Mock Payment (pour tests et dev)
- * POST /api/payments/mock
- */
+/* ============================================================================
+ *  MOCK (DEV & TEST)
+ * ========================================================================== */
+
+// ✅ Paiement simulé (dev/test)
 router.post(
   "/mock",
+  requireAuth,
   body("amount").isFloat({ min: 1 }).withMessage("Montant invalide"),
   handleValidationErrors,
   mockPayment
