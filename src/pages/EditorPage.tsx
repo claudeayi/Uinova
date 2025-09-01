@@ -22,23 +22,24 @@ import {
   RotateCw,
   Users,
   Upload,
-  Link as LinkIcon,
   Image as ImageIcon,
 } from "lucide-react";
 import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ============================================================================
- * EditorPage – UInova v4.1
- * ✅ Undo/Redo réels (via LiveEditor ref)
+ * EditorPage – UInova v4.2
+ * ✅ Undo/Redo réels (LiveEditor ref)
  * ✅ Preview image live
- * ✅ Persistance dans useAppStore (updateElements + saveSnapshot)
- * ✅ Gestion des propriétés depuis la sidebar
+ * ✅ Persistance cohérente dans useAppStore
+ * ✅ Gestion des propriétés dynamiques
+ * ✅ Flag unsaved + prêt pour autosave
  * ========================================================================= */
 export default function EditorPage() {
   const {
     currentProjectId,
     currentPageId,
+    getCurrentProject,
     getCurrentPage,
     updateElements,
     saveSnapshot,
@@ -58,19 +59,19 @@ export default function EditorPage() {
   const [tempPreviewSrc, setTempPreviewSrc] = useState<string | null>(null);
 
   const navigate = useNavigate();
+  const project = getCurrentProject();
   const page = getCurrentPage();
 
   /* ===============================
      Actions
   =============================== */
   async function handleSave() {
-    if (!currentProjectId) {
+    if (!currentProjectId || !project) {
       toast.error("❌ Aucun projet actif.");
       return;
     }
     try {
       setSaving(true);
-      const project = page ? { ...page } : null;
       await saveProject(currentProjectId, project);
       setUnsaved(false);
       toast.success("💾 Projet sauvegardé ✅");
@@ -99,9 +100,11 @@ export default function EditorPage() {
   // Undo/Redo
   function handleUndo() {
     editorRef.current?.undo();
+    setUnsaved(true);
   }
   function handleRedo() {
     editorRef.current?.redo();
+    setUnsaved(true);
   }
 
   // IA Prompt
