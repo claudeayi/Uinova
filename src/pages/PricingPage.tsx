@@ -16,6 +16,7 @@ export default function PricingPage() {
       ],
       action: () => navigate("/payment?plan=FREE"),
       highlight: false,
+      cta: "Commencer gratuitement",
     },
     {
       name: "Premium",
@@ -30,6 +31,7 @@ export default function PricingPage() {
       ],
       action: () => navigate("/payment?plan=PRO"),
       highlight: true,
+      cta: "Passer au PRO",
     },
     {
       name: "Business",
@@ -44,6 +46,7 @@ export default function PricingPage() {
       ],
       action: () => navigate("/payment?plan=BUSINESS"),
       highlight: false,
+      cta: "Choisir BUSINESS",
     },
     {
       name: "Enterprise",
@@ -58,48 +61,55 @@ export default function PricingPage() {
       ],
       action: () => navigate("/payment?plan=ENTERPRISE"),
       highlight: false,
+      cta: "Contacter l’équipe",
     },
   ];
 
   return (
-    <div className="py-10 px-6 max-w-7xl mx-auto">
-      <h1 className="text-3xl font-bold text-center mb-10">
+    <div className="py-12 px-6 max-w-7xl mx-auto">
+      <h1 className="text-4xl font-extrabold text-center mb-12">
         💎 Choisissez le plan qui vous convient
       </h1>
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-6">
+      <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
         {plans.map((plan) => (
           <div
             key={plan.name}
-            className={`border rounded-xl p-6 flex flex-col shadow transition hover:shadow-lg ${
+            className={`relative border rounded-xl p-6 flex flex-col shadow transition hover:shadow-lg ${
               plan.highlight
                 ? "border-blue-600 bg-blue-50 dark:bg-slate-800"
                 : "bg-white dark:bg-slate-900"
             }`}
           >
-            <h2 className="text-xl font-bold mb-2 text-center">{plan.name}</h2>
+            {/* Badge Populaire */}
+            {plan.highlight && (
+              <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 text-xs rounded-full bg-blue-600 text-white font-semibold shadow">
+                ⭐ Populaire
+              </span>
+            )}
+
+            <h2 className="text-2xl font-bold mb-2 text-center">{plan.name}</h2>
             <p className="text-center text-gray-600 dark:text-gray-400 mb-4">
               {plan.desc}
             </p>
-            <p className="text-3xl font-extrabold text-center mb-4">
+            <p className="text-3xl font-extrabold text-center mb-6">
               {plan.price}
             </p>
-            <ul className="space-y-2 flex-1">
+            <ul className="space-y-2 flex-1 text-sm">
               {plan.features.map((f, i) => (
-                <li key={i} className="text-sm">
-                  {f}
-                </li>
+                <li key={i}>{f}</li>
               ))}
             </ul>
+
             <button
               onClick={plan.action}
-              className={`mt-6 px-4 py-2 rounded font-semibold ${
+              className={`mt-6 px-4 py-2 rounded font-semibold transition ${
                 plan.highlight
                   ? "bg-blue-600 text-white hover:bg-blue-700"
                   : "bg-gray-200 dark:bg-slate-700 dark:text-white hover:bg-gray-300"
               }`}
             >
-              {plan.name === "Freemium" ? "Commencer" : "Choisir"}
+              {plan.cta}
             </button>
           </div>
         ))}
