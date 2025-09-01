@@ -26,14 +26,14 @@ import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ===============================
-   Editor Page – UInova v3.6
-   + Preview live dans AssetLibrary
+   Editor Page – UInova v3.7
+   + Preview live d’asset au survol
 =============================== */
 export default function EditorPage() {
   const { currentProjectId, currentPageId, project } = useAppStore();
   const [showShare, setShowShare] = useState(false);
   const [showAssets, setShowAssets] = useState(false);
-  const [previewAsset, setPreviewAsset] = useState<string | null>(null); // ✅ Preview live
+  const [previewAsset, setPreviewAsset] = useState<string | null>(null); // ✅ Aperçu
   const [saving, setSaving] = useState(false);
   const [unsaved, setUnsaved] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -194,10 +194,14 @@ export default function EditorPage() {
           {/* Sidebar droite – Propriétés dynamiques OU AssetLibrary */}
           {showAssets ? (
             <div className="w-80 border-l dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex flex-col">
-              <AssetLibrary onSelect={handleSelectAsset} />
+              {/* AssetLibrary avec hover preview */}
+              <AssetLibrary
+                onSelect={handleSelectAsset}
+                onHover={(src) => setPreviewAsset(src)} // ✅ Aperçu au hover
+              />
               {previewAsset && (
                 <div className="p-3 border-t dark:border-slate-700">
-                  <h4 className="text-sm font-semibold mb-2">👀 Aperçu</h4>
+                  <h4 className="text-sm font-semibold mb-2">👀 Aperçu live</h4>
                   <img
                     src={previewAsset}
                     alt="Preview asset"
