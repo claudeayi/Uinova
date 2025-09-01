@@ -26,20 +26,20 @@ import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ===============================
-   Editor Page – UInova v3.7
-   + Preview live d’asset au survol
+   Editor Page – UInova v3.8
+   + Preview live d’asset dans LiveEditor
 =============================== */
 export default function EditorPage() {
   const { currentProjectId, currentPageId, project } = useAppStore();
   const [showShare, setShowShare] = useState(false);
   const [showAssets, setShowAssets] = useState(false);
-  const [previewAsset, setPreviewAsset] = useState<string | null>(null); // ✅ Aperçu
   const [saving, setSaving] = useState(false);
   const [unsaved, setUnsaved] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiHistory, setAiHistory] = useState<string[]>([]);
   const [selectedComponent, setSelectedComponent] = useState<DroppedComponent | null>(null);
+  const [tempPreviewSrc, setTempPreviewSrc] = useState<string | null>(null); // ✅ preview temporaire
   const navigate = useNavigate();
 
   /* ===============================
@@ -114,14 +114,22 @@ export default function EditorPage() {
     reader.readAsDataURL(file);
   }
 
-  // Sélection image depuis bibliothèque
+  // Hover asset = preview temporaire
+  function handleHoverAsset(src: string | null) {
+    if (selectedComponent?.type === "Image") {
+      setTempPreviewSrc(src);
+    }
+  }
+
+  // Sélection asset = application définitive
   function handleSelectAsset(src: string) {
     if (selectedComponent) {
       handleUpdateComponent(selectedComponent.id, {
         ...selectedComponent.props,
         src,
       });
-      toast.success("✅ Image appliquée depuis la bibliothèque");
+      toast.success("✅ Image appliquée");
+      setTempPreviewSrc(null); // reset preview
     }
   }
 
@@ -183,33 +191,26 @@ export default function EditorPage() {
           {/* Sidebar gauche – Palette drag&drop */}
           <ComponentPalette />
 
-          {/* Canvas central */}
+          {/* Canvas central avec preview temporaire */}
           <div className="flex-1 overflow-auto bg-slate-50 dark:bg-slate-900">
             <LiveEditor
               onSelect={setSelectedComponent}
               onUpdateComponent={handleUpdateComponent}
+              // ✅ Si preview en cours → injecter dans props du composant sélectionné
+              previewOverride={
+                tempPreviewSrc && selectedComponent?.type === "Image"
+                  ? { ...selectedComponent, props: { ...selectedComponent.props, src: tempPreviewSrc } }
+                  : null
+              }
             />
           </div>
 
-          {/* Sidebar droite – Propriétés dynamiques OU AssetLibrary */}
+          {/* Sidebar droite */}
           {showAssets ? (
-            <div className="w-80 border-l dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex flex-col">
-              {/* AssetLibrary avec hover preview */}
-              <AssetLibrary
-                onSelect={handleSelectAsset}
-                onHover={(src) => setPreviewAsset(src)} // ✅ Aperçu au hover
-              />
-              {previewAsset && (
-                <div className="p-3 border-t dark:border-slate-700">
-                  <h4 className="text-sm font-semibold mb-2">👀 Aperçu live</h4>
-                  <img
-                    src={previewAsset}
-                    alt="Preview asset"
-                    className="w-full rounded shadow"
-                  />
-                </div>
-              )}
-            </div>
+            <AssetLibrary
+              onSelect={handleSelectAsset}
+              onHover={handleHoverAsset} // ✅ preview direct dans canvas
+            />
           ) : (
             <div className="w-80 border-l dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
               <h3 className="font-semibold mb-3">⚙️ Propriétés</h3>
