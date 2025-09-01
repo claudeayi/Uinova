@@ -26,8 +26,9 @@ import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ===============================
-   Editor Page – UInova v3.8
-   + Preview live d’asset dans LiveEditor
+   Editor Page – UInova v3.9
+   ✅ Preview live d’asset
+   ✅ Sélection + application robuste
 =============================== */
 export default function EditorPage() {
   const { currentProjectId, currentPageId, project } = useAppStore();
@@ -196,12 +197,7 @@ export default function EditorPage() {
             <LiveEditor
               onSelect={setSelectedComponent}
               onUpdateComponent={handleUpdateComponent}
-              // ✅ Si preview en cours → injecter dans props du composant sélectionné
-              previewOverride={
-                tempPreviewSrc && selectedComponent?.type === "Image"
-                  ? { ...selectedComponent, props: { ...selectedComponent.props, src: tempPreviewSrc } }
-                  : null
-              }
+              previewOverride={tempPreviewSrc} // ✅ injection preview live
             />
           </div>
 
