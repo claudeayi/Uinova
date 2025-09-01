@@ -1,4 +1,3 @@
-// src/layouts/Navbar.tsx
 import { useState, useEffect } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useProject } from "@/context/ProjectContext";
@@ -63,16 +62,11 @@ export default function Navbar() {
             Marketplace
           </NavLink>
 
-          {/* ⚙️ Admin seulement */}
+          {/* ⚙️ Admin hub */}
           {user?.role === "admin" && (
-            <>
-              <NavLink to="/marketplace/manage" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-                ⚙️ Gestion Marketplace
-              </NavLink>
-              <NavLink to="/admin" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-                🛠️ Admin Panel
-              </NavLink>
-            </>
+            <NavLink to="/admin" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
+              🛠️ Admin Panel
+            </NavLink>
           )}
 
           <NavLink to="/pricing" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
@@ -181,14 +175,9 @@ export default function Navbar() {
             Marketplace
           </NavLink>
           {user?.role === "admin" && (
-            <>
-              <NavLink to="/marketplace/manage" onClick={() => setMenuOpen(false)} className={linkClass}>
-                ⚙️ Gestion Marketplace
-              </NavLink>
-              <NavLink to="/admin" onClick={() => setMenuOpen(false)} className={linkClass}>
-                🛠️ Admin Panel
-              </NavLink>
-            </>
+            <NavLink to="/admin" onClick={() => setMenuOpen(false)} className={linkClass}>
+              🛠️ Admin Panel
+            </NavLink>
           )}
           <NavLink to="/pricing" onClick={() => setMenuOpen(false)} className={linkClass}>
             Tarifs
