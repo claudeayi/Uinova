@@ -1,6 +1,6 @@
 // src/components/Editor/AssetLibrary.tsx
 import { useState } from "react";
-import { Upload, Search, Image as ImageIcon } from "lucide-react";
+import { Upload, Search, Image as ImageIcon, FolderUp } from "lucide-react";
 import { toast } from "react-hot-toast";
 
 interface AssetLibraryProps {
@@ -16,20 +16,50 @@ const DEFAULT_ASSETS = [
 ];
 
 /* ============================================================================
- * AssetLibrary – Bibliothèque d’images
+ * AssetLibrary – Bibliothèque d’images enrichie
  * ========================================================================= */
 export default function AssetLibrary({ onSelect, onHover }: AssetLibraryProps) {
   const [assets, setAssets] = useState<string[]>(DEFAULT_ASSETS);
   const [search, setSearch] = useState("");
+  const [dragOver, setDragOver] = useState(false);
 
   // Upload image locale → base64
   function handleUpload(file: File) {
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("❌ Image trop lourde (max 5 Mo).");
+      return;
+    }
+
     const reader = new FileReader();
     reader.onloadend = () => {
-      setAssets((prev) => [reader.result as string, ...prev]);
-      toast.success("🖼️ Image ajoutée à la bibliothèque");
+      const src = reader.result as string;
+      if (assets.includes(src)) {
+        toast("⚠️ Cette image est déjà dans la bibliothèque");
+        return;
+      }
+      setAssets((prev) => [src, ...prev]);
+      toast.success(`🖼️ ${file.name} ajoutée (${Math.round(file.size / 1024)} Ko)`);
     };
     reader.readAsDataURL(file);
+  }
+
+  // Drag & drop
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) handleUpload(file);
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault();
+    setDragOver(true);
+  }
+
+  function handleDragLeave() {
+    setDragOver(false);
   }
 
   // Filtre recherche
@@ -38,10 +68,20 @@ export default function AssetLibrary({ onSelect, onHover }: AssetLibraryProps) {
   );
 
   return (
-    <aside className="w-80 border-l dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 flex flex-col">
+    <aside
+      className={`w-80 border-l dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 flex flex-col transition ${
+        dragOver ? "ring-2 ring-indigo-400" : ""
+      }`}
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+    >
       {/* Titre */}
-      <h3 className="font-semibold mb-3 text-blue-600 dark:text-blue-400 flex items-center gap-2">
-        <ImageIcon className="w-4 h-4" /> Bibliothèque d’assets
+      <h3 className="font-semibold mb-3 text-blue-600 dark:text-blue-400 flex items-center gap-2 justify-between">
+        <span className="flex items-center gap-2">
+          <ImageIcon className="w-4 h-4" /> Bibliothèque d’assets
+        </span>
+        <span className="text-xs text-gray-500">{assets.length} items</span>
       </h3>
 
       {/* Recherche */}
@@ -71,6 +111,13 @@ export default function AssetLibrary({ onSelect, onHover }: AssetLibraryProps) {
         />
       </label>
 
+      {/* Drag & drop helper */}
+      {dragOver && (
+        <div className="flex items-center justify-center text-indigo-500 text-sm mb-2">
+          <FolderUp className="w-4 h-4 mr-1" /> Déposez l’image ici...
+        </div>
+      )}
+
       {/* Liste des assets */}
       <div className="grid grid-cols-2 gap-3 overflow-y-auto flex-1 pr-1">
         {filtered.map((src, idx) => (
@@ -83,8 +130,8 @@ export default function AssetLibrary({ onSelect, onHover }: AssetLibraryProps) {
               onSelect(src);
               toast.success("✅ Image sélectionnée");
             }}
-            onMouseEnter={() => onHover?.(src)}   // ✅ preview au survol
-            onMouseLeave={() => onHover?.(null)} // ✅ reset preview
+            onMouseEnter={() => onHover?.(src)}
+            onMouseLeave={() => onHover?.(null)}
           />
         ))}
 
