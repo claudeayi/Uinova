@@ -6,7 +6,7 @@ import ProjectSelector from "@/components/projects/ProjectSelector";
 
 export default function Navbar() {
   const [dark, setDark] = useState(() => localStorage.getItem("theme") === "dark");
-  const [menuOpen, setMenuOpen] = useState(false); // ⚡ mobile
+  const [menuOpen, setMenuOpen] = useState(false);
   const { projectId } = useProject();
   const { user, logout } = useAuth();
   const navigate = useNavigate();
@@ -17,11 +17,22 @@ export default function Navbar() {
   }, [dark]);
 
   const linkClass =
-    "px-3 py-2 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition";
+    "relative px-3 py-2 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition";
   const activeClass =
     "bg-slate-300 dark:bg-slate-800 font-semibold text-blue-600 dark:text-blue-400";
   const disabledClass =
     "px-3 py-2 rounded text-gray-400 cursor-not-allowed";
+
+  const NewBadge = () => (
+    <span
+      aria-label="Nouveau"
+      className="absolute -top-2 -right-3 text-[10px] px-2 py-0.5 rounded-full 
+        bg-gradient-to-r from-pink-500 to-yellow-400 text-white font-bold shadow
+        animate-pulse ring-2 ring-pink-300/50"
+    >
+      Nouveau
+    </span>
+  );
 
   return (
     <nav
@@ -53,11 +64,9 @@ export default function Navbar() {
           <NavLink to="/" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
             Dashboard
           </NavLink>
-
           <NavLink to="/projects" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
             Projets
           </NavLink>
-
           <NavLink to="/marketplace" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
             Marketplace
           </NavLink>
@@ -66,17 +75,16 @@ export default function Navbar() {
           {user?.role === "admin" && (
             <NavLink to="/admin" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
               🛠️ Admin Panel
+              <NewBadge />
             </NavLink>
           )}
 
           <NavLink to="/pricing" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
             Tarifs
           </NavLink>
-
           <NavLink to="/payment" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
             Paiement
           </NavLink>
-
           <NavLink to="/contact" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
             📩 Contact
           </NavLink>
@@ -118,7 +126,6 @@ export default function Navbar() {
         {/* Zone droite */}
         <div className="hidden md:flex items-center space-x-3">
           <ProjectSelector />
-
           {!user ? (
             <>
               <NavLink to="/login" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
@@ -130,9 +137,7 @@ export default function Navbar() {
             </>
           ) : (
             <div className="flex items-center space-x-2">
-              <span className="text-sm text-gray-600 dark:text-gray-300">
-                👋 {user.email}
-              </span>
+              <span className="text-sm text-gray-600 dark:text-gray-300">👋 {user.email}</span>
               <button
                 onClick={logout}
                 className="text-xs px-2 py-1 bg-red-500 text-white rounded hover:bg-red-600"
@@ -141,7 +146,6 @@ export default function Navbar() {
               </button>
             </div>
           )}
-
           {/* Dark mode toggle */}
           <button
             onClick={() => setDark(!dark)}
@@ -165,50 +169,31 @@ export default function Navbar() {
       {/* Menu mobile */}
       {menuOpen && (
         <div className="md:hidden border-t border-slate-200 dark:border-slate-700 p-4 space-y-2 bg-white dark:bg-slate-900">
-          <NavLink to="/" onClick={() => setMenuOpen(false)} className={linkClass}>
-            Dashboard
-          </NavLink>
-          <NavLink to="/projects" onClick={() => setMenuOpen(false)} className={linkClass}>
-            Projets
-          </NavLink>
-          <NavLink to="/marketplace" onClick={() => setMenuOpen(false)} className={linkClass}>
-            Marketplace
-          </NavLink>
+          <NavLink to="/" onClick={() => setMenuOpen(false)} className={linkClass}>Dashboard</NavLink>
+          <NavLink to="/projects" onClick={() => setMenuOpen(false)} className={linkClass}>Projets</NavLink>
+          <NavLink to="/marketplace" onClick={() => setMenuOpen(false)} className={linkClass}>Marketplace</NavLink>
           {user?.role === "admin" && (
             <NavLink to="/admin" onClick={() => setMenuOpen(false)} className={linkClass}>
               🛠️ Admin Panel
+              <span className="ml-2 text-[10px] px-2 py-0.5 rounded-full 
+                bg-gradient-to-r from-pink-500 to-yellow-400 text-white font-bold shadow animate-pulse ring-2 ring-pink-300/50">
+                Nouveau
+              </span>
             </NavLink>
           )}
-          <NavLink to="/pricing" onClick={() => setMenuOpen(false)} className={linkClass}>
-            Tarifs
-          </NavLink>
-          <NavLink to="/payment" onClick={() => setMenuOpen(false)} className={linkClass}>
-            Paiement
-          </NavLink>
-          <NavLink to="/contact" onClick={() => setMenuOpen(false)} className={linkClass}>
-            📩 Contact
-          </NavLink>
-          <NavLink to="/monitoring" onClick={() => setMenuOpen(false)} className={linkClass}>
-            📊 Monitoring
-          </NavLink>
-          <NavLink to="/ai" onClick={() => setMenuOpen(false)} className={linkClass}>
-            🤖 Copilot
-          </NavLink>
+          <NavLink to="/pricing" onClick={() => setMenuOpen(false)} className={linkClass}>Tarifs</NavLink>
+          <NavLink to="/payment" onClick={() => setMenuOpen(false)} className={linkClass}>Paiement</NavLink>
+          <NavLink to="/contact" onClick={() => setMenuOpen(false)} className={linkClass}>📩 Contact</NavLink>
+          <NavLink to="/monitoring" onClick={() => setMenuOpen(false)} className={linkClass}>📊 Monitoring</NavLink>
+          <NavLink to="/ai" onClick={() => setMenuOpen(false)} className={linkClass}>🤖 Copilot</NavLink>
           {!user ? (
             <>
-              <NavLink to="/login" onClick={() => setMenuOpen(false)} className={linkClass}>
-                Connexion
-              </NavLink>
-              <NavLink to="/register" onClick={() => setMenuOpen(false)} className={linkClass}>
-                Inscription
-              </NavLink>
+              <NavLink to="/login" onClick={() => setMenuOpen(false)} className={linkClass}>Connexion</NavLink>
+              <NavLink to="/register" onClick={() => setMenuOpen(false)} className={linkClass}>Inscription</NavLink>
             </>
           ) : (
             <button
-              onClick={() => {
-                logout();
-                setMenuOpen(false);
-              }}
+              onClick={() => { logout(); setMenuOpen(false); }}
               className="w-full text-left text-red-600"
             >
               Déconnexion
