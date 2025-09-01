@@ -1,22 +1,23 @@
 import { useState } from "react";
-import { cn } from "@/lib/utils"; // helper classNames si tu l’as
+import { cn } from "@/lib/utils"; // helper classNames
 import { toast } from "react-hot-toast";
 
 interface LiveEditorProps {
-  onSelect?: (component: any) => void;
+  onSelect?: (component: DroppedComponent) => void;
+  onUpdateComponent?: (id: string, props: Record<string, any>) => void;
 }
 
-interface DroppedComponent {
+export interface DroppedComponent {
   id: string;
   type: string;
   label: string;
-  props?: Record<string, any>;
+  props: Record<string, any>;
 }
 
 /* ===============================
    LiveEditor – Zone de travail
 =============================== */
-export default function LiveEditor({ onSelect }: LiveEditorProps) {
+export default function LiveEditor({ onSelect, onUpdateComponent }: LiveEditorProps) {
   const [components, setComponents] = useState<DroppedComponent[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -29,11 +30,18 @@ export default function LiveEditor({ onSelect }: LiveEditorProps) {
     const type = e.dataTransfer.getData("component-type");
     if (!type) return;
 
+    const defaults: Record<string, any> = {
+      Bouton: { text: "Nouveau bouton" },
+      Texte: { text: "Nouveau texte" },
+      Image: { src: "https://via.placeholder.com/150", width: 100 },
+      Formulaire: { buttonText: "Envoyer" },
+    };
+
     const newComponent: DroppedComponent = {
       id: Date.now().toString(),
       type,
       label: type,
-      props: { text: type },
+      props: defaults[type] || {},
     };
 
     setComponents((prev) => [...prev, newComponent]);
@@ -53,6 +61,14 @@ export default function LiveEditor({ onSelect }: LiveEditorProps) {
   function handleSelect(c: DroppedComponent) {
     setSelectedId(c.id);
     onSelect?.(c);
+  }
+
+  // Update depuis la sidebar
+  function handleUpdate(id: string, newProps: Record<string, any>) {
+    setComponents((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, props: newProps } : c))
+    );
+    onUpdateComponent?.(id, newProps);
   }
 
   return (
@@ -85,7 +101,10 @@ export default function LiveEditor({ onSelect }: LiveEditorProps) {
               )}
             >
               {c.type === "Bouton" && (
-                <button className="px-4 py-2 bg-indigo-600 text-white rounded">
+                <button
+                  style={{ backgroundColor: c.props?.color }}
+                  className="px-4 py-2 bg-indigo-600 text-white rounded"
+                >
                   {c.props?.text || "Bouton"}
                 </button>
               )}
@@ -98,6 +117,7 @@ export default function LiveEditor({ onSelect }: LiveEditorProps) {
                 <img
                   src={c.props?.src || "https://via.placeholder.com/150"}
                   alt="Aperçu"
+                  style={{ width: `${c.props?.width || 100}%` }}
                   className="max-w-full h-auto rounded"
                 />
               )}
@@ -109,7 +129,7 @@ export default function LiveEditor({ onSelect }: LiveEditorProps) {
                     className="w-full px-3 py-2 border rounded dark:bg-slate-700"
                   />
                   <button className="px-4 py-2 bg-green-600 text-white rounded">
-                    Envoyer
+                    {c.props?.buttonText || "Envoyer"}
                   </button>
                 </form>
               )}
