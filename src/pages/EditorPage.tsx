@@ -8,7 +8,7 @@ import LiveEditor, {
   LiveEditorHandles,
 } from "../components/Editor/LiveEditor";
 import ComponentPalette from "../components/Editor/ComponentPalette";
-import AssetLibrary from "../components/Editor/AssetLibrary"; 
+import AssetLibrary from "../components/Editor/AssetLibrary";
 import { toast } from "react-hot-toast";
 import {
   Play,
@@ -28,14 +28,14 @@ import {
 import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
-/* ===============================
-   Editor Page – UInova v4.0
-   ✅ Undo/Redo réels
-   ✅ Preview image live
-   ✅ Préparation persistance useAppStore
-=============================== */
 export default function EditorPage() {
-  const { currentProjectId, currentPageId, project, setProject } = useAppStore();
+  const {
+    currentProjectId,
+    currentPageId,
+    project,
+    saveSnapshot,
+  } = useAppStore();
+
   const editorRef = useRef<LiveEditorHandles>(null);
 
   const [showShare, setShowShare] = useState(false);
@@ -45,8 +45,10 @@ export default function EditorPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiHistory, setAiHistory] = useState<string[]>([]);
-  const [selectedComponent, setSelectedComponent] = useState<DroppedComponent | null>(null);
+  const [selectedComponent, setSelectedComponent] =
+    useState<DroppedComponent | null>(null);
   const [tempPreviewSrc, setTempPreviewSrc] = useState<string | null>(null);
+
   const navigate = useNavigate();
 
   /* ===============================
@@ -84,7 +86,7 @@ export default function EditorPage() {
     setShowPreview((prev) => !prev);
   }
 
-  // ✅ Undo/Redo branchés à LiveEditor
+  // Undo/Redo
   function handleUndo() {
     editorRef.current?.undo();
   }
@@ -92,6 +94,7 @@ export default function EditorPage() {
     editorRef.current?.redo();
   }
 
+  // IA Prompt
   function handleAISubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!aiPrompt.trim()) return;
@@ -100,21 +103,21 @@ export default function EditorPage() {
     setAiPrompt("");
   }
 
-  // Mise à jour props composant
+  // 🔥 Update props composant
   function handleUpdateComponent(id: string, props: Record<string, any>) {
     if (selectedComponent?.id === id) {
-      const updated = { ...selectedComponent, props };
-      setSelectedComponent(updated);
+      saveSnapshot();
+      setSelectedComponent({ ...selectedComponent, props });
       setUnsaved(true);
-      // ⚡ Ici plus tard → setProject({ ...project, pages: ... })
     }
   }
 
-  // Upload image locale → Base64
+  // Upload image locale
   function handleImageUpload(file: File) {
     const reader = new FileReader();
     reader.onloadend = () => {
       if (selectedComponent) {
+        saveSnapshot();
         handleUpdateComponent(selectedComponent.id, {
           ...selectedComponent.props,
           src: reader.result,
@@ -125,16 +128,17 @@ export default function EditorPage() {
     reader.readAsDataURL(file);
   }
 
-  // Hover asset = preview temporaire
+  // Hover = preview
   function handleHoverAsset(src: string | null) {
     if (selectedComponent?.type === "Image") {
       setTempPreviewSrc(src);
     }
   }
 
-  // Sélection asset = application définitive
+  // Select asset = appliquer
   function handleSelectAsset(src: string) {
     if (selectedComponent) {
+      saveSnapshot();
       handleUpdateComponent(selectedComponent.id, {
         ...selectedComponent.props,
         src,
@@ -163,32 +167,62 @@ export default function EditorPage() {
             )}
           </div>
           <div className="flex flex-wrap gap-2">
-            <button onClick={handleUndo} className="flex items-center gap-1 px-3 py-1 bg-gray-200 dark:bg-slate-700 rounded hover:bg-gray-300">
+            <button
+              onClick={handleUndo}
+              className="flex items-center gap-1 px-3 py-1 bg-gray-200 dark:bg-slate-700 rounded hover:bg-gray-300"
+            >
               <RotateCcw className="w-4 h-4" /> Undo
             </button>
-            <button onClick={handleRedo} className="flex items-center gap-1 px-3 py-1 bg-gray-200 dark:bg-slate-700 rounded hover:bg-gray-300">
+            <button
+              onClick={handleRedo}
+              className="flex items-center gap-1 px-3 py-1 bg-gray-200 dark:bg-slate-700 rounded hover:bg-gray-300"
+            >
               <RotateCw className="w-4 h-4" /> Refaire
             </button>
-            <button onClick={handleSave} disabled={saving} className="flex items-center gap-1 px-4 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex items-center gap-1 px-4 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
+            >
               <Save className="w-4 h-4" />
               {saving ? "..." : "Sauvegarder"}
             </button>
-            <button onClick={togglePreview} className="flex items-center gap-1 px-4 py-1 bg-gray-600 text-white rounded hover:bg-gray-700">
+            <button
+              onClick={togglePreview}
+              className="flex items-center gap-1 px-4 py-1 bg-gray-600 text-white rounded hover:bg-gray-700"
+            >
               <Eye className="w-4 h-4" /> {showPreview ? "Cacher" : "Preview"}
             </button>
-            <button onClick={() => setShowShare(true)} className="flex items-center gap-1 px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">
+            <button
+              onClick={() => setShowShare(true)}
+              className="flex items-center gap-1 px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
               <Share2 className="w-4 h-4" /> Partager
             </button>
-            <a href={`/export/${currentProjectId}/${currentPageId}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-4 py-1 bg-green-600 text-white rounded hover:bg-green-700">
+            <a
+              href={`/export/${currentProjectId}/${currentPageId}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 px-4 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+            >
               <Download className="w-4 h-4" /> Exporter
             </a>
-            <button onClick={handleReplay} className="flex items-center gap-1 px-4 py-1 bg-orange-600 text-white rounded hover:bg-orange-700">
+            <button
+              onClick={handleReplay}
+              className="flex items-center gap-1 px-4 py-1 bg-orange-600 text-white rounded hover:bg-orange-700"
+            >
               <Activity className="w-4 h-4" /> Replays
             </button>
-            <button onClick={handleDeploy} className="flex items-center gap-1 px-4 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700">
+            <button
+              onClick={handleDeploy}
+              className="flex items-center gap-1 px-4 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+            >
               <Play className="w-4 h-4" /> Déployer
             </button>
-            <button onClick={() => setShowAssets((prev) => !prev)} className="flex items-center gap-1 px-3 py-1 bg-indigo-100 dark:bg-slate-800 rounded hover:bg-indigo-200 dark:hover:bg-slate-700">
+            <button
+              onClick={() => setShowAssets((prev) => !prev)}
+              className="flex items-center gap-1 px-3 py-1 bg-indigo-100 dark:bg-slate-800 rounded hover:bg-indigo-200 dark:hover:bg-slate-700"
+            >
               <ImageIcon className="w-4 h-4 text-indigo-600" /> Assets
             </button>
             <div className="flex items-center gap-1 px-3 py-1 text-sm bg-slate-100 dark:bg-slate-800 rounded">
@@ -207,7 +241,13 @@ export default function EditorPage() {
               onUpdateComponent={handleUpdateComponent}
               previewOverride={
                 tempPreviewSrc && selectedComponent?.type === "Image"
-                  ? { ...selectedComponent, props: { ...selectedComponent.props, src: tempPreviewSrc } }
+                  ? {
+                      ...selectedComponent,
+                      props: {
+                        ...selectedComponent.props,
+                        src: tempPreviewSrc,
+                      },
+                    }
                   : null
               }
             />
@@ -224,7 +264,6 @@ export default function EditorPage() {
               <h3 className="font-semibold mb-3">⚙️ Propriétés</h3>
               {selectedComponent ? (
                 <div className="space-y-3 text-sm">
-                  {/* Champs dynamiques */}
                   {"text" in selectedComponent.props && (
                     <input
                       type="text"
@@ -309,7 +348,9 @@ export default function EditorPage() {
                   )}
                 </div>
               ) : (
-                <p className="text-gray-400 text-sm">Sélectionnez un composant</p>
+                <p className="text-gray-400 text-sm">
+                  Sélectionnez un composant
+                </p>
               )}
             </div>
           )}
@@ -337,7 +378,10 @@ export default function EditorPage() {
           {aiHistory.length > 0 && (
             <div className="ml-4 text-xs text-gray-500 flex gap-2">
               {aiHistory.map((h, i) => (
-                <span key={i} className="px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded">
+                <span
+                  key={i}
+                  className="px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded"
+                >
                   {h}
                 </span>
               ))}
