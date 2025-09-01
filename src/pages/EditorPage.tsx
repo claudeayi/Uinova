@@ -1,3 +1,4 @@
+// src/pages/EditorPage.tsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store/useAppStore";
@@ -25,12 +26,14 @@ import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ===============================
-   Editor Page – UInova v3.5
+   Editor Page – UInova v3.6
+   + Preview live dans AssetLibrary
 =============================== */
 export default function EditorPage() {
   const { currentProjectId, currentPageId, project } = useAppStore();
   const [showShare, setShowShare] = useState(false);
-  const [showAssets, setShowAssets] = useState(false); // ✅ Toggle bibliothèque
+  const [showAssets, setShowAssets] = useState(false);
+  const [previewAsset, setPreviewAsset] = useState<string | null>(null); // ✅ Preview live
   const [saving, setSaving] = useState(false);
   const [unsaved, setUnsaved] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -145,7 +148,7 @@ export default function EditorPage() {
               <RotateCcw className="w-4 h-4" /> Undo
             </button>
             <button onClick={handleRedo} className="flex items-center gap-1 px-3 py-1 bg-gray-200 dark:bg-slate-700 rounded hover:bg-gray-300">
-              <RotateCw className="w-4 h-4" /> Redo
+              <RotateCw className="w-4 h-4" /> Refaire
             </button>
             <button onClick={handleSave} disabled={saving} className="flex items-center gap-1 px-4 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50">
               <Save className="w-4 h-4" />
@@ -188,9 +191,21 @@ export default function EditorPage() {
             />
           </div>
 
-          {/* Sidebar droite – Propriétés dynamiques + Bibliothèque */}
+          {/* Sidebar droite – Propriétés dynamiques OU AssetLibrary */}
           {showAssets ? (
-            <AssetLibrary onSelect={handleSelectAsset} />
+            <div className="w-80 border-l dark:border-slate-700 bg-slate-50 dark:bg-slate-900 flex flex-col">
+              <AssetLibrary onSelect={handleSelectAsset} />
+              {previewAsset && (
+                <div className="p-3 border-t dark:border-slate-700">
+                  <h4 className="text-sm font-semibold mb-2">👀 Aperçu</h4>
+                  <img
+                    src={previewAsset}
+                    alt="Preview asset"
+                    className="w-full rounded shadow"
+                  />
+                </div>
+              )}
+            </div>
           ) : (
             <div className="w-80 border-l dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
               <h3 className="font-semibold mb-3">⚙️ Propriétés</h3>
@@ -199,12 +214,10 @@ export default function EditorPage() {
                   <p>
                     Éditer : <strong>{selectedComponent.label}</strong>
                   </p>
-
-                  {/* Texte */}
+                  {/* Champs dynamiques */}
                   {"text" in selectedComponent.props && (
                     <input
                       type="text"
-                      placeholder="Texte..."
                       defaultValue={selectedComponent.props.text}
                       onBlur={(e) =>
                         handleUpdateComponent(selectedComponent.id, {
@@ -215,8 +228,6 @@ export default function EditorPage() {
                       className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
                     />
                   )}
-
-                  {/* Couleur bouton */}
                   {"color" in selectedComponent.props && (
                     <input
                       type="color"
@@ -230,8 +241,6 @@ export default function EditorPage() {
                       className="w-12 h-8 border rounded"
                     />
                   )}
-
-                  {/* Largeur image */}
                   {"width" in selectedComponent.props && (
                     <input
                       type="range"
@@ -247,15 +256,12 @@ export default function EditorPage() {
                       className="w-full"
                     />
                   )}
-
-                  {/* Source image */}
                   {"src" in selectedComponent.props && (
                     <div className="space-y-2">
                       <div className="flex items-center gap-2">
                         <LinkIcon className="w-4 h-4 text-gray-500" />
                         <input
                           type="text"
-                          placeholder="URL de l'image"
                           defaultValue={selectedComponent.props.src}
                           onBlur={(e) =>
                             handleUpdateComponent(selectedComponent.id, {
@@ -281,12 +287,9 @@ export default function EditorPage() {
                       </label>
                     </div>
                   )}
-
-                  {/* Texte bouton formulaire */}
                   {"buttonText" in selectedComponent.props && (
                     <input
                       type="text"
-                      placeholder="Texte bouton"
                       defaultValue={selectedComponent.props.buttonText}
                       onBlur={(e) =>
                         handleUpdateComponent(selectedComponent.id, {
@@ -327,10 +330,7 @@ export default function EditorPage() {
           {aiHistory.length > 0 && (
             <div className="ml-4 text-xs text-gray-500 flex gap-2">
               {aiHistory.map((h, i) => (
-                <span
-                  key={i}
-                  className="px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded"
-                >
+                <span key={i} className="px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded">
                   {h}
                 </span>
               ))}
