@@ -1,4 +1,3 @@
-// src/App.tsx
 import { Routes, Route } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { Suspense, lazy } from "react";
@@ -51,15 +50,9 @@ const PaymentCancelPage = lazy(() => import("./pages/PaymentCancelPage"));
 
 // ✉️ Divers
 const ContactPage = lazy(() => import("./pages/ContactPage"));
-const NotFound = lazy(() => import("./pages/NotFound"));
 
-// 🔐 Admin
-const AdminPanel = lazy(() => import("./pages/AdminPanel"));
-const MarketplaceManager = lazy(() => import("./pages/MarketplaceManager"));
-const UsersAdmin = lazy(() => import("./pages/admin/UsersAdmin"));
-const ProjectsAdmin = lazy(() => import("./pages/admin/ProjectsAdmin"));
-const LogsAdmin = lazy(() => import("./pages/admin/LogsAdmin"));
-const ReplaysAdmin = lazy(() => import("./pages/admin/ReplaysAdmin"));
+// 🔐 Admin (Hub unique)
+const AdminPanel = lazy(() => import("./pages/admin/AdminPanel"));
 
 /* ============================================================================
  *  APP ROOT
@@ -104,46 +97,6 @@ export default function App() {
               element={
                 <ProtectedRoute role="admin">
                   <AdminPanel />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/users"
-              element={
-                <ProtectedRoute role="admin">
-                  <UsersAdmin />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/projects"
-              element={
-                <ProtectedRoute role="admin">
-                  <ProjectsAdmin />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/logs"
-              element={
-                <ProtectedRoute role="admin">
-                  <LogsAdmin />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/replays"
-              element={
-                <ProtectedRoute role="admin">
-                  <ReplaysAdmin />
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/marketplace/manage"
-              element={
-                <ProtectedRoute role="admin">
-                  <MarketplaceManager />
                 </ProtectedRoute>
               }
             />
