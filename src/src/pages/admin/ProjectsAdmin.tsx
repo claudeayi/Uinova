@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { getAllProjects, deleteProject } from "@/services/admin";
 import toast from "react-hot-toast";
+import DashboardLayout from "@/layouts/DashboardLayout";
 
 export default function ProjectsAdmin() {
   const [projects, setProjects] = useState<any[]>([]);
@@ -50,107 +51,128 @@ export default function ProjectsAdmin() {
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
   const totalPages = Math.ceil(filtered.length / pageSize);
 
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case "EN_COURS":
+        return "bg-blue-100 text-blue-600";
+      case "TERMINE":
+        return "bg-green-100 text-green-600";
+      case "ERREUR":
+        return "bg-red-100 text-red-600";
+      default:
+        return "bg-gray-100 text-gray-600";
+    }
+  };
+
   return (
-    <div className="max-w-7xl mx-auto p-6 space-y-6">
-      {/* Header */}
-      <header className="flex flex-col md:flex-row justify-between items-center">
-        <h1 className="text-2xl font-bold mb-4 md:mb-0">📂 Gestion des projets</h1>
-        <div className="flex gap-2">
-          <input
-            type="text"
-            placeholder="Rechercher par nom ou propriétaire..."
-            value={search}
-            onChange={(e) => {
-              setSearch(e.target.value);
-              setPage(1);
-            }}
-            className="border rounded px-3 py-2 w-full md:w-72"
-          />
-          <button
-            onClick={fetchProjects}
-            className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            🔄 Rafraîchir
-          </button>
-        </div>
-      </header>
+    <DashboardLayout>
+      <div className="max-w-7xl mx-auto p-6 space-y-6">
+        {/* Header */}
+        <header className="flex flex-col md:flex-row justify-between items-center gap-4">
+          <h1 className="text-2xl font-bold">📂 Gestion des projets</h1>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="Rechercher par nom ou propriétaire..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              className="border rounded px-3 py-2 w-full md:w-72 dark:bg-slate-900 dark:border-slate-700"
+            />
+            <button
+              onClick={fetchProjects}
+              className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+            >
+              🔄 Rafraîchir
+            </button>
+          </div>
+        </header>
 
-      <p className="text-sm text-gray-500">{filtered.length} projet(s)</p>
+        <p className="text-sm text-gray-500">
+          {filtered.length} projet(s) trouvé(s)
+        </p>
 
-      {/* Tableau */}
-      <div className="overflow-x-auto rounded shadow">
-        <table className="w-full border-collapse text-sm">
-          <thead>
-            <tr className="bg-gray-100 dark:bg-slate-800 text-left">
-              <th className="p-3 border">Nom</th>
-              <th className="p-3 border">Propriétaire</th>
-              <th className="p-3 border">Statut</th>
-              <th className="p-3 border">Pages</th>
-              <th className="p-3 border">Créé le</th>
-              <th className="p-3 border">Dernière maj</th>
-              <th className="p-3 border text-center">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginated.map((p) => (
-              <tr
-                key={p.id}
-                className="border-b dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800"
-              >
-                <td className="p-3 font-medium">{p.name}</td>
-                <td className="p-3">{p.owner?.email || "—"}</td>
-                <td className="p-3">
-                  <span
-                    className={`px-2 py-1 text-xs rounded ${
-                      p.status === "EN_COURS"
-                        ? "bg-blue-100 text-blue-600"
-                        : p.status === "TERMINE"
-                        ? "bg-green-100 text-green-600"
-                        : "bg-gray-100 text-gray-600"
-                    }`}
-                  >
-                    {p.status}
-                  </span>
-                </td>
-                <td className="p-3 text-center">{p.pages?.length || 0}</td>
-                <td className="p-3">{new Date(p.createdAt).toLocaleDateString("fr-FR")}</td>
-                <td className="p-3">{new Date(p.updatedAt).toLocaleDateString("fr-FR")}</td>
-                <td className="p-3 text-center">
-                  <button
-                    onClick={() => handleDelete(p.id)}
-                    className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs"
-                  >
-                    🗑️ Supprimer
-                  </button>
-                </td>
+        {/* Tableau */}
+        <div className="overflow-x-auto rounded shadow">
+          <table className="w-full border-collapse text-sm">
+            <thead>
+              <tr className="bg-gray-100 dark:bg-slate-800 text-left">
+                <th className="p-3 border">Nom</th>
+                <th className="p-3 border">Propriétaire</th>
+                <th className="p-3 border">Statut</th>
+                <th className="p-3 border text-center">Pages</th>
+                <th className="p-3 border">Créé le</th>
+                <th className="p-3 border">Dernière maj</th>
+                <th className="p-3 border text-center">Action</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Pagination */}
-      {totalPages > 1 && (
-        <div className="flex justify-center mt-4 space-x-2">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={page === 1}
-            className="px-3 py-1 rounded border disabled:opacity-50"
-          >
-            ← Précédent
-          </button>
-          <span className="px-3 py-1">
-            Page {page} / {totalPages}
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={page === totalPages}
-            className="px-3 py-1 rounded border disabled:opacity-50"
-          >
-            Suivant →
-          </button>
+            </thead>
+            <tbody>
+              {paginated.map((p) => (
+                <tr
+                  key={p.id}
+                  className="border-b dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800"
+                >
+                  <td className="p-3 font-medium">{p.name}</td>
+                  <td className="p-3">{p.owner?.email || "—"}</td>
+                  <td className="p-3">
+                    <span
+                      className={`px-2 py-1 text-xs rounded font-semibold ${getStatusBadge(
+                        p.status
+                      )}`}
+                    >
+                      {p.status || "—"}
+                    </span>
+                  </td>
+                  <td className="p-3 text-center">
+                    <span className="px-2 py-1 text-xs rounded bg-indigo-100 text-indigo-600">
+                      {p.pages?.length || 0}
+                    </span>
+                  </td>
+                  <td className="p-3">
+                    {new Date(p.createdAt).toLocaleDateString("fr-FR")}
+                  </td>
+                  <td className="p-3">
+                    {new Date(p.updatedAt).toLocaleDateString("fr-FR")}
+                  </td>
+                  <td className="p-3 text-center">
+                    <button
+                      onClick={() => handleDelete(p.id)}
+                      className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs"
+                    >
+                      🗑️ Supprimer
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
-      )}
-    </div>
+
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex justify-center mt-4 space-x-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+              className="px-3 py-1 rounded border disabled:opacity-50"
+            >
+              ← Précédent
+            </button>
+            <span className="px-3 py-1">
+              Page {page} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+              className="px-3 py-1 rounded border disabled:opacity-50"
+            >
+              Suivant →
+            </button>
+          </div>
+        )}
+      </div>
+    </DashboardLayout>
   );
 }
