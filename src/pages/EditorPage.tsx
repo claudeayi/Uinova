@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store/useAppStore";
 import ShareModal from "../components/ShareModal";
 import LiveEditor from "../components/Editor/LiveEditor";
+import ComponentPalette from "../components/Editor/ComponentPalette"; // ✅ Palette drag&drop
 import { toast } from "react-hot-toast";
 import {
   Play,
@@ -16,12 +17,13 @@ import {
   RotateCcw,
   RotateCw,
   Users,
+  Settings,
 } from "lucide-react";
 import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ===============================
-   Editor Page – UInova v2
+   Editor Page – UInova v3
 =============================== */
 export default function EditorPage() {
   const { currentProjectId, currentPageId, project } = useAppStore();
@@ -164,23 +166,12 @@ export default function EditorPage() {
 
         {/* ===== Zone principale ===== */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar gauche – Composants */}
-          <div className="w-60 border-r dark:border-slate-700 bg-slate-50 dark:bg-slate-800 p-3 space-y-2">
-            <h3 className="font-semibold mb-2">📦 Composants</h3>
-            {["Bouton", "Texte", "Image", "Formulaire"].map((c) => (
-              <div
-                key={c}
-                className="p-2 rounded bg-white dark:bg-slate-700 shadow cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-600"
-                onClick={() => setSelectedComponent(c)}
-              >
-                {c}
-              </div>
-            ))}
-          </div>
+          {/* Sidebar gauche – Palette drag&drop */}
+          <ComponentPalette />
 
           {/* Canvas central */}
           <div className="flex-1 overflow-auto bg-slate-50 dark:bg-slate-900">
-            <LiveEditor />
+            <LiveEditor onSelect={setSelectedComponent} />
           </div>
 
           {/* Sidebar droite – Propriétés */}
@@ -188,10 +179,11 @@ export default function EditorPage() {
             <h3 className="font-semibold mb-2">⚙️ Propriétés</h3>
             {selectedComponent ? (
               <div className="space-y-2 text-sm">
-                <p>Éditer les propriétés de : <strong>{selectedComponent}</strong></p>
+                <p>Éditer les propriétés de : <strong>{selectedComponent.label || selectedComponent}</strong></p>
                 <input
                   type="text"
                   placeholder="Texte..."
+                  defaultValue={selectedComponent.props?.text || ""}
                   className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
                 />
                 <button className="px-3 py-1 bg-blue-600 text-white rounded text-xs">
