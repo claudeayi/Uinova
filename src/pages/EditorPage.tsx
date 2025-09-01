@@ -28,11 +28,19 @@ import {
 import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
+/* ============================================================================
+ * EditorPage – UInova v4.1
+ * ✅ Undo/Redo réels (via LiveEditor ref)
+ * ✅ Preview image live
+ * ✅ Persistance dans useAppStore (updateElements + saveSnapshot)
+ * ✅ Gestion des propriétés depuis la sidebar
+ * ========================================================================= */
 export default function EditorPage() {
   const {
     currentProjectId,
     currentPageId,
-    project,
+    getCurrentPage,
+    updateElements,
     saveSnapshot,
   } = useAppStore();
 
@@ -50,6 +58,7 @@ export default function EditorPage() {
   const [tempPreviewSrc, setTempPreviewSrc] = useState<string | null>(null);
 
   const navigate = useNavigate();
+  const page = getCurrentPage();
 
   /* ===============================
      Actions
@@ -61,6 +70,7 @@ export default function EditorPage() {
     }
     try {
       setSaving(true);
+      const project = page ? { ...page } : null;
       await saveProject(currentProjectId, project);
       setUnsaved(false);
       toast.success("💾 Projet sauvegardé ✅");
@@ -103,13 +113,21 @@ export default function EditorPage() {
     setAiPrompt("");
   }
 
-  // 🔥 Update props composant
+  // 🔥 Update props composant (store + local sélection)
   function handleUpdateComponent(id: string, props: Record<string, any>) {
+    if (!page) return;
+    saveSnapshot();
+
+    const newElements = page.elements.map((el) =>
+      el.id === id ? { ...el, props } : el
+    );
+
+    updateElements(newElements);
     if (selectedComponent?.id === id) {
-      saveSnapshot();
       setSelectedComponent({ ...selectedComponent, props });
-      setUnsaved(true);
     }
+
+    setUnsaved(true);
   }
 
   // Upload image locale
@@ -117,7 +135,6 @@ export default function EditorPage() {
     const reader = new FileReader();
     reader.onloadend = () => {
       if (selectedComponent) {
-        saveSnapshot();
         handleUpdateComponent(selectedComponent.id, {
           ...selectedComponent.props,
           src: reader.result,
@@ -128,7 +145,7 @@ export default function EditorPage() {
     reader.readAsDataURL(file);
   }
 
-  // Hover = preview
+  // Hover = preview temporaire
   function handleHoverAsset(src: string | null) {
     if (selectedComponent?.type === "Image") {
       setTempPreviewSrc(src);
@@ -138,7 +155,6 @@ export default function EditorPage() {
   // Select asset = appliquer
   function handleSelectAsset(src: string) {
     if (selectedComponent) {
-      saveSnapshot();
       handleUpdateComponent(selectedComponent.id, {
         ...selectedComponent.props,
         src,
@@ -238,7 +254,6 @@ export default function EditorPage() {
             <LiveEditor
               ref={editorRef}
               onSelect={setSelectedComponent}
-              onUpdateComponent={handleUpdateComponent}
               previewOverride={
                 tempPreviewSrc && selectedComponent?.type === "Image"
                   ? {
