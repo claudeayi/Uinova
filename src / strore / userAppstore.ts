@@ -26,6 +26,7 @@ export type ProjectData = {
   pages: PageData[];
   createdAt?: number;
   updatedAt?: number;
+  lastSavedAt?: number;
 };
 
 interface AppState {
@@ -39,6 +40,11 @@ interface AppState {
   setCurrentPageId: (id: string) => void;
   addProject: (name: string) => void;
   addPage: (name: string) => void;
+  deleteProject: (id: string) => void;
+  deletePage: (id: string) => void;
+  renameProject: (id: string, name: string) => void;
+  renamePage: (id: string, name: string) => void;
+  duplicatePage: (id: string) => void;
 
   // Gestion éléments
   updateElements: (elements: ElementData[]) => void;
@@ -72,6 +78,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       name: "Projet principal",
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      lastSavedAt: Date.now(),
       pages: [
         {
           id: "home",
@@ -98,6 +105,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       name,
       createdAt: Date.now(),
       updatedAt: Date.now(),
+      lastSavedAt: Date.now(),
       pages: [
         {
           id: "home",
@@ -115,8 +123,27 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
+  deleteProject: (id) => {
+    const { projects, currentProjectId } = get();
+    const filtered = projects.filter((p) => p.id !== id);
+    set({
+      projects: filtered,
+      currentProjectId: filtered.length > 0 ? filtered[0].id : null,
+      currentPageId: filtered.length > 0 ? filtered[0].pages[0].id : null,
+    });
+  },
+
+  renameProject: (id, name) => {
+    set({
+      projects: get().projects.map((proj) =>
+        proj.id === id ? { ...proj, name, updatedAt: Date.now() } : proj
+      ),
+    });
+  },
+
   addPage: (name) => {
     const { projects, currentProjectId } = get();
+    if (!currentProjectId) return;
     const id = crypto.randomUUID();
     set({
       projects: projects.map((proj) =>
@@ -135,13 +162,70 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
-  /* === Gestion des éléments === */
-  updateElements: (elements) => {
-    const { projects, currentProjectId, currentPageId } = get();
-    if (!currentProjectId || !currentPageId) return;
-
+  deletePage: (id) => {
+    const { projects, currentProjectId } = get();
+    if (!currentProjectId) return;
     set({
       projects: projects.map((proj) =>
+        proj.id === currentProjectId
+          ? {
+              ...proj,
+              pages: proj.pages.filter((p) => p.id !== id),
+            }
+          : proj
+      ),
+      currentPageId: get().getCurrentProject()?.pages[0]?.id || null,
+    });
+  },
+
+  renamePage: (id, name) => {
+    const { projects, currentProjectId } = get();
+    if (!currentProjectId) return;
+    set({
+      projects: projects.map((proj) =>
+        proj.id === currentProjectId
+          ? {
+              ...proj,
+              pages: proj.pages.map((p) =>
+                p.id === id ? { ...p, name } : p
+              ),
+            }
+          : proj
+      ),
+    });
+  },
+
+  duplicatePage: (id) => {
+    const { projects, currentProjectId } = get();
+    if (!currentProjectId) return;
+    const project = projects.find((p) => p.id === currentProjectId);
+    const page = project?.pages.find((p) => p.id === id);
+    if (!page) return;
+    const newId = crypto.randomUUID();
+    const clone: PageData = {
+      ...page,
+      id: newId,
+      name: page.name + " (copie)",
+      elements: JSON.parse(JSON.stringify(page.elements)),
+      history: [[]],
+      future: [],
+    };
+    set({
+      projects: projects.map((proj) =>
+        proj.id === currentProjectId
+          ? { ...proj, pages: [...proj.pages, clone] }
+          : proj
+      ),
+      currentPageId: newId,
+    });
+  },
+
+  /* === Gestion des éléments === */
+  updateElements: (elements) => {
+    const { currentProjectId, currentPageId } = get();
+    if (!currentProjectId || !currentPageId) return;
+    set({
+      projects: get().projects.map((proj) =>
         proj.id === currentProjectId
           ? {
               ...proj,
@@ -153,14 +237,14 @@ export const useAppStore = create<AppState>((set, get) => ({
           : proj
       ),
     });
+    get().saveSnapshot(); // snapshot auto
   },
 
   saveSnapshot: () => {
-    const { projects, currentProjectId, currentPageId } = get();
+    const { currentProjectId, currentPageId } = get();
     if (!currentProjectId || !currentPageId) return;
-
     set({
-      projects: projects.map((proj) =>
+      projects: get().projects.map((proj) =>
         proj.id === currentProjectId
           ? {
               ...proj,
@@ -184,11 +268,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   undo: () => {
-    const { projects, currentProjectId, currentPageId } = get();
+    const { currentProjectId, currentPageId } = get();
     if (!currentProjectId || !currentPageId) return;
-
     set({
-      projects: projects.map((proj) =>
+      projects: get().projects.map((proj) =>
         proj.id === currentProjectId
           ? {
               ...proj,
@@ -210,11 +293,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   redo: () => {
-    const { projects, currentProjectId, currentPageId } = get();
+    const { currentProjectId, currentPageId } = get();
     if (!currentProjectId || !currentPageId) return;
-
     set({
-      projects: projects.map((proj) =>
+      projects: get().projects.map((proj) =>
         proj.id === currentProjectId
           ? {
               ...proj,
@@ -238,7 +320,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   emitElements: (elements) => {
     const { currentProjectId, currentPageId } = get();
     if (!currentProjectId || !currentPageId) return;
-
     socket.emit("updateElements", { projectId: currentProjectId, pageId: currentPageId, elements });
     get().updateElements(elements);
   },
@@ -246,11 +327,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   listenElements: () => {
     socket.off("updateElements");
     socket.off("usersCount");
-
     socket.on("updateElements", (data: { projectId: string; pageId: string; elements: ElementData[] }) => {
-      const { projects } = get();
       set({
-        projects: projects.map((proj) =>
+        projects: get().projects.map((proj) =>
           proj.id === data.projectId
             ? {
                 ...proj,
@@ -262,10 +341,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         ),
       });
     });
-
-    socket.on("usersCount", (count: number) => {
-      set({ onlineUsers: count });
-    });
+    socket.on("usersCount", (count: number) => set({ onlineUsers: count }));
   },
 
   /* === Présence === */
@@ -280,30 +356,24 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   getCurrentPage: () => {
     const { projects, currentProjectId, currentPageId } = get();
-    return (
-      projects.find((p) => p.id === currentProjectId)?.pages.find((pg) => pg.id === currentPageId) || null
-    );
+    return projects.find((p) => p.id === currentProjectId)?.pages.find((pg) => pg.id === currentPageId) || null;
   },
 
   getComponents: (pageId: string) => {
-    const project = get().getCurrentProject();
-    const page = project?.pages.find((p) => p.id === pageId);
+    const page = get().getCurrentProject()?.pages.find((p) => p.id === pageId);
     return page?.elements || [];
   },
 
   setComponents: (pageId: string, elements: ElementData[]) => {
-    const { projects, currentProjectId } = get();
+    const { currentProjectId } = get();
     if (!currentProjectId) return;
-
     set({
-      projects: projects.map((proj) =>
+      projects: get().projects.map((proj) =>
         proj.id === currentProjectId
           ? {
               ...proj,
               updatedAt: Date.now(),
-              pages: proj.pages.map((p) =>
-                p.id === pageId ? { ...p, elements } : p
-              ),
+              pages: proj.pages.map((p) => (p.id === pageId ? { ...p, elements } : p)),
             }
           : proj
       ),
