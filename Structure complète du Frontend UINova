@@ -1,83 +1,83 @@
 src/
-├─ App.tsx                   # Routing global V3 (toutes pages, lazy loading, layout)
-├─ main.tsx                  # Entrée React
-├─ index.css                 # Styles globaux (Tailwind, dark mode)
+├─ App.tsx                   # Routing global V3 (lazy loading + layout globaux)
+├─ main.tsx                  # Entrée React (mount root, providers)
+├─ index.css                 # Styles globaux (Tailwind, dark mode, animations)
 │
 ├─ layouts/
 │  ├─ Navbar.tsx             # Navigation (desktop + mobile + dark mode)
 │  └─ DashboardLayout.tsx    # Layout cockpit (navbar + sidebar + contenu)
 │
 ├─ context/
-│  └─ ProjectContext.tsx     # Contexte projet actif (id, page courante, etc.)
+│  └─ ProjectContext.tsx     # Contexte projet actif (id, page courante, état global)
 │
 ├─ hooks/
 │  ├─ useAuth.ts             # Auth utilisateur (me, login, logout, role)
-│  ├─ useToast.ts            # Notifications centralisées (react-hot-toast wrapper)
-│  └─ useTheme.ts            # Dark/Light mode switch
+│  ├─ useToast.ts            # Notifications centralisées (wrapper react-hot-toast)
+│  └─ useTheme.ts            # Dark/Light mode switch + persist localStorage
 │
 ├─ services/
-│  ├─ http.ts                # Axios configuré (baseURL + interceptor JWT)
-│  ├─ auth.ts                # Login / Register / Me
-│  ├─ projects.ts            # CRUD projets + sauvegarde
+│  ├─ http.ts                # Axios configuré (baseURL + interceptor JWT + erreurs)
+│  ├─ auth.ts                # Login / Register / Me (JWT)
+│  ├─ projects.ts            # CRUD projets + sauvegarde + export
 │  ├─ marketplace.ts         # Marketplace (templates, publish, purchase)
 │  ├─ payments.ts            # Paiements (Stripe, PayPal, Mobile Money, CinetPay)
 │  ├─ badges.ts              # Badges utilisateurs (progression, succès)
-│  ├─ notifications.ts       # Notifications (in-app + push)
-│  ├─ upload.ts              # Uploads fichiers (images, docs)
-│  ├─ ai.ts                  # ⚡ IA générative (chat, UI suggest, auto-code)
+│  ├─ notifications.ts       # Notifications (in-app + push, WebSocket ready)
+│  ├─ upload.ts              # Uploads fichiers (images, docs, drag&drop)
+│  ├─ ai.ts                  # ⚡ IA générative (Copilot, UI suggest, auto-code)
 │  └─ admin.ts               # ⚡ Admin services (users, projects, logs, replays)
 │
 ├─ components/
 │  ├─ base/
-│  │   └─ Button.tsx         # Bouton générique (primary, secondary, danger)
+│  │   └─ Button.tsx         # Bouton générique (primary, secondary, danger, loading)
 │  │
 │  ├─ advanced/
-│  │   ├─ Card.tsx           # Carte réutilisable
-│  │   ├─ Carousel.tsx       # Carousel interactif
-│  │   └─ Modal.tsx          # Modal générique
+│  │   ├─ Card.tsx           # Carte réutilisable (stats, templates…)
+│  │   ├─ Carousel.tsx       # Carousel interactif (templates, onboarding)
+│  │   └─ Modal.tsx          # Modal générique (confirm, formulaire, partage…)
 │  │
 │  ├─ onboarding/
-│  │   └─ OnboardingCoach.tsx # Assistant onboarding utilisateurs
+│  │   └─ OnboardingCoach.tsx # Assistant onboarding interactif (tips, IA)
 │  │
 │  ├─ editor/
-│  │   ├─ EditorWrapper.tsx   # Encapsule EditorPage
+│  │   ├─ EditorWrapper.tsx   # Encapsule EditorPage (contexte, logique)
 │  │   ├─ LivePreview.tsx     # Preview readonly (utilisé par PreviewPage)
 │  │   ├─ ComponentPalette.tsx # Palette de composants drag&drop
-│  │   ├─ LiveEditor.tsx      # Canvas principal (gestion des composants)
-│  │   ├─ AssetLibrary.tsx    # 📚 Bibliothèque d’assets (images + preview hover)
-│  │   └─ ShareModal.tsx      # Modal de partage
+│  │   ├─ LiveEditor.tsx      # ⚡ Canvas principal (grille, drag, resize, rotate, multi-select, undo/redo)
+│  │   ├─ AssetLibrary.tsx    # 📚 Bibliothèque d’assets (images + preview hover + upload)
+│  │   └─ ShareModal.tsx      # Modal de partage (lien public, token)
 │  │
 │  └─ projects/
-│      └─ ProjectSelector.tsx # Sélecteur projets multi-pages
+│      └─ ProjectSelector.tsx # Sélecteur projets multi-pages + navigation
 │
 ├─ routes/
 │  └─ ProtectedRoute.tsx      # Route protégée par rôle (admin/user/premium)
 │
 ├─ pages/
-│  ├─ Dashboard.tsx           # Cockpit principal utilisateur
-│  ├─ ProjectsPage.tsx        # Liste des projets
-│  ├─ ProjectDetailPage.tsx   # Détails projet (stats, badges, progression)
-│  ├─ EditorPage.tsx          # ⚡ Editeur complet (v3.8, palette, assets, IA)
+│  ├─ Dashboard.tsx           # Cockpit principal utilisateur (projets, stats, IA)
+│  ├─ ProjectsPage.tsx        # Liste projets (création, suppression, duplication)
+│  ├─ ProjectDetailPage.tsx   # Détails projet (stats, badges, progression, logs)
+│  ├─ EditorPage.tsx          # ⚡ Éditeur complet (v4.2 – palette, assets, IA Copilot)
 │  ├─ PreviewPage.tsx         # Preview live readonly (iframe + rendu JSON)
-│  ├─ MarketplacePage.tsx     # Marketplace publique
-│  ├─ TemplatePage.tsx        # Détail template marketplace
-│  ├─ MarketplaceManager.tsx  # Admin gestion marketplace
-│  ├─ PricingPage.tsx         # Plans Freemium / Premium
-│  ├─ PaymentPage.tsx         # Page paiement (Stripe, PayPal, Mobile Money)
-│  ├─ DeployPage.tsx          # Déploiement projet (hosting + logs)
-│  ├─ ReplayPage.tsx          # Replays collaboratifs
+│  ├─ MarketplacePage.tsx     # Marketplace publique (templates, filtres, recherche)
+│  ├─ TemplatePage.tsx        # Détail template marketplace (preview + achat)
+│  ├─ MarketplaceManager.tsx  # Admin gestion marketplace (ajout/suppression)
+│  ├─ PricingPage.tsx         # Plans Freemium / Premium (tarifs dynamiques)
+│  ├─ PaymentPage.tsx         # Paiement (Stripe, PayPal, Mobile Money, CinetPay)
+│  ├─ DeployPage.tsx          # Déploiement projet (hosting + logs + lien public)
+│  ├─ ReplayPage.tsx          # Replays collaboratifs (time travel editing)
 │  ├─ ARPreviewPage.tsx       # Preview en réalité augmentée (mock AR viewer)
-│  ├─ MonitoringPage.tsx      # Monitoring système (CPU, mémoire, uptime)
+│  ├─ MonitoringPage.tsx      # Monitoring système (CPU, mémoire, uptime, socket users)
 │  ├─ AIAssistantPage.tsx     # ⚡ Assistant IA conversationnel (Deepseek natif)
 │  │
-│  ├─ LoginPage.tsx           # Connexion
-│  ├─ RegisterPage.tsx        # Inscription
-│  ├─ NotFound.tsx            # 404
+│  ├─ LoginPage.tsx           # Connexion utilisateur
+│  ├─ RegisterPage.tsx        # Inscription utilisateur
+│  ├─ NotFound.tsx            # 404 (page non trouvée)
 │  │
 │  └─ admin/                  
-│       ├─ UsersAdmin.tsx     # Gestion utilisateurs (roles, plans)
+│       ├─ UsersAdmin.tsx     # Gestion utilisateurs (roles, plans, bannir)
 │       ├─ ProjectsAdmin.tsx  # Gestion projets admin
-│       ├─ LogsAdmin.tsx      # Audit logs
-│       └─ ReplaysAdmin.tsx   # Gestion replays collaboratifs
+│       ├─ LogsAdmin.tsx      # Audit logs + activités critiques
+│       └─ ReplaysAdmin.tsx   # Gestion replays collaboratifs (vue admin)
 │
-└─ pages/AdminPanel.tsx       # ⚡ Hub principal Admin (liens vers toutes sections)
+└─ pages/AdminPanel.tsx       # ⚡ Hub principal Admin (liens rapides vers toutes sections)
