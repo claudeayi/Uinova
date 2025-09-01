@@ -1,3 +1,4 @@
+// src/components/Editor/LiveEditor.tsx
 import { useState } from "react";
 import { cn } from "@/lib/utils"; // helper classNames
 import { toast } from "react-hot-toast";
@@ -5,6 +6,7 @@ import { toast } from "react-hot-toast";
 interface LiveEditorProps {
   onSelect?: (component: DroppedComponent) => void;
   onUpdateComponent?: (id: string, props: Record<string, any>) => void;
+  previewOverride?: string | null; // ✅ image temporaire depuis AssetLibrary
 }
 
 export interface DroppedComponent {
@@ -17,7 +19,11 @@ export interface DroppedComponent {
 /* ===============================
    LiveEditor – Zone de travail
 =============================== */
-export default function LiveEditor({ onSelect, onUpdateComponent }: LiveEditorProps) {
+export default function LiveEditor({
+  onSelect,
+  onUpdateComponent,
+  previewOverride,
+}: LiveEditorProps) {
   const [components, setComponents] = useState<DroppedComponent[]>([]);
   const [dragOver, setDragOver] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -108,19 +114,26 @@ export default function LiveEditor({ onSelect, onUpdateComponent }: LiveEditorPr
                   {c.props?.text || "Bouton"}
                 </button>
               )}
+
               {c.type === "Texte" && (
                 <p className="text-gray-700 dark:text-gray-200">
                   {c.props?.text || "Texte"}
                 </p>
               )}
+
               {c.type === "Image" && (
                 <img
-                  src={c.props?.src || "https://via.placeholder.com/150"}
+                  src={
+                    selectedId === c.id && previewOverride
+                      ? previewOverride // ✅ si survol d’un asset → afficher preview
+                      : c.props?.src || "https://via.placeholder.com/150"
+                  }
                   alt="Aperçu"
                   style={{ width: `${c.props?.width || 100}%` }}
                   className="max-w-full h-auto rounded"
                 />
               )}
+
               {c.type === "Formulaire" && (
                 <form className="space-y-2">
                   <input
