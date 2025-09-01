@@ -1,11 +1,14 @@
 // src/pages/EditorPage.tsx
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store/useAppStore";
 import ShareModal from "../components/ShareModal";
-import LiveEditor, { DroppedComponent } from "../components/Editor/LiveEditor";
+import LiveEditor, {
+  DroppedComponent,
+  LiveEditorHandles,
+} from "../components/Editor/LiveEditor";
 import ComponentPalette from "../components/Editor/ComponentPalette";
-import AssetLibrary from "../components/Editor/AssetLibrary"; // ✅ Bibliothèque d’assets
+import AssetLibrary from "../components/Editor/AssetLibrary"; 
 import { toast } from "react-hot-toast";
 import {
   Play,
@@ -26,12 +29,15 @@ import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ===============================
-   Editor Page – UInova v3.9
-   ✅ Preview live d’asset
-   ✅ Sélection + application robuste
+   Editor Page – UInova v4.0
+   ✅ Undo/Redo réels
+   ✅ Preview image live
+   ✅ Préparation persistance useAppStore
 =============================== */
 export default function EditorPage() {
-  const { currentProjectId, currentPageId, project } = useAppStore();
+  const { currentProjectId, currentPageId, project, setProject } = useAppStore();
+  const editorRef = useRef<LiveEditorHandles>(null);
+
   const [showShare, setShowShare] = useState(false);
   const [showAssets, setShowAssets] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -40,7 +46,7 @@ export default function EditorPage() {
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiHistory, setAiHistory] = useState<string[]>([]);
   const [selectedComponent, setSelectedComponent] = useState<DroppedComponent | null>(null);
-  const [tempPreviewSrc, setTempPreviewSrc] = useState<string | null>(null); // ✅ preview temporaire
+  const [tempPreviewSrc, setTempPreviewSrc] = useState<string | null>(null);
   const navigate = useNavigate();
 
   /* ===============================
@@ -78,11 +84,12 @@ export default function EditorPage() {
     setShowPreview((prev) => !prev);
   }
 
+  // ✅ Undo/Redo branchés à LiveEditor
   function handleUndo() {
-    toast("↩️ Annuler (à implémenter)");
+    editorRef.current?.undo();
   }
   function handleRedo() {
-    toast("↪️ Refaire (à implémenter)");
+    editorRef.current?.redo();
   }
 
   function handleAISubmit(e: React.FormEvent) {
@@ -93,10 +100,13 @@ export default function EditorPage() {
     setAiPrompt("");
   }
 
+  // Mise à jour props composant
   function handleUpdateComponent(id: string, props: Record<string, any>) {
     if (selectedComponent?.id === id) {
-      setSelectedComponent({ ...selectedComponent, props });
+      const updated = { ...selectedComponent, props };
+      setSelectedComponent(updated);
       setUnsaved(true);
+      // ⚡ Ici plus tard → setProject({ ...project, pages: ... })
     }
   }
 
@@ -130,7 +140,7 @@ export default function EditorPage() {
         src,
       });
       toast.success("✅ Image appliquée");
-      setTempPreviewSrc(null); // reset preview
+      setTempPreviewSrc(null);
     }
   }
 
@@ -189,15 +199,17 @@ export default function EditorPage() {
 
         {/* ===== Zone principale ===== */}
         <div className="flex flex-1 overflow-hidden">
-          {/* Sidebar gauche – Palette drag&drop */}
           <ComponentPalette />
-
-          {/* Canvas central avec preview temporaire */}
           <div className="flex-1 overflow-auto bg-slate-50 dark:bg-slate-900">
             <LiveEditor
+              ref={editorRef}
               onSelect={setSelectedComponent}
               onUpdateComponent={handleUpdateComponent}
-              previewOverride={tempPreviewSrc} // ✅ injection preview live
+              previewOverride={
+                tempPreviewSrc && selectedComponent?.type === "Image"
+                  ? { ...selectedComponent, props: { ...selectedComponent.props, src: tempPreviewSrc } }
+                  : null
+              }
             />
           </div>
 
@@ -205,16 +217,13 @@ export default function EditorPage() {
           {showAssets ? (
             <AssetLibrary
               onSelect={handleSelectAsset}
-              onHover={handleHoverAsset} // ✅ preview direct dans canvas
+              onHover={handleHoverAsset}
             />
           ) : (
             <div className="w-80 border-l dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
               <h3 className="font-semibold mb-3">⚙️ Propriétés</h3>
               {selectedComponent ? (
                 <div className="space-y-3 text-sm">
-                  <p>
-                    Éditer : <strong>{selectedComponent.label}</strong>
-                  </p>
                   {/* Champs dynamiques */}
                   {"text" in selectedComponent.props && (
                     <input
@@ -259,20 +268,17 @@ export default function EditorPage() {
                   )}
                   {"src" in selectedComponent.props && (
                     <div className="space-y-2">
-                      <div className="flex items-center gap-2">
-                        <LinkIcon className="w-4 h-4 text-gray-500" />
-                        <input
-                          type="text"
-                          defaultValue={selectedComponent.props.src}
-                          onBlur={(e) =>
-                            handleUpdateComponent(selectedComponent.id, {
-                              ...selectedComponent.props,
-                              src: e.target.value,
-                            })
-                          }
-                          className="flex-1 px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
-                        />
-                      </div>
+                      <input
+                        type="text"
+                        defaultValue={selectedComponent.props.src}
+                        onBlur={(e) =>
+                          handleUpdateComponent(selectedComponent.id, {
+                            ...selectedComponent.props,
+                            src: e.target.value,
+                          })
+                        }
+                        className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+                      />
                       <label className="flex items-center gap-2 text-xs cursor-pointer text-blue-600 hover:underline">
                         <Upload className="w-4 h-4" />
                         Importer une image
@@ -339,7 +345,6 @@ export default function EditorPage() {
           )}
         </form>
 
-        {/* ===== Modal Partage ===== */}
         {showShare && <ShareModal onClose={() => setShowShare(false)} />}
       </div>
     </DashboardLayout>
