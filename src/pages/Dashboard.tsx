@@ -18,7 +18,8 @@ import {
   Legend,
 } from "recharts";
 import { Card, CardContent } from "@/components/ui/card";
-import { PlusCircle, ShoppingBag, Cpu, Bot, Award } from "lucide-react";
+import { PlusCircle, ShoppingBag, Cpu, Bot } from "lucide-react";
+import { motion } from "framer-motion";
 
 /* ===============================
    Interfaces
@@ -126,8 +127,9 @@ export default function Dashboard() {
       setProjects(projRes.data.items || []);
       setNotifications(notifRes.data.items || []);
       setBadges(badgeRes.data.items || []);
-    } catch {
-      toast.error("❌ Impossible de charger vos données");
+    } catch (err) {
+      console.error("❌ loadData error", err);
+      toast.error("Impossible de charger vos données");
     }
   }
 
@@ -135,21 +137,27 @@ export default function Dashboard() {
     try {
       const res = await axios.get("/api/monitoring/metrics");
       setMetrics(res.data.data);
-    } catch {}
+    } catch {
+      console.warn("Monitoring non disponible");
+    }
   }
 
   async function loadMarketplace() {
     try {
       const res = await axios.get("/api/marketplace/items", { params: { limit: 3 } });
       setMarketplace(res.data.items || res.data.data || []);
-    } catch {}
+    } catch {
+      console.warn("Marketplace non disponible");
+    }
   }
 
   async function loadPayments() {
     try {
       const res = await axios.get("/api/payments/recent");
       setPayments(res.data.items || []);
-    } catch {}
+    } catch {
+      console.warn("Paiements non disponibles");
+    }
   }
 
   function handleAISubmit(e: React.FormEvent) {
@@ -164,12 +172,17 @@ export default function Dashboard() {
   return (
     <DashboardLayout>
       {/* HEADER HERO */}
-      <div className="bg-gradient-to-r from-indigo-600 to-purple-700 text-white p-8 rounded-xl shadow mb-8">
+      <motion.div
+        initial={{ opacity: 0, y: -15 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.6 }}
+        className="bg-gradient-to-r from-indigo-600 to-purple-700 text-white p-8 rounded-xl shadow mb-8"
+      >
         <h1 className="text-3xl font-bold">🚀 Bienvenue dans votre Cockpit UInova</h1>
         <p className="opacity-80 mt-1">
           Pilotez vos projets no-code nouvelle génération avec temps réel, monitoring, IA et analytics.
         </p>
-      </div>
+      </motion.div>
 
       {/* QUICK ACTIONS */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
@@ -289,6 +302,44 @@ export default function Dashboard() {
             </CardContent>
           </Card>
         )}
+
+        {/* ⚡ Live Activity */}
+        {liveActivity.length > 0 && (
+          <Card className="col-span-3">
+            <CardContent>
+              <SectionTitle title="⚡ Activité en temps réel" />
+              <ul className="text-sm space-y-1 max-h-48 overflow-y-auto font-mono">
+                {liveActivity.map((a, idx) => (
+                  <li key={idx} className="border-b dark:border-slate-700 pb-1">
+                    {a}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* 🤖 Copilot prompt */}
+        <Card className="col-span-3">
+          <CardContent>
+            <SectionTitle title="🤖 Générer avec Copilot IA" />
+            <form onSubmit={handleAISubmit} className="flex gap-2">
+              <input
+                type="text"
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                placeholder="Décrivez ce que vous voulez générer..."
+                className="flex-1 px-3 py-2 rounded border dark:bg-slate-900"
+              />
+              <button
+                type="submit"
+                className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+              >
+                Envoyer
+              </button>
+            </form>
+          </CardContent>
+        </Card>
       </div>
 
       {/* ✨ Marketplace */}
