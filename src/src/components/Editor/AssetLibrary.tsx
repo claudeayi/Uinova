@@ -1,9 +1,11 @@
+// src/components/Editor/AssetLibrary.tsx
 import { useState } from "react";
 import { Upload, Search, Image as ImageIcon } from "lucide-react";
 import { toast } from "react-hot-toast";
 
 interface AssetLibraryProps {
   onSelect: (src: string) => void;
+  onHover?: (src: string | null) => void; // ✅ callback hover pour preview temporaire
 }
 
 const DEFAULT_ASSETS = [
@@ -16,7 +18,7 @@ const DEFAULT_ASSETS = [
 /* ============================================================================
  * AssetLibrary – Bibliothèque d’images
  * ========================================================================= */
-export default function AssetLibrary({ onSelect }: AssetLibraryProps) {
+export default function AssetLibrary({ onSelect, onHover }: AssetLibraryProps) {
   const [assets, setAssets] = useState<string[]>(DEFAULT_ASSETS);
   const [search, setSearch] = useState("");
 
@@ -81,6 +83,8 @@ export default function AssetLibrary({ onSelect }: AssetLibraryProps) {
               onSelect(src);
               toast.success("✅ Image sélectionnée");
             }}
+            onMouseEnter={() => onHover?.(src)}   // ✅ preview au survol
+            onMouseLeave={() => onHover?.(null)} // ✅ reset preview
           />
         ))}
 
