@@ -3,6 +3,7 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useProject } from "@/context/ProjectContext";
 import { useAuth } from "@/hooks/useAuth";
 import ProjectSelector from "@/components/projects/ProjectSelector";
+import GlobalSearch from "@/components/global/GlobalSearch"; // 🚀 Nouveau composant global
 
 export default function Navbar() {
   const [dark, setDark] = useState(() => localStorage.getItem("theme") === "dark");
@@ -126,6 +127,8 @@ export default function Navbar() {
         {/* Zone droite */}
         <div className="hidden md:flex items-center space-x-3">
           <ProjectSelector />
+          <GlobalSearch /> {/* 🔍 Ajout palette globale Ctrl+K */}
+
           {!user ? (
             <>
               <NavLink to="/login" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
