@@ -3,8 +3,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store/useAppStore";
 import ShareModal from "../components/ShareModal";
-import LiveEditor from "../components/Editor/LiveEditor";
-import ComponentPalette from "../components/Editor/ComponentPalette"; // ✅ Palette drag&drop
+import LiveEditor, { DroppedComponent } from "../components/Editor/LiveEditor";
+import ComponentPalette from "../components/Editor/ComponentPalette";
 import { toast } from "react-hot-toast";
 import {
   Play,
@@ -17,13 +17,12 @@ import {
   RotateCcw,
   RotateCw,
   Users,
-  Settings,
 } from "lucide-react";
 import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ===============================
-   Editor Page – UInova v3
+   Editor Page – UInova v3.1
 =============================== */
 export default function EditorPage() {
   const { currentProjectId, currentPageId, project } = useAppStore();
@@ -33,7 +32,7 @@ export default function EditorPage() {
   const [showPreview, setShowPreview] = useState(false);
   const [aiPrompt, setAiPrompt] = useState("");
   const [aiHistory, setAiHistory] = useState<string[]>([]);
-  const [selectedComponent, setSelectedComponent] = useState<any>(null);
+  const [selectedComponent, setSelectedComponent] = useState<DroppedComponent | null>(null);
   const navigate = useNavigate();
 
   // Sauvegarde projet
@@ -89,6 +88,14 @@ export default function EditorPage() {
     setAiPrompt("");
   }
 
+  // Mise à jour propriétés
+  function handleUpdateComponent(id: string, props: Record<string, any>) {
+    if (selectedComponent?.id === id) {
+      setSelectedComponent({ ...selectedComponent, props });
+      setUnsaved(true);
+    }
+  }
+
   /* ===============================
      Render
   =============================== */
@@ -102,7 +109,9 @@ export default function EditorPage() {
               ✨ UInova Éditeur
             </h2>
             {unsaved && (
-              <span className="text-xs text-orange-500">● Modifications non sauvegardées</span>
+              <span className="text-xs text-orange-500 animate-pulse">
+                ● Modifications non sauvegardées
+              </span>
             )}
           </div>
           <div className="flex flex-wrap gap-2">
@@ -171,7 +180,10 @@ export default function EditorPage() {
 
           {/* Canvas central */}
           <div className="flex-1 overflow-auto bg-slate-50 dark:bg-slate-900">
-            <LiveEditor onSelect={setSelectedComponent} />
+            <LiveEditor
+              onSelect={setSelectedComponent}
+              onUpdateComponent={handleUpdateComponent}
+            />
           </div>
 
           {/* Sidebar droite – Propriétés */}
@@ -179,14 +191,27 @@ export default function EditorPage() {
             <h3 className="font-semibold mb-2">⚙️ Propriétés</h3>
             {selectedComponent ? (
               <div className="space-y-2 text-sm">
-                <p>Éditer les propriétés de : <strong>{selectedComponent.label || selectedComponent}</strong></p>
+                <p>
+                  Éditer : <strong>{selectedComponent.label}</strong>
+                </p>
                 <input
                   type="text"
                   placeholder="Texte..."
                   defaultValue={selectedComponent.props?.text || ""}
+                  onBlur={(e) =>
+                    handleUpdateComponent(selectedComponent.id, {
+                      ...selectedComponent.props,
+                      text: e.target.value,
+                    })
+                  }
                   className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
                 />
-                <button className="px-3 py-1 bg-blue-600 text-white rounded text-xs">
+                <button
+                  onClick={() =>
+                    toast.success("✅ Propriétés appliquées (mock)")
+                  }
+                  className="px-3 py-1 bg-blue-600 text-white rounded text-xs"
+                >
                   Appliquer
                 </button>
               </div>
@@ -218,7 +243,10 @@ export default function EditorPage() {
           {aiHistory.length > 0 && (
             <div className="ml-4 text-xs text-gray-500 flex gap-2">
               {aiHistory.map((h, i) => (
-                <span key={i} className="px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded">
+                <span
+                  key={i}
+                  className="px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded"
+                >
                   {h}
                 </span>
               ))}
