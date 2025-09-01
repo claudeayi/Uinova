@@ -16,12 +16,14 @@ import {
   RotateCcw,
   RotateCw,
   Users,
+  Upload,
+  Link as LinkIcon,
 } from "lucide-react";
 import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ===============================
-   Editor Page – UInova v3.2
+   Editor Page – UInova v3.3
 =============================== */
 export default function EditorPage() {
   const { currentProjectId, currentPageId, project } = useAppStore();
@@ -91,6 +93,21 @@ export default function EditorPage() {
     }
   }
 
+  // Upload image locale → Base64
+  function handleImageUpload(file: File) {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      if (selectedComponent) {
+        handleUpdateComponent(selectedComponent.id, {
+          ...selectedComponent.props,
+          src: reader.result,
+        });
+        toast.success("🖼️ Image importée");
+      }
+    };
+    reader.readAsDataURL(file);
+  }
+
   /* ===============================
      Render
   =============================== */
@@ -110,56 +127,29 @@ export default function EditorPage() {
             )}
           </div>
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={handleUndo}
-              className="flex items-center gap-1 px-3 py-1 bg-gray-200 dark:bg-slate-700 rounded hover:bg-gray-300"
-            >
+            <button onClick={handleUndo} className="flex items-center gap-1 px-3 py-1 bg-gray-200 dark:bg-slate-700 rounded hover:bg-gray-300">
               <RotateCcw className="w-4 h-4" /> Undo
             </button>
-            <button
-              onClick={handleRedo}
-              className="flex items-center gap-1 px-3 py-1 bg-gray-200 dark:bg-slate-700 rounded hover:bg-gray-300"
-            >
+            <button onClick={handleRedo} className="flex items-center gap-1 px-3 py-1 bg-gray-200 dark:bg-slate-700 rounded hover:bg-gray-300">
               <RotateCw className="w-4 h-4" /> Redo
             </button>
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="flex items-center gap-1 px-4 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
-            >
+            <button onClick={handleSave} disabled={saving} className="flex items-center gap-1 px-4 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50">
               <Save className="w-4 h-4" />
               {saving ? "..." : "Sauvegarder"}
             </button>
-            <button
-              onClick={togglePreview}
-              className="flex items-center gap-1 px-4 py-1 bg-gray-600 text-white rounded hover:bg-gray-700"
-            >
+            <button onClick={togglePreview} className="flex items-center gap-1 px-4 py-1 bg-gray-600 text-white rounded hover:bg-gray-700">
               <Eye className="w-4 h-4" /> {showPreview ? "Cacher" : "Preview"}
             </button>
-            <button
-              onClick={() => setShowShare(true)}
-              className="flex items-center gap-1 px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
+            <button onClick={() => setShowShare(true)} className="flex items-center gap-1 px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">
               <Share2 className="w-4 h-4" /> Partager
             </button>
-            <a
-              href={`/export/${currentProjectId}/${currentPageId}`}
-              target="_blank"
-              rel="noreferrer"
-              className="flex items-center gap-1 px-4 py-1 bg-green-600 text-white rounded hover:bg-green-700"
-            >
+            <a href={`/export/${currentProjectId}/${currentPageId}`} target="_blank" rel="noreferrer" className="flex items-center gap-1 px-4 py-1 bg-green-600 text-white rounded hover:bg-green-700">
               <Download className="w-4 h-4" /> Exporter
             </a>
-            <button
-              onClick={handleReplay}
-              className="flex items-center gap-1 px-4 py-1 bg-orange-600 text-white rounded hover:bg-orange-700"
-            >
+            <button onClick={handleReplay} className="flex items-center gap-1 px-4 py-1 bg-orange-600 text-white rounded hover:bg-orange-700">
               <Activity className="w-4 h-4" /> Replays
             </button>
-            <button
-              onClick={handleDeploy}
-              className="flex items-center gap-1 px-4 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700"
-            >
+            <button onClick={handleDeploy} className="flex items-center gap-1 px-4 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700">
               <Play className="w-4 h-4" /> Déployer
             </button>
             <div className="flex items-center gap-1 px-3 py-1 text-sm bg-slate-100 dark:bg-slate-800 rounded">
@@ -182,8 +172,8 @@ export default function EditorPage() {
           </div>
 
           {/* Sidebar droite – Propriétés dynamiques */}
-          <div className="w-72 border-l dark:border-slate-700 bg-white dark:bg-slate-900 p-3">
-            <h3 className="font-semibold mb-2">⚙️ Propriétés</h3>
+          <div className="w-80 border-l dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+            <h3 className="font-semibold mb-3">⚙️ Propriétés</h3>
             {selectedComponent ? (
               <div className="space-y-3 text-sm">
                 <p>
@@ -224,18 +214,52 @@ export default function EditorPage() {
                 {/* Largeur image */}
                 {"width" in selectedComponent.props && (
                   <input
-                    type="number"
+                    type="range"
                     min={10}
                     max={100}
                     defaultValue={selectedComponent.props.width}
-                    onBlur={(e) =>
+                    onChange={(e) =>
                       handleUpdateComponent(selectedComponent.id, {
                         ...selectedComponent.props,
                         width: Number(e.target.value),
                       })
                     }
-                    className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+                    className="w-full"
                   />
+                )}
+
+                {/* Source image */}
+                {"src" in selectedComponent.props && (
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <LinkIcon className="w-4 h-4 text-gray-500" />
+                      <input
+                        type="text"
+                        placeholder="URL de l'image"
+                        defaultValue={selectedComponent.props.src}
+                        onBlur={(e) =>
+                          handleUpdateComponent(selectedComponent.id, {
+                            ...selectedComponent.props,
+                            src: e.target.value,
+                          })
+                        }
+                        className="flex-1 px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+                      />
+                    </div>
+                    <label className="flex items-center gap-2 text-xs cursor-pointer text-blue-600 hover:underline">
+                      <Upload className="w-4 h-4" />
+                      Importer une image
+                      <input
+                        type="file"
+                        accept="image/*"
+                        className="hidden"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          if (file) handleImageUpload(file);
+                        }}
+                      />
+                    </label>
+                  </div>
                 )}
 
                 {/* Texte bouton formulaire */}
