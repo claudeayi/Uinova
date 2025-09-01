@@ -1,3 +1,4 @@
+// src/layouts/Navbar.tsx
 import { useState, useEffect } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useProject } from "@/context/ProjectContext";
@@ -24,17 +25,26 @@ export default function Navbar() {
     "px-3 py-2 rounded text-gray-400 cursor-not-allowed";
 
   return (
-    <nav className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shadow-sm sticky top-0 z-50">
+    <nav
+      className="bg-white dark:bg-slate-900 border-b border-slate-200 dark:border-slate-700 shadow-sm sticky top-0 z-50"
+      role="navigation"
+      aria-label="Menu principal"
+    >
       <div className="container mx-auto flex items-center justify-between py-3">
         {/* Logo */}
         <Link
           to="/"
-          className="text-xl font-bold text-blue-600 dark:text-blue-400 flex items-center gap-1"
+          className="text-xl font-bold text-blue-600 dark:text-blue-400 flex items-center gap-2"
         >
           <span>UInova</span>
           {user?.role === "premium" && (
-            <span className="ml-1 px-2 py-0.5 text-xs rounded bg-yellow-400 text-slate-900 font-semibold">
+            <span className="px-2 py-0.5 text-xs rounded bg-yellow-400 text-slate-900 font-semibold">
               Premium
+            </span>
+          )}
+          {user?.role === "admin" && (
+            <span className="px-2 py-0.5 text-xs rounded bg-red-600 text-white font-semibold">
+              Admin
             </span>
           )}
         </Link>
@@ -71,6 +81,10 @@ export default function Navbar() {
 
           <NavLink to="/payment" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
             Paiement
+          </NavLink>
+
+          <NavLink to="/contact" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
+            📩 Contact
           </NavLink>
 
           {/* Phase 3 – si projet actif */}
@@ -137,6 +151,7 @@ export default function Navbar() {
           {/* Dark mode toggle */}
           <button
             onClick={() => setDark(!dark)}
+            aria-label="Changer de thème"
             className="px-3 py-2 rounded bg-slate-200 dark:bg-slate-700 hover:bg-slate-300 dark:hover:bg-slate-600 transition"
           >
             {dark ? "☀️ Light" : "🌙 Dark"}
@@ -147,6 +162,7 @@ export default function Navbar() {
         <button
           className="md:hidden px-3 py-2 rounded bg-slate-200 dark:bg-slate-700"
           onClick={() => setMenuOpen(!menuOpen)}
+          aria-label="Menu mobile"
         >
           {menuOpen ? "✖️" : "☰"}
         </button>
@@ -179,6 +195,9 @@ export default function Navbar() {
           </NavLink>
           <NavLink to="/payment" onClick={() => setMenuOpen(false)} className={linkClass}>
             Paiement
+          </NavLink>
+          <NavLink to="/contact" onClick={() => setMenuOpen(false)} className={linkClass}>
+            📩 Contact
           </NavLink>
           <NavLink to="/monitoring" onClick={() => setMenuOpen(false)} className={linkClass}>
             📊 Monitoring
