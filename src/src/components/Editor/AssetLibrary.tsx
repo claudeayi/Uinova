@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Upload, Search } from "lucide-react";
+import { Upload, Search, Image as ImageIcon } from "lucide-react";
 import { toast } from "react-hot-toast";
 
 interface AssetLibraryProps {
@@ -13,6 +13,9 @@ const DEFAULT_ASSETS = [
   "https://picsum.photos/400/200",
 ];
 
+/* ============================================================================
+ * AssetLibrary – Bibliothèque d’images
+ * ========================================================================= */
 export default function AssetLibrary({ onSelect }: AssetLibraryProps) {
   const [assets, setAssets] = useState<string[]>(DEFAULT_ASSETS);
   const [search, setSearch] = useState("");
@@ -27,14 +30,16 @@ export default function AssetLibrary({ onSelect }: AssetLibraryProps) {
     reader.readAsDataURL(file);
   }
 
+  // Filtre recherche
   const filtered = assets.filter((src) =>
     src.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
     <aside className="w-80 border-l dark:border-slate-700 bg-slate-50 dark:bg-slate-900 p-4 flex flex-col">
-      <h3 className="font-semibold mb-3 text-blue-600 dark:text-blue-400">
-        📚 Bibliothèque d’assets
+      {/* Titre */}
+      <h3 className="font-semibold mb-3 text-blue-600 dark:text-blue-400 flex items-center gap-2">
+        <ImageIcon className="w-4 h-4" /> Bibliothèque d’assets
       </h3>
 
       {/* Recherche */}
@@ -65,16 +70,21 @@ export default function AssetLibrary({ onSelect }: AssetLibraryProps) {
       </label>
 
       {/* Liste des assets */}
-      <div className="grid grid-cols-2 gap-3 overflow-y-auto flex-1">
+      <div className="grid grid-cols-2 gap-3 overflow-y-auto flex-1 pr-1">
         {filtered.map((src, idx) => (
           <img
             key={idx}
             src={src}
             alt="asset"
             className="w-full h-24 object-cover rounded cursor-pointer hover:ring-2 hover:ring-indigo-500 transition"
-            onClick={() => onSelect(src)}
+            onClick={() => {
+              onSelect(src);
+              toast.success("✅ Image sélectionnée");
+            }}
           />
         ))}
+
+        {/* Aucun résultat */}
         {filtered.length === 0 && (
           <p className="text-gray-400 col-span-2 text-center text-sm">
             Aucun résultat
