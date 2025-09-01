@@ -39,10 +39,10 @@ interface AppState {
   setCurrentProjectId: (id: string) => void;
   setCurrentPageId: (id: string) => void;
   addProject: (name: string) => void;
-  addPage: (name: string) => void;
   deleteProject: (id: string) => void;
-  deletePage: (id: string) => void;
   renameProject: (id: string, name: string) => void;
+  addPage: (name: string) => void;
+  deletePage: (id: string) => void;
   renamePage: (id: string, name: string) => void;
   duplicatePage: (id: string) => void;
 
@@ -51,6 +51,11 @@ interface AppState {
   saveSnapshot: () => void;
   undo: () => void;
   redo: () => void;
+
+  // Autosave
+  autosaveEnabled: boolean;
+  markUnsaved: () => void;
+  setAutosave: (enabled: boolean) => void;
 
   // Collaboration temps réel
   emitElements: (elements: ElementData[]) => void;
@@ -124,12 +129,12 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteProject: (id) => {
-    const { projects, currentProjectId } = get();
+    const { projects } = get();
     const filtered = projects.filter((p) => p.id !== id);
     set({
       projects: filtered,
-      currentProjectId: filtered.length > 0 ? filtered[0].id : null,
-      currentPageId: filtered.length > 0 ? filtered[0].pages[0].id : null,
+      currentProjectId: filtered[0]?.id || null,
+      currentPageId: filtered[0]?.pages[0]?.id || null,
     });
   },
 
@@ -168,10 +173,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({
       projects: projects.map((proj) =>
         proj.id === currentProjectId
-          ? {
-              ...proj,
-              pages: proj.pages.filter((p) => p.id !== id),
-            }
+          ? { ...proj, pages: proj.pages.filter((p) => p.id !== id) }
           : proj
       ),
       currentPageId: get().getCurrentProject()?.pages[0]?.id || null,
@@ -316,6 +318,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     });
   },
 
+  /* === Autosave === */
+  autosaveEnabled: true,
+  markUnsaved: () =>
+    set({
+      projects: get().projects.map((p) =>
+        p.id === get().currentProjectId
+          ? { ...p, updatedAt: Date.now() }
+          : p
+      ),
+    }),
+  setAutosave: (enabled) => set({ autosaveEnabled: enabled }),
+
   /* === Collaboration temps réel === */
   emitElements: (elements) => {
     const { currentProjectId, currentPageId } = get();
@@ -373,7 +387,9 @@ export const useAppStore = create<AppState>((set, get) => ({
           ? {
               ...proj,
               updatedAt: Date.now(),
-              pages: proj.pages.map((p) => (p.id === pageId ? { ...p, elements } : p)),
+              pages: proj.pages.map((p) =>
+                p.id === pageId ? { ...p, elements } : p
+              ),
             }
           : proj
       ),
