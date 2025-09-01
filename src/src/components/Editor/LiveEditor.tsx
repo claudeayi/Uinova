@@ -1,20 +1,17 @@
 // src/components/Editor/LiveEditor.tsx
 import {
-  useState,
   useImperativeHandle,
   forwardRef,
-  useRef,
-  useEffect,
+  useState,
 } from "react";
 import { cn } from "@/lib/utils";
 import { toast } from "react-hot-toast";
+import { useAppStore, ElementData } from "@/store/useAppStore";
 
-export interface DroppedComponent {
-  id: string;
-  type: string;
-  label: string;
-  props: Record<string, any>;
-}
+/* ===============================
+   Types
+=============================== */
+export interface DroppedComponent extends ElementData {}
 
 export interface LiveEditorHandles {
   undo: () => void;
@@ -23,51 +20,45 @@ export interface LiveEditorHandles {
 
 interface LiveEditorProps {
   onSelect?: (component: DroppedComponent) => void;
-  onUpdateComponent?: (id: string, props: Record<string, any>) => void;
-  previewOverride?: DroppedComponent | null; // ✅ preview complet
+  previewOverride?: DroppedComponent | null; // ✅ preview complet (hover AssetLibrary)
 }
 
 /* ===============================
    LiveEditor – Zone de travail
 =============================== */
 const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
-  ({ onSelect, onUpdateComponent, previewOverride }, ref) => {
-    const [components, setComponents] = useState<DroppedComponent[]>([]);
-    const [dragOver, setDragOver] = useState(false);
+  ({ onSelect, previewOverride }, ref) => {
+    const {
+      currentPageId,
+      getCurrentPage,
+      updateElements,
+      saveSnapshot,
+      undo,
+      redo,
+    } = useAppStore();
+
+    const page = getCurrentPage();
+    const components = page?.elements || [];
     const [selectedId, setSelectedId] = useState<string | null>(null);
-
-    // Historique
-    const historyRef = useRef<DroppedComponent[][]>([]);
-    const futureRef = useRef<DroppedComponent[][]>([]);
-
-    // Enregistrer un snapshot dans l’historique
-    function pushHistory(newState: DroppedComponent[]) {
-      historyRef.current.push(components);
-      futureRef.current = []; // reset redo
-      setComponents(newState);
-    }
+    const [dragOver, setDragOver] = useState(false);
 
     /* ===============================
-       Expose undo/redo aux parents
+       Expose undo/redo au parent
     =============================== */
     useImperativeHandle(ref, () => ({
       undo: () => {
-        if (historyRef.current.length === 0) {
+        if (!page || page.history.length < 2) {
           toast("⚠️ Rien à annuler");
           return;
         }
-        const prev = historyRef.current.pop()!;
-        futureRef.current.push(components);
-        setComponents(prev);
+        undo();
       },
       redo: () => {
-        if (futureRef.current.length === 0) {
+        if (!page || page.future.length === 0) {
           toast("⚠️ Rien à refaire");
           return;
         }
-        const next = futureRef.current.pop()!;
-        historyRef.current.push(components);
-        setComponents(next);
+        redo();
       },
     }));
 
@@ -79,7 +70,7 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
       setDragOver(false);
 
       const type = e.dataTransfer.getData("component-type");
-      if (!type) return;
+      if (!type || !currentPageId) return;
 
       const defaults: Record<string, any> = {
         Bouton: { text: "Nouveau bouton" },
@@ -89,13 +80,14 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
       };
 
       const newComponent: DroppedComponent = {
-        id: Date.now().toString(),
+        id: crypto.randomUUID(),
         type,
         label: type,
         props: defaults[type] || {},
       };
 
-      pushHistory([...components, newComponent]);
+      saveSnapshot(); // avant modification
+      updateElements([...components, newComponent]);
       toast.success(`➕ ${type} ajouté`);
     }
 
@@ -117,11 +109,12 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
     }
 
     function handleUpdate(id: string, newProps: Record<string, any>) {
+      if (!currentPageId) return;
       const newState = components.map((c) =>
         c.id === id ? { ...c, props: newProps } : c
       );
-      pushHistory(newState);
-      onUpdateComponent?.(id, newProps);
+      saveSnapshot();
+      updateElements(newState);
     }
 
     /* ===============================
@@ -148,7 +141,9 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
             {components.map((c) => {
               const isSelected = selectedId === c.id;
               const display =
-                isSelected && previewOverride && previewOverride.id === c.id
+                isSelected &&
+                previewOverride &&
+                previewOverride.id === c.id
                   ? previewOverride
                   : c;
 
