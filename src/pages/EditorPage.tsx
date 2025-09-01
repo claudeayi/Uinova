@@ -23,7 +23,7 @@ import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ===============================
-   Editor Page – UInova v3.3
+   Editor Page – UInova v3.4
 =============================== */
 export default function EditorPage() {
   const { currentProjectId, currentPageId, project } = useAppStore();
