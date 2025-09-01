@@ -4,6 +4,7 @@ import { useAppStore } from "../store/useAppStore";
 import ShareModal from "../components/ShareModal";
 import LiveEditor, { DroppedComponent } from "../components/Editor/LiveEditor";
 import ComponentPalette from "../components/Editor/ComponentPalette";
+import AssetLibrary from "../components/Editor/AssetLibrary"; // ✅ Bibliothèque d’assets
 import { toast } from "react-hot-toast";
 import {
   Play,
@@ -18,16 +19,18 @@ import {
   Users,
   Upload,
   Link as LinkIcon,
+  Image as ImageIcon,
 } from "lucide-react";
 import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ===============================
-   Editor Page – UInova v3.4
+   Editor Page – UInova v3.5
 =============================== */
 export default function EditorPage() {
   const { currentProjectId, currentPageId, project } = useAppStore();
   const [showShare, setShowShare] = useState(false);
+  const [showAssets, setShowAssets] = useState(false); // ✅ Toggle bibliothèque
   const [saving, setSaving] = useState(false);
   const [unsaved, setUnsaved] = useState(false);
   const [showPreview, setShowPreview] = useState(false);
@@ -108,6 +111,17 @@ export default function EditorPage() {
     reader.readAsDataURL(file);
   }
 
+  // Sélection image depuis bibliothèque
+  function handleSelectAsset(src: string) {
+    if (selectedComponent) {
+      handleUpdateComponent(selectedComponent.id, {
+        ...selectedComponent.props,
+        src,
+      });
+      toast.success("✅ Image appliquée depuis la bibliothèque");
+    }
+  }
+
   /* ===============================
      Render
   =============================== */
@@ -152,6 +166,9 @@ export default function EditorPage() {
             <button onClick={handleDeploy} className="flex items-center gap-1 px-4 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700">
               <Play className="w-4 h-4" /> Déployer
             </button>
+            <button onClick={() => setShowAssets((prev) => !prev)} className="flex items-center gap-1 px-3 py-1 bg-indigo-100 dark:bg-slate-800 rounded hover:bg-indigo-200 dark:hover:bg-slate-700">
+              <ImageIcon className="w-4 h-4 text-indigo-600" /> Assets
+            </button>
             <div className="flex items-center gap-1 px-3 py-1 text-sm bg-slate-100 dark:bg-slate-800 rounded">
               <Users className="w-4 h-4 text-indigo-500" /> 2 en ligne
             </div>
@@ -171,117 +188,121 @@ export default function EditorPage() {
             />
           </div>
 
-          {/* Sidebar droite – Propriétés dynamiques */}
-          <div className="w-80 border-l dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
-            <h3 className="font-semibold mb-3">⚙️ Propriétés</h3>
-            {selectedComponent ? (
-              <div className="space-y-3 text-sm">
-                <p>
-                  Éditer : <strong>{selectedComponent.label}</strong>
-                </p>
+          {/* Sidebar droite – Propriétés dynamiques + Bibliothèque */}
+          {showAssets ? (
+            <AssetLibrary onSelect={handleSelectAsset} />
+          ) : (
+            <div className="w-80 border-l dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
+              <h3 className="font-semibold mb-3">⚙️ Propriétés</h3>
+              {selectedComponent ? (
+                <div className="space-y-3 text-sm">
+                  <p>
+                    Éditer : <strong>{selectedComponent.label}</strong>
+                  </p>
 
-                {/* Texte */}
-                {"text" in selectedComponent.props && (
-                  <input
-                    type="text"
-                    placeholder="Texte..."
-                    defaultValue={selectedComponent.props.text}
-                    onBlur={(e) =>
-                      handleUpdateComponent(selectedComponent.id, {
-                        ...selectedComponent.props,
-                        text: e.target.value,
-                      })
-                    }
-                    className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
-                  />
-                )}
+                  {/* Texte */}
+                  {"text" in selectedComponent.props && (
+                    <input
+                      type="text"
+                      placeholder="Texte..."
+                      defaultValue={selectedComponent.props.text}
+                      onBlur={(e) =>
+                        handleUpdateComponent(selectedComponent.id, {
+                          ...selectedComponent.props,
+                          text: e.target.value,
+                        })
+                      }
+                      className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+                    />
+                  )}
 
-                {/* Couleur bouton */}
-                {"color" in selectedComponent.props && (
-                  <input
-                    type="color"
-                    defaultValue={selectedComponent.props.color}
-                    onChange={(e) =>
-                      handleUpdateComponent(selectedComponent.id, {
-                        ...selectedComponent.props,
-                        color: e.target.value,
-                      })
-                    }
-                    className="w-12 h-8 border rounded"
-                  />
-                )}
+                  {/* Couleur bouton */}
+                  {"color" in selectedComponent.props && (
+                    <input
+                      type="color"
+                      defaultValue={selectedComponent.props.color}
+                      onChange={(e) =>
+                        handleUpdateComponent(selectedComponent.id, {
+                          ...selectedComponent.props,
+                          color: e.target.value,
+                        })
+                      }
+                      className="w-12 h-8 border rounded"
+                    />
+                  )}
 
-                {/* Largeur image */}
-                {"width" in selectedComponent.props && (
-                  <input
-                    type="range"
-                    min={10}
-                    max={100}
-                    defaultValue={selectedComponent.props.width}
-                    onChange={(e) =>
-                      handleUpdateComponent(selectedComponent.id, {
-                        ...selectedComponent.props,
-                        width: Number(e.target.value),
-                      })
-                    }
-                    className="w-full"
-                  />
-                )}
+                  {/* Largeur image */}
+                  {"width" in selectedComponent.props && (
+                    <input
+                      type="range"
+                      min={10}
+                      max={100}
+                      defaultValue={selectedComponent.props.width}
+                      onChange={(e) =>
+                        handleUpdateComponent(selectedComponent.id, {
+                          ...selectedComponent.props,
+                          width: Number(e.target.value),
+                        })
+                      }
+                      className="w-full"
+                    />
+                  )}
 
-                {/* Source image */}
-                {"src" in selectedComponent.props && (
-                  <div className="space-y-2">
-                    <div className="flex items-center gap-2">
-                      <LinkIcon className="w-4 h-4 text-gray-500" />
-                      <input
-                        type="text"
-                        placeholder="URL de l'image"
-                        defaultValue={selectedComponent.props.src}
-                        onBlur={(e) =>
-                          handleUpdateComponent(selectedComponent.id, {
-                            ...selectedComponent.props,
-                            src: e.target.value,
-                          })
-                        }
-                        className="flex-1 px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
-                      />
+                  {/* Source image */}
+                  {"src" in selectedComponent.props && (
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2">
+                        <LinkIcon className="w-4 h-4 text-gray-500" />
+                        <input
+                          type="text"
+                          placeholder="URL de l'image"
+                          defaultValue={selectedComponent.props.src}
+                          onBlur={(e) =>
+                            handleUpdateComponent(selectedComponent.id, {
+                              ...selectedComponent.props,
+                              src: e.target.value,
+                            })
+                          }
+                          className="flex-1 px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+                        />
+                      </div>
+                      <label className="flex items-center gap-2 text-xs cursor-pointer text-blue-600 hover:underline">
+                        <Upload className="w-4 h-4" />
+                        Importer une image
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={(e) => {
+                            const file = e.target.files?.[0];
+                            if (file) handleImageUpload(file);
+                          }}
+                        />
+                      </label>
                     </div>
-                    <label className="flex items-center gap-2 text-xs cursor-pointer text-blue-600 hover:underline">
-                      <Upload className="w-4 h-4" />
-                      Importer une image
-                      <input
-                        type="file"
-                        accept="image/*"
-                        className="hidden"
-                        onChange={(e) => {
-                          const file = e.target.files?.[0];
-                          if (file) handleImageUpload(file);
-                        }}
-                      />
-                    </label>
-                  </div>
-                )}
+                  )}
 
-                {/* Texte bouton formulaire */}
-                {"buttonText" in selectedComponent.props && (
-                  <input
-                    type="text"
-                    placeholder="Texte bouton"
-                    defaultValue={selectedComponent.props.buttonText}
-                    onBlur={(e) =>
-                      handleUpdateComponent(selectedComponent.id, {
-                        ...selectedComponent.props,
-                        buttonText: e.target.value,
-                      })
-                    }
-                    className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
-                  />
-                )}
-              </div>
-            ) : (
-              <p className="text-gray-400 text-sm">Sélectionnez un composant</p>
-            )}
-          </div>
+                  {/* Texte bouton formulaire */}
+                  {"buttonText" in selectedComponent.props && (
+                    <input
+                      type="text"
+                      placeholder="Texte bouton"
+                      defaultValue={selectedComponent.props.buttonText}
+                      onBlur={(e) =>
+                        handleUpdateComponent(selectedComponent.id, {
+                          ...selectedComponent.props,
+                          buttonText: e.target.value,
+                        })
+                      }
+                      className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+                    />
+                  )}
+                </div>
+              ) : (
+                <p className="text-gray-400 text-sm">Sélectionnez un composant</p>
+              )}
+            </div>
+          )}
         </div>
 
         {/* ===== Copilot IA ===== */}
