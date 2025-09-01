@@ -1,3 +1,4 @@
+// src/App.tsx
 import { Routes, Route } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { Suspense, lazy } from "react";
@@ -13,6 +14,7 @@ function Loader() {
     <div
       className="flex justify-center items-center py-20 text-indigo-500"
       role="status"
+      aria-live="polite"
     >
       <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
       <span className="ml-3">Chargement...</span>
@@ -35,11 +37,11 @@ const ReplayPage = lazy(() => import("./pages/ReplayPage"));
 const MonitoringPage = lazy(() => import("./pages/MonitoringPage"));
 const AIAssistantPage = lazy(() => import("./pages/AIAssistantPage"));
 
-// Auth
+// 🔑 Auth
 const LoginPage = lazy(() => import("./pages/LoginPage"));
 const RegisterPage = lazy(() => import("./pages/RegisterPage"));
 
-// Marketplace & Paiements
+// 🛒 Marketplace & Paiements
 const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
 const TemplatePage = lazy(() => import("./pages/TemplatePage"));
 const PricingPage = lazy(() => import("./pages/PricingPage"));
@@ -47,7 +49,8 @@ const PaymentPage = lazy(() => import("./pages/PaymentPage"));
 const PaymentSuccessPage = lazy(() => import("./pages/PaymentSuccessPage"));
 const PaymentCancelPage = lazy(() => import("./pages/PaymentCancelPage"));
 
-// Divers
+// ✉️ Divers
+const ContactPage = lazy(() => import("./pages/ContactPage"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 
 // 🔐 Admin
@@ -81,6 +84,7 @@ export default function App() {
             <Route path="/replay/:projectId" element={<ReplayPage />} />
             <Route path="/monitoring" element={<MonitoringPage />} />
             <Route path="/ai" element={<AIAssistantPage />} />
+            <Route path="/contact" element={<ContactPage />} />
 
             {/* 🔑 Auth */}
             <Route path="/login" element={<LoginPage />} />
@@ -145,7 +149,15 @@ export default function App() {
             />
 
             {/* ❌ 404 */}
-            <Route path="*" element={<NotFound />} />
+            <Route
+              path="*"
+              element={
+                <div className="text-center py-20">
+                  <h1 className="text-4xl font-bold mb-4">404</h1>
+                  <p className="text-gray-500">Page introuvable 🚧</p>
+                </div>
+              }
+            />
           </Routes>
         </Suspense>
       </main>
