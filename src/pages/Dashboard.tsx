@@ -2,11 +2,9 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
-import { getMyProjects } from "@/services/projects";
-import { listNotifications } from "@/services/notifications";
-import { listBadges } from "@/services/badges";
 import axios from "axios";
 import io from "socket.io-client";
+import DashboardLayout from "@/layouts/DashboardLayout";
 import {
   LineChart,
   Line,
@@ -19,6 +17,8 @@ import {
   Bar,
   Legend,
 } from "recharts";
+import { Card, CardContent } from "@/components/ui/card";
+import { PlusCircle, ShoppingBag, Cpu, Bot, Award } from "lucide-react";
 
 /* ===============================
    Interfaces
@@ -74,7 +74,6 @@ export default function Dashboard() {
   const [aiPrompt, setAiPrompt] = useState("");
   const [liveActivity, setLiveActivity] = useState<string[]>([]);
   const [cpuHistory, setCpuHistory] = useState<any[]>([]);
-  const [sidebarOpen, setSidebarOpen] = useState(false); // 📱 mobile
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -83,7 +82,7 @@ export default function Dashboard() {
     loadMarketplace();
     loadPayments();
 
-    // ⚡ Temps réel
+    // ⚡ Socket temps réel
     const socket = io("http://localhost:5000", {
       auth: { token: localStorage.getItem("token") },
     });
@@ -120,15 +119,15 @@ export default function Dashboard() {
   async function loadData() {
     try {
       const [projRes, notifRes, badgeRes] = await Promise.all([
-        getMyProjects(),
-        listNotifications({ unreadOnly: true, pageSize: 5 }),
-        listBadges({ pageSize: 5 }),
+        axios.get("/api/projects/mine"),
+        axios.get("/api/notifications?limit=5"),
+        axios.get("/api/badges?limit=5"),
       ]);
-      setProjects(projRes.data || []);
-      setNotifications(notifRes.items || []);
-      setBadges(badgeRes.items || []);
+      setProjects(projRes.data.items || []);
+      setNotifications(notifRes.data.items || []);
+      setBadges(badgeRes.data.items || []);
     } catch {
-      toast.error("❌ Impossible de charger le tableau de bord");
+      toast.error("❌ Impossible de charger vos données");
     }
   }
 
@@ -163,165 +162,189 @@ export default function Dashboard() {
      Render
   =============================== */
   return (
-    <div className="flex">
-      {/* ===== Sidebar cockpit ===== */}
-      <aside
-        className={`fixed md:static z-40 w-64 bg-slate-900 text-white min-h-screen p-6 transform ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full md:translate-x-0"
-        } transition-transform duration-300 ease-in-out`}
-      >
-        <h2 className="text-xl font-bold mb-6">⚡ Cockpit</h2>
-        <nav className="space-y-3 text-sm">
-          <Link to="/projects" className="block hover:underline">📁 Projets</Link>
-          <Link to="/marketplace" className="block hover:underline">🛒 Marketplace</Link>
-          <Link to="/ai" className="block hover:underline">🤖 Copilot</Link>
-          <Link to="/monitoring" className="block hover:underline">📊 Monitoring</Link>
-          <Link to="/pricing" className="block hover:underline">💎 Tarifs</Link>
-          <Link to="/payment" className="block hover:underline">💳 Paiements</Link>
-          <Link to="/contact" className="block hover:underline">📩 Contact</Link>
-        </nav>
-      </aside>
+    <DashboardLayout>
+      {/* HEADER HERO */}
+      <div className="bg-gradient-to-r from-indigo-600 to-purple-700 text-white p-8 rounded-xl shadow mb-8">
+        <h1 className="text-3xl font-bold">🚀 Bienvenue dans votre Cockpit UInova</h1>
+        <p className="opacity-80 mt-1">
+          Pilotez vos projets no-code nouvelle génération avec temps réel, monitoring, IA et analytics.
+        </p>
+      </div>
 
-      {/* ===== Main content ===== */}
-      <main className="flex-1 p-6 space-y-8">
-        {/* Burger menu mobile */}
-        <button
-          onClick={() => setSidebarOpen(!sidebarOpen)}
-          className="md:hidden mb-4 px-4 py-2 bg-slate-200 dark:bg-slate-700 rounded"
-        >
-          {sidebarOpen ? "✖️ Fermer" : "☰ Menu"}
-        </button>
+      {/* QUICK ACTIONS */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+        <QuickAction to="/projects/new" icon={<PlusCircle />} label="Nouveau projet" />
+        <QuickAction to="/marketplace" icon={<ShoppingBag />} label="Marketplace" />
+        <QuickAction to="/monitoring" icon={<Cpu />} label="Monitoring" />
+        <QuickAction to="/ai" icon={<Bot />} label="Copilot IA" />
+      </div>
 
-        {/* HEADER HERO */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-700 text-white p-8 rounded-xl shadow">
-          <h1 className="text-3xl font-bold">🚀 Cockpit UInova</h1>
-          <p className="opacity-80 mt-1">
-            Pilotez vos projets no-code nouvelle génération avec **temps réel, monitoring, IA et analytics**.
-          </p>
-        </div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* 📂 Projets récents */}
+        <Card className="col-span-2">
+          <CardContent>
+            <SectionTitle title="📂 Mes projets récents" />
+            {projects.length === 0 ? (
+              <p className="text-gray-500">Aucun projet.</p>
+            ) : (
+              <ul className="divide-y divide-gray-200 dark:divide-slate-700">
+                {projects.map((p) => (
+                  <li key={p.id} className="py-2 flex justify-between">
+                    <Link
+                      to={`/editor/${p.id}`}
+                      className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                    >
+                      {p.name}
+                    </Link>
+                    <span className="text-sm text-gray-500">{p.status}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
 
-        {/* COPILOT IA */}
-        <section className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow">
-          <h2 className="text-xl font-bold mb-3">🤖 UInova Copilot</h2>
-          <form onSubmit={handleAISubmit} className="flex gap-2">
-            <input
-              type="text"
-              value={aiPrompt}
-              onChange={(e) => setAiPrompt(e.target.value)}
-              placeholder="Décrivez votre idée (site, app, composant...)"
-              className="flex-1 px-3 py-2 rounded border dark:bg-slate-900 dark:border-slate-700"
-            />
-            <button
-              type="submit"
-              className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
-            >
-              Générer
-            </button>
-          </form>
-        </section>
+        {/* 🔔 Notifications */}
+        <Card>
+          <CardContent>
+            <SectionTitle title="🔔 Notifications" />
+            {notifications.length === 0 ? (
+              <p className="text-gray-500">Aucune notification.</p>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {notifications.map((n) => (
+                  <li key={n.id}>
+                    <span className="font-semibold">{n.title}</span> — {n.message}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
 
-        {/* METRICS LIVE + CHARTS */}
+        {/* 🏆 Badges */}
+        <Card>
+          <CardContent>
+            <SectionTitle title="🏆 Badges débloqués" />
+            {badges.length === 0 ? (
+              <p className="text-gray-500">Aucun badge.</p>
+            ) : (
+              <div className="flex flex-wrap gap-3">
+                {badges.map((b) => (
+                  <span
+                    key={b.id}
+                    className="px-3 py-2 bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-200 rounded-lg text-xs font-semibold"
+                  >
+                    {b.type}
+                  </span>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* 📡 Monitoring */}
         {metrics && (
-          <section className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow">
-            <h2 className="text-lg font-bold mb-3">📡 Monitoring en direct</h2>
-            <div className="grid md:grid-cols-3 gap-4 text-sm mb-6">
-              <div className="p-3 rounded bg-slate-50 dark:bg-slate-900"><strong>Uptime :</strong> {metrics.uptime.toFixed(0)} sec</div>
-              <div className="p-3 rounded bg-slate-50 dark:bg-slate-900"><strong>Mémoire :</strong> {metrics.memory.usagePercent}</div>
-              <div className="p-3 rounded bg-slate-50 dark:bg-slate-900"><strong>CPU :</strong> {metrics.cpu.loadAvg.join(", ")} (cores: {metrics.cpu.cores})</div>
-            </div>
-
-            {/* CPU live */}
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={cpuHistory}>
-                <Line type="monotone" dataKey="cpu" stroke="#6366f1" />
-                <CartesianGrid stroke="#ccc" />
-                <XAxis dataKey="time" />
-                <YAxis />
-                <Tooltip />
-              </LineChart>
-            </ResponsiveContainer>
-          </section>
+          <Card className="col-span-2">
+            <CardContent>
+              <SectionTitle title="📡 Monitoring en direct" />
+              <div className="grid md:grid-cols-3 gap-4 text-sm mb-6">
+                <MetricBox label="Uptime" value={`${metrics.uptime.toFixed(0)} sec`} />
+                <MetricBox label="Mémoire" value={metrics.memory.usagePercent} />
+                <MetricBox
+                  label="CPU"
+                  value={`${metrics.cpu.loadAvg.join(", ")} (cores: ${metrics.cpu.cores})`}
+                />
+              </div>
+              <ResponsiveContainer width="100%" height={200}>
+                <LineChart data={cpuHistory}>
+                  <Line type="monotone" dataKey="cpu" stroke="#6366f1" />
+                  <CartesianGrid stroke="#ccc" />
+                  <XAxis dataKey="time" />
+                  <YAxis />
+                  <Tooltip />
+                </LineChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
         )}
 
-        {/* TIMELINE ACTIVITÉS */}
-        {liveActivity.length > 0 && (
-          <section className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow">
-            <h2 className="text-lg font-bold mb-3">⚡ Activité en direct</h2>
-            <ul className="space-y-2 text-sm">
-              {liveActivity.map((a, i) => (
-                <li key={i} className="flex items-center gap-2">
-                  <span className="text-xs text-gray-500">{new Date().toLocaleTimeString()}</span>
-                  <span className="text-gray-800 dark:text-gray-300">{a}</span>
-                </li>
-              ))}
-            </ul>
-          </section>
+        {/* 💳 Paiements */}
+        {payments.length > 0 && (
+          <Card>
+            <CardContent>
+              <SectionTitle title="💳 Paiements récents" />
+              <ResponsiveContainer width="100%" height={200}>
+                <BarChart
+                  data={payments.map((p) => ({ name: p.provider, montant: p.amount }))}
+                >
+                  <CartesianGrid strokeDasharray="3 3" />
+                  <XAxis dataKey="name" />
+                  <YAxis />
+                  <Tooltip />
+                  <Legend />
+                  <Bar dataKey="montant" fill="#82ca9d" />
+                </BarChart>
+              </ResponsiveContainer>
+            </CardContent>
+          </Card>
         )}
+      </div>
 
-        {/* MES PROJETS */}
-        <section className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow">
-          <h2 className="text-lg font-bold mb-3">📂 Mes projets récents</h2>
-          {projects.length === 0 ? (
-            <p className="text-gray-500">Aucun projet.</p>
-          ) : (
-            <ul className="divide-y divide-gray-200 dark:divide-slate-700">
-              {projects.map((p) => (
-                <li key={p.id} className="py-2 flex justify-between">
-                  <Link to={`/editor/${p.id}`} className="text-blue-600 dark:text-blue-400 hover:underline font-medium">{p.name}</Link>
-                  <span className="text-sm text-gray-500">{p.status}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
-
-        {/* NOTIFICATIONS */}
-        <section className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow">
-          <h2 className="text-lg font-bold mb-3">🔔 Notifications</h2>
-          {notifications.length === 0 ? <p className="text-gray-500">Aucune notification.</p> : (
-            <ul className="space-y-2">{notifications.map((n) => <li key={n.id}><span className="font-semibold">{n.title}</span> — {n.message}</li>)}</ul>
-          )}
-        </section>
-
-        {/* BADGES */}
-        <section className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow">
-          <h2 className="text-lg font-bold mb-3">🏆 Mes badges</h2>
-          {badges.length === 0 ? <p className="text-gray-500">Aucun badge.</p> : (
-            <div className="flex flex-wrap gap-3">{badges.map((b) => <div key={b.id} className="px-3 py-2 bg-indigo-100 dark:bg-indigo-900 text-indigo-700 dark:text-indigo-200 rounded-lg text-xs font-semibold">{b.type}</div>)}</div>
-          )}
-        </section>
-
-        {/* MARKETPLACE */}
-        {marketplace.length > 0 && (
-          <section className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow">
-            <h2 className="text-lg font-bold mb-3">✨ Marketplace recommandée</h2>
+      {/* ✨ Marketplace */}
+      {marketplace.length > 0 && (
+        <Card>
+          <CardContent>
+            <SectionTitle title="✨ Marketplace recommandée" />
             <div className="grid md:grid-cols-3 gap-4">
               {marketplace.map((item) => (
-                <Link key={item.id} to={`/marketplace/${item.id}`} className="p-4 rounded-lg border bg-slate-50 dark:bg-slate-900 hover:shadow transition">
+                <Link
+                  key={item.id}
+                  to={`/marketplace/${item.id}`}
+                  className="p-4 rounded-lg border bg-slate-50 dark:bg-slate-900 hover:shadow transition"
+                >
                   <h3 className="font-semibold">{item.title}</h3>
-                  <p className="text-xs text-gray-500 line-clamp-2">{item.description || "—"}</p>
-                  <p className="mt-2 text-sm text-blue-600 font-bold">{item.priceCents ? (item.priceCents / 100).toFixed(2) + "€" : "Gratuit"}</p>
+                  <p className="text-xs text-gray-500 line-clamp-2">
+                    {item.description || "—"}
+                  </p>
+                  <p className="mt-2 text-sm text-blue-600 font-bold">
+                    {item.priceCents
+                      ? (item.priceCents / 100).toFixed(2) + " €"
+                      : "Gratuit"}
+                  </p>
                 </Link>
               ))}
             </div>
-          </section>
-        )}
+          </CardContent>
+        </Card>
+      )}
+    </DashboardLayout>
+  );
+}
 
-        {/* PAIEMENTS */}
-        {payments.length > 0 && (
-          <section className="bg-white dark:bg-slate-800 p-6 rounded-lg shadow">
-            <h2 className="text-lg font-bold mb-3">💳 Paiements récents</h2>
-            <BarChart width={500} height={250} data={payments.map((p) => ({ name: p.provider, montant: p.amount }))}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="montant" fill="#82ca9d" />
-            </BarChart>
-          </section>
-        )}
-      </main>
+/* ===============================
+   Components utils
+=============================== */
+function QuickAction({ to, icon, label }: { to: string; icon: JSX.Element; label: string }) {
+  return (
+    <Link
+      to={to}
+      className="flex flex-col items-center justify-center p-4 rounded-xl bg-white dark:bg-gray-800 shadow hover:shadow-md transition"
+    >
+      <div className="text-indigo-600 dark:text-indigo-400 mb-2">{icon}</div>
+      <span className="text-sm font-medium">{label}</span>
+    </Link>
+  );
+}
+
+function SectionTitle({ title }: { title: string }) {
+  return <h2 className="text-lg font-semibold mb-4">{title}</h2>;
+}
+
+function MetricBox({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="p-3 rounded bg-slate-50 dark:bg-slate-900">
+      <strong>{label} :</strong> {value}
     </div>
   );
 }
