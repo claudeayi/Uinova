@@ -1,5 +1,5 @@
 // src/pages/EditorPage.tsx
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store/useAppStore";
 import ShareModal from "../components/ShareModal";
@@ -23,17 +23,19 @@ import {
   Users,
   Upload,
   Image as ImageIcon,
+  Link as LinkIcon,
 } from "lucide-react";
 import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ============================================================================
- * EditorPage – UInova v4.2
+ * EditorPage – UInova v4.3
  * ✅ Undo/Redo réels (LiveEditor ref)
  * ✅ Preview image live
  * ✅ Persistance cohérente dans useAppStore
  * ✅ Gestion des propriétés dynamiques
- * ✅ Flag unsaved + prêt pour autosave
+ * ✅ Flag unsaved + autosave toutes 30s
+ * ✅ Preview public avec lien partageable
  * ========================================================================= */
 export default function EditorPage() {
   const {
@@ -43,6 +45,7 @@ export default function EditorPage() {
     getCurrentPage,
     updateElements,
     saveSnapshot,
+    onlineUsers,
   } = useAppStore();
 
   const editorRef = useRef<LiveEditorHandles>(null);
@@ -57,6 +60,7 @@ export default function EditorPage() {
   const [selectedComponent, setSelectedComponent] =
     useState<DroppedComponent | null>(null);
   const [tempPreviewSrc, setTempPreviewSrc] = useState<string | null>(null);
+  const [lastSaved, setLastSaved] = useState<Date | null>(null);
 
   const navigate = useNavigate();
   const project = getCurrentProject();
@@ -74,6 +78,7 @@ export default function EditorPage() {
       setSaving(true);
       await saveProject(currentProjectId, project);
       setUnsaved(false);
+      setLastSaved(new Date());
       toast.success("💾 Projet sauvegardé ✅");
     } catch (err) {
       console.error("❌ Erreur sauvegarde:", err);
@@ -116,7 +121,7 @@ export default function EditorPage() {
     setAiPrompt("");
   }
 
-  // 🔥 Update props composant (store + local sélection)
+  // 🔥 Update props composant
   function handleUpdateComponent(id: string, props: Record<string, any>) {
     if (!page) return;
     saveSnapshot();
@@ -168,6 +173,18 @@ export default function EditorPage() {
   }
 
   /* ===============================
+     Autosave (toutes les 30s si unsaved)
+  =============================== */
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (unsaved && !saving) {
+        handleSave();
+      }
+    }, 30000);
+    return () => clearInterval(interval);
+  }, [unsaved, saving]);
+
+  /* ===============================
      Render
   =============================== */
   return (
@@ -179,11 +196,15 @@ export default function EditorPage() {
             <h2 className="font-bold text-lg text-blue-600 dark:text-blue-400">
               ✨ UInova Éditeur
             </h2>
-            {unsaved && (
+            {unsaved ? (
               <span className="text-xs text-orange-500 animate-pulse">
                 ● Modifications non sauvegardées
               </span>
-            )}
+            ) : lastSaved ? (
+              <span className="text-xs text-gray-500">
+                Dernière sauvegarde : {lastSaved.toLocaleTimeString()}
+              </span>
+            ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
             <button
@@ -244,9 +265,19 @@ export default function EditorPage() {
             >
               <ImageIcon className="w-4 h-4 text-indigo-600" /> Assets
             </button>
+            {/* Collaboration */}
             <div className="flex items-center gap-1 px-3 py-1 text-sm bg-slate-100 dark:bg-slate-800 rounded">
-              <Users className="w-4 h-4 text-indigo-500" /> 2 en ligne
+              <Users className="w-4 h-4 text-indigo-500" /> {onlineUsers} en ligne
             </div>
+            {/* Preview public */}
+            <a
+              href={`/preview/${currentProjectId}`}
+              target="_blank"
+              rel="noreferrer"
+              className="flex items-center gap-1 px-3 py-1 bg-pink-600 text-white rounded hover:bg-pink-700"
+            >
+              <LinkIcon className="w-4 h-4" /> Lien public
+            </a>
           </div>
         </div>
 
@@ -261,10 +292,7 @@ export default function EditorPage() {
                 tempPreviewSrc && selectedComponent?.type === "Image"
                   ? {
                       ...selectedComponent,
-                      props: {
-                        ...selectedComponent.props,
-                        src: tempPreviewSrc,
-                      },
+                      props: { ...selectedComponent.props, src: tempPreviewSrc },
                     }
                   : null
               }
@@ -273,10 +301,7 @@ export default function EditorPage() {
 
           {/* Sidebar droite */}
           {showAssets ? (
-            <AssetLibrary
-              onSelect={handleSelectAsset}
-              onHover={handleHoverAsset}
-            />
+            <AssetLibrary onSelect={handleSelectAsset} onHover={handleHoverAsset} />
           ) : (
             <div className="w-80 border-l dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
               <h3 className="font-semibold mb-3">⚙️ Propriétés</h3>
@@ -337,8 +362,7 @@ export default function EditorPage() {
                         className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
                       />
                       <label className="flex items-center gap-2 text-xs cursor-pointer text-blue-600 hover:underline">
-                        <Upload className="w-4 h-4" />
-                        Importer une image
+                        <Upload className="w-4 h-4" /> Importer une image
                         <input
                           type="file"
                           accept="image/*"
@@ -366,9 +390,7 @@ export default function EditorPage() {
                   )}
                 </div>
               ) : (
-                <p className="text-gray-400 text-sm">
-                  Sélectionnez un composant
-                </p>
+                <p className="text-gray-400 text-sm">Sélectionnez un composant</p>
               )}
             </div>
           )}
