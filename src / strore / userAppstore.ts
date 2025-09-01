@@ -33,19 +33,20 @@ interface AppState {
   currentProjectId: string | null;
   currentPageId: string | null;
 
+  // Gestion projets/pages
   setProjects: (projects: ProjectData[]) => void;
   setCurrentProjectId: (id: string) => void;
   setCurrentPageId: (id: string) => void;
-
   addProject: (name: string) => void;
   addPage: (name: string) => void;
 
+  // Gestion éléments
   updateElements: (elements: ElementData[]) => void;
   saveSnapshot: () => void;
   undo: () => void;
   redo: () => void;
 
-  // Collaboration
+  // Collaboration temps réel
   emitElements: (elements: ElementData[]) => void;
   listenElements: () => void;
 
@@ -56,6 +57,8 @@ interface AppState {
   // Utilitaires
   getCurrentProject: () => ProjectData | null;
   getCurrentPage: () => PageData | null;
+  getComponents: (pageId: string) => ElementData[];
+  setComponents: (pageId: string, elements: ElementData[]) => void;
 }
 
 /* ===============================
@@ -74,7 +77,7 @@ export const useAppStore = create<AppState>((set, get) => ({
           id: "home",
           name: "Page d'accueil",
           elements: [],
-          history: [[]],
+          history: [[]], // snapshot initial
           future: [],
         },
       ],
@@ -85,9 +88,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   /* === Gestion projets/pages === */
   setProjects: (projects) => set({ projects }),
-
   setCurrentProjectId: (id) => set({ currentProjectId: id }),
-
   setCurrentPageId: (id) => set({ currentPageId: id }),
 
   addProject: (name) => {
@@ -125,13 +126,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               updatedAt: Date.now(),
               pages: [
                 ...proj.pages,
-                {
-                  id,
-                  name,
-                  elements: [],
-                  history: [[]],
-                  future: [],
-                },
+                { id, name, elements: [], history: [[]], future: [] },
               ],
             }
           : proj
@@ -143,6 +138,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   /* === Gestion des éléments === */
   updateElements: (elements) => {
     const { projects, currentProjectId, currentPageId } = get();
+    if (!currentProjectId || !currentPageId) return;
+
     set({
       projects: projects.map((proj) =>
         proj.id === currentProjectId
@@ -160,6 +157,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   saveSnapshot: () => {
     const { projects, currentProjectId, currentPageId } = get();
+    if (!currentProjectId || !currentPageId) return;
+
     set({
       projects: projects.map((proj) =>
         proj.id === currentProjectId
@@ -168,6 +167,10 @@ export const useAppStore = create<AppState>((set, get) => ({
               updatedAt: Date.now(),
               pages: proj.pages.map((p) => {
                 if (p.id !== currentPageId) return p;
+                const last = p.history[p.history.length - 1];
+                if (JSON.stringify(last) === JSON.stringify(p.elements)) {
+                  return p; // évite doublons
+                }
                 return {
                   ...p,
                   history: [...p.history, p.elements],
@@ -182,6 +185,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   undo: () => {
     const { projects, currentProjectId, currentPageId } = get();
+    if (!currentProjectId || !currentPageId) return;
+
     set({
       projects: projects.map((proj) =>
         proj.id === currentProjectId
@@ -206,6 +211,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   redo: () => {
     const { projects, currentProjectId, currentPageId } = get();
+    if (!currentProjectId || !currentPageId) return;
+
     set({
       projects: projects.map((proj) =>
         proj.id === currentProjectId
@@ -230,11 +237,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   /* === Collaboration temps réel === */
   emitElements: (elements) => {
     const { currentProjectId, currentPageId } = get();
-    socket.emit("updateElements", {
-      projectId: currentProjectId,
-      pageId: currentPageId,
-      elements,
-    });
+    if (!currentProjectId || !currentPageId) return;
+
+    socket.emit("updateElements", { projectId: currentProjectId, pageId: currentPageId, elements });
     get().updateElements(elements);
   },
 
@@ -242,24 +247,21 @@ export const useAppStore = create<AppState>((set, get) => ({
     socket.off("updateElements");
     socket.off("usersCount");
 
-    socket.on(
-      "updateElements",
-      (data: { projectId: string; pageId: string; elements: ElementData[] }) => {
-        const { projects } = get();
-        set({
-          projects: projects.map((proj) =>
-            proj.id === data.projectId
-              ? {
-                  ...proj,
-                  pages: proj.pages.map((p) =>
-                    p.id === data.pageId ? { ...p, elements: data.elements } : p
-                  ),
-                }
-              : proj
-          ),
-        });
-      }
-    );
+    socket.on("updateElements", (data: { projectId: string; pageId: string; elements: ElementData[] }) => {
+      const { projects } = get();
+      set({
+        projects: projects.map((proj) =>
+          proj.id === data.projectId
+            ? {
+                ...proj,
+                pages: proj.pages.map((p) =>
+                  p.id === data.pageId ? { ...p, elements: data.elements } : p
+                ),
+              }
+            : proj
+        ),
+      });
+    });
 
     socket.on("usersCount", (count: number) => {
       set({ onlineUsers: count });
@@ -279,9 +281,32 @@ export const useAppStore = create<AppState>((set, get) => ({
   getCurrentPage: () => {
     const { projects, currentProjectId, currentPageId } = get();
     return (
-      projects
-        .find((p) => p.id === currentProjectId)
-        ?.pages.find((pg) => pg.id === currentPageId) || null
+      projects.find((p) => p.id === currentProjectId)?.pages.find((pg) => pg.id === currentPageId) || null
     );
+  },
+
+  getComponents: (pageId: string) => {
+    const project = get().getCurrentProject();
+    const page = project?.pages.find((p) => p.id === pageId);
+    return page?.elements || [];
+  },
+
+  setComponents: (pageId: string, elements: ElementData[]) => {
+    const { projects, currentProjectId } = get();
+    if (!currentProjectId) return;
+
+    set({
+      projects: projects.map((proj) =>
+        proj.id === currentProjectId
+          ? {
+              ...proj,
+              updatedAt: Date.now(),
+              pages: proj.pages.map((p) =>
+                p.id === pageId ? { ...p, elements } : p
+              ),
+            }
+          : proj
+      ),
+    });
   },
 }));
