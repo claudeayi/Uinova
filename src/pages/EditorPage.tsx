@@ -1,4 +1,3 @@
-// src/pages/EditorPage.tsx
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAppStore } from "../store/useAppStore";
@@ -22,7 +21,7 @@ import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ===============================
-   Editor Page – UInova v3.1
+   Editor Page – UInova v3.2
 =============================== */
 export default function EditorPage() {
   const { currentProjectId, currentPageId, project } = useAppStore();
@@ -35,7 +34,9 @@ export default function EditorPage() {
   const [selectedComponent, setSelectedComponent] = useState<DroppedComponent | null>(null);
   const navigate = useNavigate();
 
-  // Sauvegarde projet
+  /* ===============================
+     Actions
+  =============================== */
   async function handleSave() {
     if (!currentProjectId) {
       toast.error("❌ Aucun projet actif.");
@@ -54,24 +55,20 @@ export default function EditorPage() {
     }
   }
 
-  // Déploiement
   function handleDeploy() {
     if (!currentProjectId) return toast.error("Aucun projet actif.");
     navigate(`/deploy/${currentProjectId}`);
   }
 
-  // Replays collaboratifs
   function handleReplay() {
     if (!currentProjectId) return toast.error("Aucun projet actif.");
     navigate(`/replay/${currentProjectId}`);
   }
 
-  // Preview toggle
   function togglePreview() {
     setShowPreview((prev) => !prev);
   }
 
-  // Undo/Redo (placeholder)
   function handleUndo() {
     toast("↩️ Annuler (à implémenter)");
   }
@@ -79,7 +76,6 @@ export default function EditorPage() {
     toast("↪️ Refaire (à implémenter)");
   }
 
-  // Copilot IA
   function handleAISubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!aiPrompt.trim()) return;
@@ -88,7 +84,6 @@ export default function EditorPage() {
     setAiPrompt("");
   }
 
-  // Mise à jour propriétés
   function handleUpdateComponent(id: string, props: Record<string, any>) {
     if (selectedComponent?.id === id) {
       setSelectedComponent({ ...selectedComponent, props });
@@ -186,34 +181,78 @@ export default function EditorPage() {
             />
           </div>
 
-          {/* Sidebar droite – Propriétés */}
+          {/* Sidebar droite – Propriétés dynamiques */}
           <div className="w-72 border-l dark:border-slate-700 bg-white dark:bg-slate-900 p-3">
             <h3 className="font-semibold mb-2">⚙️ Propriétés</h3>
             {selectedComponent ? (
-              <div className="space-y-2 text-sm">
+              <div className="space-y-3 text-sm">
                 <p>
                   Éditer : <strong>{selectedComponent.label}</strong>
                 </p>
-                <input
-                  type="text"
-                  placeholder="Texte..."
-                  defaultValue={selectedComponent.props?.text || ""}
-                  onBlur={(e) =>
-                    handleUpdateComponent(selectedComponent.id, {
-                      ...selectedComponent.props,
-                      text: e.target.value,
-                    })
-                  }
-                  className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
-                />
-                <button
-                  onClick={() =>
-                    toast.success("✅ Propriétés appliquées (mock)")
-                  }
-                  className="px-3 py-1 bg-blue-600 text-white rounded text-xs"
-                >
-                  Appliquer
-                </button>
+
+                {/* Texte */}
+                {"text" in selectedComponent.props && (
+                  <input
+                    type="text"
+                    placeholder="Texte..."
+                    defaultValue={selectedComponent.props.text}
+                    onBlur={(e) =>
+                      handleUpdateComponent(selectedComponent.id, {
+                        ...selectedComponent.props,
+                        text: e.target.value,
+                      })
+                    }
+                    className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+                  />
+                )}
+
+                {/* Couleur bouton */}
+                {"color" in selectedComponent.props && (
+                  <input
+                    type="color"
+                    defaultValue={selectedComponent.props.color}
+                    onChange={(e) =>
+                      handleUpdateComponent(selectedComponent.id, {
+                        ...selectedComponent.props,
+                        color: e.target.value,
+                      })
+                    }
+                    className="w-12 h-8 border rounded"
+                  />
+                )}
+
+                {/* Largeur image */}
+                {"width" in selectedComponent.props && (
+                  <input
+                    type="number"
+                    min={10}
+                    max={100}
+                    defaultValue={selectedComponent.props.width}
+                    onBlur={(e) =>
+                      handleUpdateComponent(selectedComponent.id, {
+                        ...selectedComponent.props,
+                        width: Number(e.target.value),
+                      })
+                    }
+                    className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+                  />
+                )}
+
+                {/* Texte bouton formulaire */}
+                {"buttonText" in selectedComponent.props && (
+                  <input
+                    type="text"
+                    placeholder="Texte bouton"
+                    defaultValue={selectedComponent.props.buttonText}
+                    onBlur={(e) =>
+                      handleUpdateComponent(selectedComponent.id, {
+                        ...selectedComponent.props,
+                        buttonText: e.target.value,
+                      })
+                    }
+                    className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+                  />
+                )}
               </div>
             ) : (
               <p className="text-gray-400 text-sm">Sélectionnez un composant</p>
