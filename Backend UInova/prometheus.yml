@@ -1,20 +1,41 @@
 global:
-  scrape_interval: 15s   # fréquence de collecte par défaut
-  evaluation_interval: 15s
+  scrape_interval: 15s         # fréquence de collecte
+  evaluation_interval: 15s     # fréquence d'évaluation des règles
 
 scrape_configs:
   # 🚀 Scrape du backend UInova
   - job_name: "uinova-backend"
     metrics_path: /api/monitoring/prometheus
     static_configs:
-      - targets: ["localhost:5000"]  # ⚠️ change si ton backend tourne ailleurs
+      - targets: ["uinova-backend:5000"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: "uinova-backend"
 
-  # (optionnel) Scraper Prometheus lui-même
+  # 📊 Scrape de Prometheus lui-même
   - job_name: "prometheus"
     static_configs:
-      - targets: ["localhost:9090"]
+      - targets: ["prometheus:9090"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: "prometheus"
 
-  # (optionnel) Scraper MySQL exporter → utile pour suivre ta DB UInova
+  # 🗄️ Scrape MySQL Exporter → suivi DB UInova
   - job_name: "mysql"
     static_configs:
-      - targets: ["localhost:9104"]  # port MySQL exporter
+      - targets: ["mysqld-exporter:9104"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: "uinova-mysql"
+
+  # 💻 Scrape Node Exporter → suivi système
+  - job_name: "node"
+    static_configs:
+      - targets: ["node-exporter:9100"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: "uinova-host"
