@@ -13,6 +13,7 @@ import { errorHandler } from "./middlewares/errorHandler";
 // Utils
 import { prisma } from "./utils/prisma";
 import { setupSwagger } from "./utils/swagger";
+import { bullBoardAdapter } from "./utils/bullBoard";
 
 // Routes API (core)
 import authRoutes from "./routes/auth";
@@ -40,6 +41,7 @@ import templateRoutes from "./routes/templates";  // TemplatePage / Marketplace
 // 🚀 Nouvelles routes backend révolutionnaires
 import collabRoutes from "./routes/collab";       // Collaboration CRDT
 import webhookRoutes from "./routes/webhooks";    // Event bus / webhooks
+import billingRoutes from "./routes/billing";     // Usage dynamique & quotas
 
 // ---- Typage Express.Request
 declare global {
@@ -179,6 +181,10 @@ app.use("/api/templates", templateRoutes);
 // Nouvelles fonctionnalités backend
 app.use("/api/collab", collabRoutes);
 app.use("/api/webhooks", webhookRoutes);
+app.use("/api/billing", billingRoutes);
+
+// Bull Board (jobs async monitoring, admin only)
+app.use("/api/admin/jobs", bullBoardAdapter.getRouter());
 
 /* ============================================================================
  *  SWAGGER
@@ -200,6 +206,8 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
               status: res.statusCode,
               requestId: req.id,
               durationMs: Date.now() - (req.startAt || Date.now()),
+              ip: req.ip,
+              ua: req.headers["user-agent"] || null,
             },
           },
         });
