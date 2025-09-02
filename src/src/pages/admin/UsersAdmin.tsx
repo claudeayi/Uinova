@@ -1,57 +1,26 @@
-// src/pages/admin/UsersAdmin.tsx
 import { useEffect, useState } from "react";
-import { getUsers, updateUserRole, updateUserPlan, deleteUser } from "@/services/admin";
-import toast from "react-hot-toast";
-import DashboardLayout from "@/layouts/DashboardLayout";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { toast } from "react-hot-toast";
+import { getUsers, updateUserRole, AdminUser } from "@/services/admin";
 
 export default function UsersAdmin() {
-  const [users, setUsers] = useState<any[]>([]);
+  const [users, setUsers] = useState<AdminUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
-  const pageSize = 10;
+  const limit = 10;
 
   async function fetchUsers() {
     try {
       setLoading(true);
-      const res = await getUsers();
-      setUsers(res || []);
+      const data = await getUsers();
+      setUsers(data);
     } catch (err) {
-      console.error("❌ Erreur chargement utilisateurs:", err);
-      toast.error("Impossible de charger les utilisateurs");
+      console.error(err);
+      toast.error("❌ Impossible de charger les utilisateurs.");
     } finally {
       setLoading(false);
-    }
-  }
-
-  async function handleRoleChange(userId: string, role: string) {
-    try {
-      await updateUserRole(userId, role);
-      toast.success("✅ Rôle mis à jour");
-      fetchUsers();
-    } catch {
-      toast.error("Erreur mise à jour rôle");
-    }
-  }
-
-  async function handlePlanChange(userId: string, plan: string) {
-    try {
-      await updateUserPlan(userId, plan);
-      toast.success("✅ Plan mis à jour");
-      fetchUsers();
-    } catch {
-      toast.error("Erreur mise à jour plan");
-    }
-  }
-
-  async function handleDelete(userId: string) {
-    if (!confirm("Voulez-vous vraiment supprimer cet utilisateur ?")) return;
-    try {
-      await deleteUser(userId);
-      toast.success("🗑️ Utilisateur supprimé");
-      fetchUsers();
-    } catch {
-      toast.error("Erreur suppression utilisateur");
     }
   }
 
@@ -59,156 +28,134 @@ export default function UsersAdmin() {
     fetchUsers();
   }, []);
 
+  async function handleChangeRole(userId: string, role: "USER" | "PREMIUM" | "ADMIN") {
+    try {
+      await updateUserRole(userId, role);
+      toast.success("✅ Rôle mis à jour !");
+      fetchUsers();
+    } catch (err) {
+      console.error(err);
+      toast.error("❌ Erreur lors de la mise à jour du rôle.");
+    }
+  }
+
+  // Filtrage
+  const filtered = users.filter((u) =>
+    u.email.toLowerCase().includes(search.toLowerCase())
+  );
+
+  // Pagination
+  const start = (page - 1) * limit;
+  const paginated = filtered.slice(start, start + limit);
+  const totalPages = Math.ceil(filtered.length / limit);
+
   if (loading) {
     return (
-      <DashboardLayout>
-        <div className="p-6 text-center text-gray-500">⏳ Chargement des utilisateurs...</div>
-      </DashboardLayout>
+      <div className="flex justify-center items-center py-20 text-indigo-500">
+        <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
+        <span className="ml-3">Chargement des utilisateurs...</span>
+      </div>
     );
   }
 
-  // 🔎 Filtrage + pagination
-  const filtered = users.filter(
-    (u) =>
-      u.email.toLowerCase().includes(search.toLowerCase()) ||
-      (u.name || "").toLowerCase().includes(search.toLowerCase())
-  );
-  const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
-  const totalPages = Math.ceil(filtered.length / pageSize);
-
-  const roleBadge = (role: string) => {
-    const map: Record<string, string> = {
-      USER: "bg-gray-100 text-gray-700",
-      PREMIUM: "bg-purple-100 text-purple-700",
-      ADMIN: "bg-red-100 text-red-700",
-    };
-    return <span className={`px-2 py-1 text-xs rounded ${map[role] || ""}`}>{role}</span>;
-  };
-
-  const planBadge = (plan: string) => {
-    const map: Record<string, string> = {
-      FREE: "bg-gray-200 text-gray-700",
-      PRO: "bg-blue-100 text-blue-700",
-      BUSINESS: "bg-green-100 text-green-700",
-      ENTERPRISE: "bg-yellow-100 text-yellow-700",
-    };
-    return <span className={`px-2 py-1 text-xs rounded ${map[plan] || ""}`}>{plan}</span>;
-  };
-
   return (
-    <DashboardLayout>
-      <div className="max-w-7xl mx-auto p-6 space-y-6">
-        {/* Header */}
-        <header className="flex flex-col md:flex-row justify-between items-center gap-4">
-          <h1 className="text-2xl font-bold">👤 Gestion des utilisateurs</h1>
-          <div className="flex gap-2">
-            <input
-              type="text"
-              placeholder="Rechercher par email ou nom..."
-              value={search}
-              onChange={(e) => {
-                setSearch(e.target.value);
-                setPage(1);
-              }}
-              className="border rounded px-3 py-2 w-full md:w-72 dark:bg-slate-900 dark:border-slate-700"
-            />
-            <button
-              onClick={fetchUsers}
-              className="px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              🔄 Rafraîchir
-            </button>
-          </div>
-        </header>
+    <div className="p-6 space-y-6">
+      <h1 className="text-2xl font-bold text-gray-800">👥 Gestion des utilisateurs</h1>
 
-        <p className="text-sm text-gray-500">{filtered.length} utilisateur(s)</p>
-
-        {/* Tableau utilisateurs */}
-        <div className="overflow-x-auto rounded shadow">
-          <table className="w-full border-collapse text-sm">
-            <thead>
-              <tr className="bg-gray-100 dark:bg-slate-800 text-left">
-                <th className="p-3 border">Email</th>
-                <th className="p-3 border">Nom</th>
-                <th className="p-3 border">Rôle</th>
-                <th className="p-3 border">Plan</th>
-                <th className="p-3 border">Créé le</th>
-                <th className="p-3 border text-center">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {paginated.map((u) => (
-                <tr
-                  key={u.id}
-                  className="border-b dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800"
-                >
-                  <td className="p-3">{u.email}</td>
-                  <td className="p-3">{u.name || "—"}</td>
-                  <td className="p-3">
-                    {roleBadge(u.role)}
-                    <select
-                      value={u.role}
-                      onChange={(e) => handleRoleChange(u.id, e.target.value)}
-                      className="ml-2 border rounded px-2 py-1 text-xs dark:bg-slate-700"
-                    >
-                      <option value="USER">USER</option>
-                      <option value="PREMIUM">PREMIUM</option>
-                      <option value="ADMIN">ADMIN</option>
-                    </select>
-                  </td>
-                  <td className="p-3">
-                    {planBadge(u.subscriptions?.[0]?.plan || "FREE")}
-                    <select
-                      value={u.subscriptions?.[0]?.plan || "FREE"}
-                      onChange={(e) => handlePlanChange(u.id, e.target.value)}
-                      className="ml-2 border rounded px-2 py-1 text-xs dark:bg-slate-700"
-                    >
-                      <option value="FREE">FREE</option>
-                      <option value="PRO">PRO</option>
-                      <option value="BUSINESS">BUSINESS</option>
-                      <option value="ENTERPRISE">ENTERPRISE</option>
-                    </select>
-                  </td>
-                  <td className="p-3">
-                    {new Date(u.createdAt).toLocaleDateString("fr-FR")}
-                  </td>
-                  <td className="p-3 text-center">
-                    <button
-                      onClick={() => handleDelete(u.id)}
-                      className="px-3 py-1 bg-red-600 text-white rounded hover:bg-red-700 text-xs"
-                    >
-                      🗑️ Supprimer
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Pagination */}
-        {totalPages > 1 && (
-          <div className="flex justify-center mt-4 space-x-2">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="px-3 py-1 rounded border disabled:opacity-50"
-            >
-              ← Précédent
-            </button>
-            <span className="px-3 py-1">
-              Page {page} / {totalPages}
-            </span>
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              className="px-3 py-1 rounded border disabled:opacity-50"
-            >
-              Suivant →
-            </button>
-          </div>
-        )}
+      {/* Recherche */}
+      <div className="flex justify-between items-center">
+        <input
+          type="text"
+          placeholder="🔍 Rechercher par email..."
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="border rounded-lg px-3 py-2 flex-1 max-w-md"
+        />
       </div>
-    </DashboardLayout>
+
+      {/* Liste des utilisateurs */}
+      <Card className="shadow-md rounded-2xl hover:shadow-lg transition">
+        <CardContent className="p-6">
+          {paginated.length === 0 ? (
+            <p className="text-gray-500 text-center py-10">
+              Aucun utilisateur trouvé.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="bg-gray-100 text-left">
+                    <th className="p-3">Email</th>
+                    <th className="p-3">Rôle</th>
+                    <th className="p-3">Créé le</th>
+                    <th className="p-3">Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {paginated.map((u) => (
+                    <tr key={u.id} className="border-b hover:bg-gray-50">
+                      <td className="p-3 font-mono text-xs">{u.email}</td>
+                      <td className="p-3">
+                        <select
+                          value={u.role}
+                          onChange={(e) =>
+                            handleChangeRole(
+                              u.id,
+                              e.target.value as "USER" | "PREMIUM" | "ADMIN"
+                            )
+                          }
+                          className="border rounded px-2 py-1 text-sm"
+                        >
+                          <option value="USER">USER</option>
+                          <option value="PREMIUM">PREMIUM</option>
+                          <option value="ADMIN">ADMIN</option>
+                        </select>
+                      </td>
+                      <td className="p-3 text-gray-500">
+                        {new Date(u.createdAt).toLocaleDateString()}
+                      </td>
+                      <td className="p-3">
+                        {/* Bouton suppression éventuel si API dispo */}
+                        {/* <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => handleDeleteUser(u.id)}
+                        >
+                          Supprimer
+                        </Button> */}
+                        <span className="text-gray-400 italic">—</span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="flex justify-center items-center gap-3 mt-4">
+              <Button
+                variant="outline"
+                disabled={page === 1}
+                onClick={() => setPage((p) => p - 1)}
+              >
+                ◀️ Précédent
+              </Button>
+              <span className="text-sm">
+                Page {page} / {totalPages}
+              </span>
+              <Button
+                variant="outline"
+                disabled={page === totalPages}
+                onClick={() => setPage((p) => p + 1)}
+              >
+                Suivant ▶️
+              </Button>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
   );
 }
