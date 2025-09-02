@@ -10,6 +10,7 @@ import {
 import { authenticate } from "../middlewares/security";
 import { body, param } from "express-validator";
 import { handleValidationErrors } from "../middlewares/validate";
+import { notificationService } from "../services/notificationService";
 
 const router = Router();
 
@@ -26,14 +27,20 @@ router.use(authenticate);
  */
 router.post(
   "/",
-  body("message")
-    .isString()
-    .isLength({ min: 1, max: 1000 })
-    .withMessage("Le message est obligatoire et doit contenir entre 1 et 1000 caractères."),
   body("title")
     .isString()
     .isLength({ min: 1, max: 120 })
     .withMessage("Le titre est obligatoire et doit contenir entre 1 et 120 caractères."),
+  body("message")
+    .isString()
+    .isLength({ min: 1, max: 1000 })
+    .withMessage("Le message est obligatoire et doit contenir entre 1 et 1000 caractères."),
+  body("type")
+    .optional()
+    .isString()
+    .isIn(["INFO", "ALERT", "BILLING", "SYSTEM"])
+    .withMessage("Type de notification invalide."),
+  body("userId").optional().isString(),
   handleValidationErrors,
   notify
 );
@@ -74,6 +81,32 @@ router.delete(
   param("id").isString().withMessage("ID de notification invalide"),
   handleValidationErrors,
   remove
+);
+
+/* ============================================================================
+ *  NOUVELLES ROUTES – Multi-canal (temps réel + email + webhooks)
+ * ========================================================================== */
+
+/**
+ * POST /api/notifications/test
+ * Créer une notification de test (multi-canal)
+ */
+router.post(
+  "/test",
+  body("title").isString().notEmpty(),
+  body("message").isString().notEmpty(),
+  handleValidationErrors,
+  async (req, res) => {
+    try {
+      const { title, message, type } = req.body;
+      const userId = req.user!.id;
+      const notif = await notificationService.create(userId, type || "INFO", title, message);
+      res.json({ ok: true, notif });
+    } catch (err) {
+      console.error("❌ Notification test error:", err);
+      res.status(500).json({ error: "Erreur création notification" });
+    }
+  }
 );
 
 export default router;
