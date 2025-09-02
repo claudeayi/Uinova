@@ -191,10 +191,13 @@ model Notification {
   type      String   @default("info")
   title     String
   body      String?
+  actionUrl String?
+  meta      Json?
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
 
   @@index([userId, read])
+  @@index([type])
 }
 
 model Badge {
@@ -305,14 +308,21 @@ model Deployment {
 }
 
 model ReplaySession {
-  id          String   @id @default(cuid())
-  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId   String
-  user        User     @relation(fields: [userId], references: [id])
-  userId      String
-  dataUrl     String
-  startedAt   DateTime @default(now())
-  endedAt     DateTime?
+  id              String   @id @default(cuid())
+  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId       String
+  user            User     @relation(fields: [userId], references: [id])
+  userId          String
+  dataUrl         String
+  snapshot        Json?
+  stepsCompressed Bytes?
+  meta            Json?
+  startedAt       DateTime @default(now())
+  endedAt         DateTime?
+
+  @@index([projectId])
+  @@index([userId])
+  @@index([startedAt])
 }
 
 /* ============================================================================
