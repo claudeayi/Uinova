@@ -2,11 +2,16 @@ import http from "node:http";
 import app from "./app";
 import { setupCollabSocket, io as collabIO } from "./services/collab";
 import collabRoutes from "./routes/collabRoutes";
-import collabReplayRoutes from "./routes/collabReplayRoutes"; // 🔹 nouveau
+import collabReplayRoutes from "./routes/collabReplayRoutes"; // 🔹 replay collab
 import { prisma } from "./utils/prisma";
 import { initScheduler } from "./utils/scheduler";
 import { collectBusinessMetrics } from "./services/businessMetrics";
 import { collectDeploymentMetrics } from "./services/deploymentMetrics";
+
+// BullMQ workers (jobs async)
+import { exportWorker } from "./workers/exportWorker";
+import { deployWorker } from "./workers/deployWorker";
+import { aiWorker } from "./workers/aiWorker";
 
 // ======================
 // CONFIG
@@ -18,9 +23,9 @@ const PORT = normalizePort(process.env.PORT || "5000");
 // API EXTRA ROUTES
 // ======================
 app.use("/api/collab", collabRoutes);
-app.use("/api/collab/replay", collabReplayRoutes); // 🔹 nouveau
+app.use("/api/collab/replay", collabReplayRoutes);
 
-// Expose le port à Express (utile pour middlewares)
+// Expose port to Express
 app.set("port", PORT);
 
 // ======================
@@ -47,6 +52,10 @@ server.listen(PORT as number, HOST, () => {
 
   // Scheduler (auto-scaling, retry, rollback…)
   initScheduler();
+
+  // Workers jobs (BullMQ)
+  console.log("⚙️  Workers démarrés : export, deploy, ai");
+  [exportWorker, deployWorker, aiWorker];
 });
 
 // ======================
@@ -116,7 +125,7 @@ process.on("uncaughtException", async (err: Error) => {
   } catch (e) {
     console.error("❌ AuditLog write failed:", e);
   }
-  // process.exit(1); // optionnel si tu veux un restart auto
+  // process.exit(1); // optionnel si restart auto via PM2/Docker
 });
 
 // ======================
@@ -124,8 +133,8 @@ process.on("uncaughtException", async (err: Error) => {
 // ======================
 function normalizePort(val: string): number | string {
   const port = parseInt(val, 10);
-  if (Number.isNaN(port)) return val; // named pipe
-  if (port >= 0) return port; // port number
+  if (Number.isNaN(port)) return val;
+  if (port >= 0) return port;
   return 5000;
 }
 
@@ -147,7 +156,6 @@ function onError(error: any) {
 // ======================
 // PROMETHEUS BUSINESS + DEPLOY METRICS
 // ======================
-// Hook sur collectDefaultMetrics déjà dans app.ts
 setInterval(async () => {
   try {
     await collectBusinessMetrics();
