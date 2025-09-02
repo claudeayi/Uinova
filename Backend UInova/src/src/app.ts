@@ -33,9 +33,13 @@ import replayRoutes from "./routes/replay";
 import monitoringRoutes from "./routes/monitoring";
 
 // 🚀 Nouvelles routes alignées frontend
-import arRoutes from "./routes/ar";             // ARPreviewPage
+import arRoutes from "./routes/ar";               // ARPreviewPage
 import assistantRoutes from "./routes/assistant"; // AIAssistantPage
-import templateRoutes from "./routes/templates"; // TemplatePage / Marketplace
+import templateRoutes from "./routes/templates";  // TemplatePage / Marketplace
+
+// 🚀 Nouvelles routes backend révolutionnaires
+import collabRoutes from "./routes/collab";       // Collaboration CRDT
+import webhookRoutes from "./routes/webhooks";    // Event bus / webhooks
 
 // ---- Typage Express.Request
 declare global {
@@ -43,6 +47,7 @@ declare global {
     interface Request {
       id?: string;
       startAt?: number;
+      user?: { id: string; role: string }; // injecté par authenticate()
     }
   }
 }
@@ -110,12 +115,14 @@ app.use("/uploads", express.static("uploads", { fallthrough: true, maxAge: "7d",
  *  PROMETHEUS METRICS
  * ========================================================================== */
 const collectDefaultMetrics = client.collectDefaultMetrics;
-collectDefaultMetrics();
+collectDefaultMetrics({ prefix: "uinova_" });
+
 const httpRequestDuration = new client.Histogram({
-  name: "http_request_duration_ms",
-  help: "Durée des requêtes HTTP",
+  name: "uinova_http_request_duration_ms",
+  help: "Durée des requêtes HTTP (ms)",
   labelNames: ["method", "route", "status_code"],
 });
+
 app.use((req, res, next) => {
   const end = httpRequestDuration.startTimer();
   res.on("finish", () => {
@@ -124,7 +131,7 @@ app.use((req, res, next) => {
   next();
 });
 
-// Endpoint Prometheus
+// Endpoint Prometheus (technique)
 app.get("/metrics", async (_req, res) => {
   res.set("Content-Type", client.register.contentType);
   res.end(await client.register.metrics());
@@ -146,6 +153,7 @@ app.get("/version", (_req, res) =>
 /* ============================================================================
  *  ROUTES API
  * ========================================================================== */
+// Core
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/pages", pageRoutes);
@@ -157,16 +165,20 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/ai", aiRoutes);
 
-// V3
+// V3 modules
 app.use("/api/marketplace", marketplaceRoutes);
 app.use("/api/deploy", deployRoutes);
 app.use("/api/replay", replayRoutes);
 app.use("/api/monitoring", monitoringRoutes);
 
-// 🚀 Nouvelles
+// Nouvelles pages frontend
 app.use("/api/ar", arRoutes);
 app.use("/api/assistant", assistantRoutes);
 app.use("/api/templates", templateRoutes);
+
+// Nouvelles fonctionnalités backend
+app.use("/api/collab", collabRoutes);
+app.use("/api/webhooks", webhookRoutes);
 
 /* ============================================================================
  *  SWAGGER
@@ -182,7 +194,7 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
       if (req.path.startsWith("/api")) {
         await prisma.auditLog.create({
           data: {
-            userId: (req as any).user?.id || null,
+            userId: req.user?.id || null,
             action: `${req.method} ${req.path}`,
             metadata: {
               status: res.statusCode,
