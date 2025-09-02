@@ -41,6 +41,7 @@ import templateRoutes from "./routes/templates";
 import collabRoutes from "./routes/collab";
 import webhookRoutes from "./routes/webhooks";
 import billingRoutes from "./routes/billing";
+import emailTemplateRoutes from "./routes/emailTemplates"; // ⚡ gestion templates email
 
 // ---- Typage Express.Request
 declare global {
@@ -88,9 +89,7 @@ app.use((req, res, next) => {
 // Sécurité
 app.use(
   helmet({
-    contentSecurityPolicy: isProd
-      ? { useDefaults: true }
-      : false,
+    contentSecurityPolicy: isProd ? { useDefaults: true } : false,
     crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
@@ -201,7 +200,8 @@ app.use("/api/collab", collabRoutes);
 app.use("/api/webhooks", webhookRoutes);
 app.use("/api/billing", billingRoutes);
 
-// Bull Board
+// Admin-only
+app.use("/api/admin/email-templates", emailTemplateRoutes);
 app.use("/api/admin/jobs", bullBoardAdapter.getRouter());
 
 /* ============================================================================
@@ -232,7 +232,6 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
           },
         });
 
-        // ⚡ Emit event bus (utile pour webhooks & monitoring)
         emitEvent("api.request", {
           method: req.method,
           path: req.path,
