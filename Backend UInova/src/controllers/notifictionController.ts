@@ -1,9 +1,9 @@
-// src/controllers/notificationController.ts
 import { Request, Response } from "express";
 import { z } from "zod";
 import { prisma } from "../utils/prisma";
+import { notificationService } from "../services/notificationService";
 
-// (optionnel) push temps réel via Socket.io
+// (optionnel) push temps réel via Socket.io (fallback direct)
 let io: any = null;
 try {
   io = require("../services/collab").io;
@@ -17,11 +17,13 @@ try {
 const NotifySchema = z.object({
   title: z.string().min(1).max(120),
   message: z.string().min(1).max(1000),
-  type: z.enum(["INFO", "SUCCESS", "WARNING", "ERROR"]).default("INFO"),
+  type: z
+    .enum(["INFO", "SUCCESS", "WARNING", "ERROR", "ALERT", "BILLING", "SYSTEM"])
+    .default("INFO"),
   actionUrl: z.string().url().optional(),
   meta: z.record(z.any()).optional(),
   userId: z.string().cuid().optional(), // ADMIN peut notifier un autre user
-  broadcast: z.boolean().optional(),    // ADMIN peut notifier tous les users
+  broadcast: z.boolean().optional(), // ADMIN peut notifier tous les users
 });
 
 const ListQuerySchema = z.object({
@@ -29,7 +31,9 @@ const ListQuerySchema = z.object({
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
   unreadOnly: z.coerce.boolean().optional(),
   since: z.coerce.date().optional(),
-  type: z.enum(["INFO", "SUCCESS", "WARNING", "ERROR"]).optional(),
+  type: z
+    .enum(["INFO", "SUCCESS", "WARNING", "ERROR", "ALERT", "BILLING", "SYSTEM"])
+    .optional(),
   userId: z.string().cuid().optional(),
   sort: z.enum(["createdAt:desc", "createdAt:asc"]).default("createdAt:desc"),
 });
@@ -56,23 +60,11 @@ function ensureAdmin(role?: string) {
   }
 }
 
-const selectNotif = {
-  id: true,
-  userId: true,
-  title: true,
-  message: true,
-  type: true,
-  actionUrl: true,
-  read: true,
-  createdAt: true,
-  meta: true as const,
-};
-
 /* ============================================================================
  *  CONTROLLERS
  * ========================================================================== */
 
-// ✅ Créer une notification
+// ✅ Créer une notification (simple ou broadcast)
 export const notify = async (req: Request, res: Response) => {
   try {
     const caller = ensureAuth(req);
@@ -83,37 +75,30 @@ export const notify = async (req: Request, res: Response) => {
       ensureAdmin(caller.role);
 
       const users = await prisma.user.findMany({ select: { id: true } });
-      const notifs = await prisma.$transaction(
+      const results = await Promise.all(
         users.map((u) =>
-          prisma.notification.create({
-            data: {
-              userId: u.id,
-              title: data.title,
-              message: data.message,
-              type: data.type,
-              actionUrl: data.actionUrl ?? null,
-              meta: data.meta ?? {},
-            },
-            select: selectNotif,
-          })
+          notificationService.create(
+            u.id,
+            data.type,
+            data.title,
+            data.message
+          )
         )
       );
-
-      if (io) {
-        users.forEach((u, i) =>
-          io.to(`user:${u.id}`).emit("notification:new", notifs[i])
-        );
-      }
 
       await prisma.auditLog.create({
         data: {
           action: "NOTIFICATION_BROADCAST",
           userId: caller.id,
-          details: `Notification envoyée à ${users.length} users`,
+          metadata: {
+            count: users.length,
+            ip: req.ip,
+            ua: req.headers["user-agent"] || null,
+          },
         },
       });
 
-      return res.status(201).json({ success: true, count: users.length });
+      return res.status(201).json({ success: true, count: results.length });
     }
 
     // Sinon → notification à soi ou à un autre user
@@ -122,32 +107,31 @@ export const notify = async (req: Request, res: Response) => {
         ? (ensureAdmin(caller.role), data.userId)
         : caller.id;
 
-    const notif = await prisma.notification.create({
-      data: {
-        userId: targetUserId,
-        title: data.title,
-        message: data.message,
-        type: data.type,
-        actionUrl: data.actionUrl ?? null,
-        meta: data.meta ?? {},
-      },
-      select: selectNotif,
-    });
-
-    if (io) io.to(`user:${targetUserId}`).emit("notification:new", notif);
+    const notif = await notificationService.create(
+      targetUserId,
+      data.type,
+      data.title,
+      data.message
+    );
 
     await prisma.auditLog.create({
       data: {
         action: "NOTIFICATION_CREATED",
         userId: caller.id,
-        details: `Notification envoyée à ${targetUserId}`,
+        metadata: {
+          targetUserId,
+          ip: req.ip,
+          ua: req.headers["user-agent"] || null,
+        },
       },
     });
 
     return res.status(201).json({ success: true, data: notif });
   } catch (err: any) {
     console.error("❌ notify error:", err);
-    return res.status(err.status || 500).json({ success: false, message: err.message });
+    return res
+      .status(err.status || 500)
+      .json({ success: false, message: err.message });
   }
 };
 
@@ -166,7 +150,10 @@ export const list = async (req: Request, res: Response) => {
     if (since) where.createdAt = { gte: since };
     if (type) where.type = type;
 
-    const [sortField, sortDir] = sort.split(":") as ["createdAt", "asc" | "desc"];
+    const [sortField, sortDir] = sort.split(":") as [
+      "createdAt",
+      "asc" | "desc"
+    ];
     const orderBy: any = { [sortField]: sortDir };
 
     const [total, items, unreadCount] = await Promise.all([
@@ -176,9 +163,21 @@ export const list = async (req: Request, res: Response) => {
         orderBy,
         skip: (page - 1) * pageSize,
         take: pageSize,
-        select: selectNotif,
+        select: {
+          id: true,
+          userId: true,
+          title: true,
+          message: true,
+          type: true,
+          actionUrl: true,
+          read: true,
+          createdAt: true,
+          meta: true,
+        },
       }),
-      prisma.notification.count({ where: { userId: targetUserId, read: false } }),
+      prisma.notification.count({
+        where: { userId: targetUserId, read: false },
+      }),
     ]);
 
     return res.json({
@@ -192,7 +191,9 @@ export const list = async (req: Request, res: Response) => {
     });
   } catch (err: any) {
     console.error("❌ list notifications error:", err);
-    return res.status(500).json({ success: false, message: "Erreur récupération notifications" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Erreur récupération notifications" });
   }
 };
 
@@ -206,7 +207,8 @@ export const markRead = async (req: Request, res: Response) => {
       where: { id },
       select: { id: true, userId: true, read: true },
     });
-    if (!n) return res.status(404).json({ success: false, message: "Not found" });
+    if (!n)
+      return res.status(404).json({ success: false, message: "Not found" });
     if (caller.role !== "ADMIN" && n.userId !== caller.id)
       return res.status(403).json({ success: false, message: "Forbidden" });
     if (n.read) return res.json({ success: true }); // idempotent
@@ -214,13 +216,23 @@ export const markRead = async (req: Request, res: Response) => {
     await prisma.notification.update({ where: { id }, data: { read: true } });
 
     await prisma.auditLog.create({
-      data: { action: "NOTIFICATION_READ", userId: caller.id, details: `Notif ${id}` },
+      data: {
+        action: "NOTIFICATION_READ",
+        userId: caller.id,
+        metadata: {
+          notifId: id,
+          ip: req.ip,
+          ua: req.headers["user-agent"] || null,
+        },
+      },
     });
 
     return res.json({ success: true });
   } catch (err: any) {
     console.error("❌ markRead error:", err);
-    return res.status(500).json({ success: false, message: "Erreur lecture notification" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Erreur lecture notification" });
   }
 };
 
@@ -231,7 +243,9 @@ export const markAllRead = async (req: Request, res: Response) => {
     const body = z.object({ userId: z.string().cuid().optional() }).parse(req.body);
 
     const targetUserId =
-      body.userId && body.userId !== caller.id ? (ensureAdmin(caller.role), body.userId) : caller.id;
+      body.userId && body.userId !== caller.id
+        ? (ensureAdmin(caller.role), body.userId)
+        : caller.id;
 
     const updated = await prisma.notification.updateMany({
       where: { userId: targetUserId, read: false },
@@ -242,14 +256,21 @@ export const markAllRead = async (req: Request, res: Response) => {
       data: {
         action: "NOTIFICATION_READ_ALL",
         userId: caller.id,
-        details: `Mark all read for ${targetUserId} (${updated.count} notifs)`,
+        metadata: {
+          targetUserId,
+          count: updated.count,
+          ip: req.ip,
+          ua: req.headers["user-agent"] || null,
+        },
       },
     });
 
     return res.json({ success: true, updated: updated.count });
   } catch (err: any) {
     console.error("❌ markAllRead error:", err);
-    return res.status(500).json({ success: false, message: "Erreur lecture notifications" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Erreur lecture notifications" });
   }
 };
 
@@ -263,19 +284,31 @@ export const remove = async (req: Request, res: Response) => {
       where: { id },
       select: { id: true, userId: true },
     });
-    if (!n) return res.status(404).json({ success: false, message: "Not found" });
+    if (!n)
+      return res.status(404).json({ success: false, message: "Not found" });
     if (caller.role !== "ADMIN" && n.userId !== caller.id)
       return res.status(403).json({ success: false, message: "Forbidden" });
 
     await prisma.notification.delete({ where: { id } });
 
     await prisma.auditLog.create({
-      data: { action: "NOTIFICATION_REMOVED", userId: caller.id, details: `Notif ${id}` },
+      data: {
+        action: "NOTIFICATION_REMOVED",
+        userId: caller.id,
+        metadata: {
+          notifId: id,
+          targetUserId: n.userId,
+          ip: req.ip,
+          ua: req.headers["user-agent"] || null,
+        },
+      },
     });
 
     return res.json({ success: true, message: "Notification supprimée" });
   } catch (err: any) {
     console.error("❌ remove notification error:", err);
-    return res.status(500).json({ success: false, message: "Erreur suppression notification" });
+    return res
+      .status(500)
+      .json({ success: false, message: "Erreur suppression notification" });
   }
 };
