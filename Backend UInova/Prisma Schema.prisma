@@ -16,6 +16,12 @@ enum UserRole {
   ADMIN
 }
 
+enum OrgRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
 enum ProjectStatus {
   PLANIFIE
   EN_COURS
@@ -90,36 +96,85 @@ model User {
   purchases     Purchase[]
   items         MarketplaceItem[]
   replays       ReplaySession[]
+  emailLogs     EmailLog[]
+  usageRecords  UsageRecord[]
 
   // ⚡ Monitoring & sécurité
   sessions      UserSession[]
   apiKeys       ApiKey[]
 
-  // ⚡ Emails envoyés
-  emailLogs     EmailLog[]
-
-  // ⚡ Usage / facturation
-  usageRecords  UsageRecord[]
+  // ⚡ Multi-tenant
+  memberships   Membership[]
+  orgInvites    OrgInvite[]      @relation("Invitee")
 }
 
-model Project {
-  id          String         @id @default(cuid())
+/* ============================================================================
+ * ORGANIZATIONS (Multi-tenant)
+ * ========================================================================== */
+model Organization {
+  id          String        @id @default(cuid())
   name        String
-  description String?
-  status      ProjectStatus  @default(PLANIFIE)
-  owner       User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerId     String
-  pages       Page[]
-  exports     ExportJob[]
-  shareLinks  ShareLink[]
-  collabs     CollabHistory[]
-  deployments Deployment[]
-  replays     ReplaySession[]
-  usageRecords UsageRecord[]
-  createdAt   DateTime       @default(now())
-  updatedAt   DateTime       @updatedAt
+  owner       User          @relation(fields: [ownerId], references: [id])
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  memberships Membership[]
+  projects    Project[]
+  invites     OrgInvite[]   @relation("OrgInvites")
 
   @@index([ownerId])
+}
+
+model Membership {
+  id          String        @id @default(cuid())
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId      String
+  org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  orgId       String
+  role        OrgRole       @default(MEMBER)
+  createdAt   DateTime      @default(now())
+
+  @@unique([userId, orgId])
+  @@index([orgId])
+}
+
+model OrgInvite {
+  id          String        @id @default(cuid())
+  org         Organization  @relation("OrgInvites", fields: [orgId], references: [id], onDelete: Cascade)
+  orgId       String
+  email       String
+  invitedBy   User          @relation("Invitee", fields: [invitedById], references: [id], onDelete: Cascade)
+  invitedById String
+  role        OrgRole       @default(MEMBER)
+  accepted    Boolean       @default(false)
+  createdAt   DateTime      @default(now())
+}
+
+/* ============================================================================
+ * PROJECTS
+ * ========================================================================== */
+model Project {
+  id           String         @id @default(cuid())
+  name         String
+  description  String?
+  status       ProjectStatus  @default(PLANIFIE)
+  owner        User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId      String
+  org          Organization?  @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  orgId        String?
+  pages        Page[]
+  exports      ExportJob[]
+  shareLinks   ShareLink[]
+  collabs      CollabHistory[]
+  deployments  Deployment[]
+  replays      ReplaySession[]
+  usageRecords UsageRecord[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([ownerId])
+  @@index([orgId])
   @@index([status])
 }
 
@@ -152,6 +207,9 @@ model ExportJob {
   @@index([status])
 }
 
+/* ============================================================================
+ * BILLING / SUBSCRIPTION
+ * ========================================================================== */
 model Subscription {
   id               String             @id @default(cuid())
   user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -159,7 +217,7 @@ model Subscription {
   plan             SubscriptionPlan   @default(FREE)
   status           SubscriptionStatus @default(TRIAL)
   currentPeriodEnd DateTime?
-  usageLimitJson   Json?              // quotas/limites par feature
+  usageLimitJson   Json?
   createdAt        DateTime           @default(now())
   updatedAt        DateTime           @updatedAt
 
@@ -193,6 +251,24 @@ model Payment {
   @@index([projectId])
 }
 
+model UsageRecord {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  projectId String?
+  type      String   // api_call | ai_tokens | export_job | storage
+  amount    Int
+  meta      Json?
+  createdAt DateTime @default(now())
+
+  @@index([userId, type, createdAt])
+  @@index([projectId])
+}
+
+/* ============================================================================
+ * COMMUNICATION
+ * ========================================================================== */
 model Notification {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -209,6 +285,40 @@ model Notification {
   @@index([type])
 }
 
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  subject   String
+  bodyHtml  String
+  bodyText  String?
+  lang      String   @default("fr")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  logs      EmailLog[]
+}
+
+model EmailLog {
+  id          String         @id @default(cuid())
+  template    EmailTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  templateId  String?
+  user        User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId      String?
+  to          String
+  subject     String
+  body        String
+  status      String         // SUCCESS | FAILED
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([status])
+}
+
+/* ============================================================================
+ * MARKETPLACE
+ * ========================================================================== */
 model Badge {
   id        String      @id @default(cuid())
   code      String      @unique
@@ -233,54 +343,6 @@ model UserBadge {
   @@index([badgeId])
 }
 
-model Upload {
-  id        String   @id @default(cuid())
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  userId    String?
-  key       String
-  url       String
-  size      Int
-  mime      String
-  createdAt DateTime @default(now())
-
-  @@index([userId])
-  @@index([mime])
-}
-
-/* ============================================================================
- * LOGS / COLLAB
- * ========================================================================== */
-model AuditLog {
-  id        String   @id @default(cuid())
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id])
-  action    String
-  metadata  Json?
-  createdAt DateTime @default(now())
-}
-
-model ShareLink {
-  id        String   @id @default(cuid())
-  projectId String
-  project   Project  @relation(fields: [projectId], references: [id])
-  token     String   @unique
-  isPublic  Boolean  @default(false)
-  createdAt DateTime @default(now())
-}
-
-model CollabHistory {
-  id        String   @id @default(cuid())
-  projectId String
-  project   Project  @relation(fields: [projectId], references: [id])
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  changes   Json
-  createdAt DateTime @default(now())
-}
-
-/* ============================================================================
- * V3 MODULES
- * ========================================================================== */
 model MarketplaceItem {
   id          String   @id @default(cuid())
   title       String
@@ -305,6 +367,9 @@ model Purchase {
   createdAt   DateTime         @default(now())
 }
 
+/* ============================================================================
+ * DEPLOYMENTS & REPLAYS
+ * ========================================================================== */
 model Deployment {
   id          String           @id @default(cuid())
   project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
@@ -335,8 +400,36 @@ model ReplaySession {
 }
 
 /* ============================================================================
- * SECURITY / MONITORING
+ * LOGS / SECURITY
  * ========================================================================== */
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  action    String
+  metadata  Json?
+  createdAt DateTime @default(now())
+}
+
+model ShareLink {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  token     String   @unique
+  isPublic  Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model CollabHistory {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id])
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  changes   Json
+  createdAt DateTime @default(now())
+}
+
 model UserSession {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -354,56 +447,4 @@ model ApiKey {
   key       String   @unique
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
-}
-
-/* ============================================================================
- * BILLING / USAGE
- * ========================================================================== */
-model UsageRecord {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId    String
-  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  projectId String?
-  type      String   // api_call | ai_tokens | export_job | storage
-  amount    Int
-  meta      Json?
-  createdAt DateTime @default(now())
-
-  @@index([userId, type, createdAt])
-  @@index([projectId])
-}
-
-/* ============================================================================
- * EMAIL SYSTEM
- * ========================================================================== */
-model EmailTemplate {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
-  subject   String
-  bodyHtml  String
-  bodyText  String?
-  lang      String   @default("fr") // multi-langues
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  logs      EmailLog[]
-}
-
-model EmailLog {
-  id          String        @id @default(cuid())
-  template    EmailTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  templateId  String?
-  user        User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
-  userId      String?
-  to          String
-  subject     String
-  body        String
-  status      String         // SUCCESS | FAILED
-  error       String?
-  createdAt   DateTime @default(now())
-
-  @@index([userId])
-  @@index([status])
 }
