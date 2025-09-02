@@ -1,7 +1,7 @@
 backend/
 ├─ src/
-│  ├─ app.ts                   # Config Express (middlewares, routes, Swagger, etc.)
-│  ├─ server.ts                # Serveur HTTP + Socket.io collab
+│  ├─ app.ts                   # Config Express (middlewares, routes, Swagger, Prometheus, etc.)
+│  ├─ server.ts                # Serveur HTTP + Socket.io collab (CRDT, rooms)
 │  │
 │  ├─ controllers/             # Logique métiers (REST)
 │  │  ├─ authController.ts
@@ -17,12 +17,15 @@ backend/
 │  │  ├─ deployController.ts
 │  │  ├─ replayController.ts
 │  │  ├─ monitoringController.ts
+│  │  ├─ organizationController.ts    # ⚡ Orgs & membres (invites, roles, etc.)
+│  │  ├─ emailTemplateController.ts   # ⚡ CRUD templates d’email (Cockpit)
 │  │  │
-│  │  └─ admin/                # ⚡ Spécifique admin (séparé pour plus de clarté)
+│  │  └─ admin/                # ⚡ Spécifique admin (séparé pour clarté)
 │  │     ├─ usersAdminController.ts
 │  │     ├─ projectsAdminController.ts
 │  │     ├─ marketplaceAdminController.ts
-│  │     └─ replaysAdminController.ts
+│  │     ├─ replaysAdminController.ts
+│  │     └─ billingAdminController.ts
 │  │
 │  ├─ routes/                  # Définition des routes Express
 │  │  ├─ auth.ts
@@ -38,59 +41,71 @@ backend/
 │  │  ├─ deploy.ts
 │  │  ├─ replay.ts
 │  │  ├─ monitoring.ts
-│  │  └─ admin.ts              # regroupe toutes les routes admin
+│  │  ├─ organizations.ts       # API Orgs/membres
+│  │  ├─ emailTemplates.ts      # API Email Templates (admin)
+│  │  ├─ webhooks.ts            # API Webhooks (event bus externe)
+│  │  ├─ billing.ts             # API Billing & Usage
+│  │  └─ admin.ts               # Regroupe toutes les routes admin
 │  │
 │  ├─ middlewares/
-│  │  ├─ security.ts           # authenticate, authorize, authLimiter
-│  │  ├─ validator.ts          # validateBody, validateQuery, validateParams
-│  │  ├─ validate.ts           # schémas express-validator/zod
-│  │  ├─ upload.ts             # config Multer
-│  │  ├─ rateLimit.ts          # rate limiter global
-│  │  └─ errorHandler.ts       # handler global erreurs
+│  │  ├─ security.ts            # authenticate, authorize, authLimiter
+│  │  ├─ validator.ts           # validateBody, validateQuery, validateParams
+│  │  ├─ validate.ts            # express-validator/zod utils
+│  │  ├─ upload.ts              # config Multer
+│  │  ├─ rateLimit.ts           # rate limiter global
+│  │  └─ errorHandler.ts        # handler global erreurs
 │  │
-│  ├─ validators/              # Schemas Zod/Yup centralisés
+│  ├─ validators/               # Schemas Zod centralisés
 │  │  ├─ marketplace.schema.ts
 │  │  ├─ deploy.schema.ts
-│  │  └─ ...
+│  │  ├─ billing.schema.ts
+│  │  ├─ organization.schema.ts
+│  │  └─ emailTemplate.schema.ts
 │  │
-│  ├─ services/                # Services (intégrations externes, business logic avancée)
-│  │  ├─ collab.ts             # Socket.io collab temps réel
-│  │  ├─ paymentServices.ts    # Stripe / PayPal / CinetPay
-│  │  ├─ exportService.ts      # Génération HTML/Flutter/JSON
-│  │  ├─ aiService.ts          # IA générative (DeepSeek, OpenAI…)
-│  │  ├─ deployService.ts      # Mock déploiement (Docker/K8s futur)
-│  │  ├─ cloud.ts              # stockage fichiers / CDN
-│  │  └─ aiModeration.ts       # modération prompts IA
+│  ├─ services/                 # Services (intégrations & logique avancée)
+│  │  ├─ collab.ts              # Socket.io collab temps réel
+│  │  ├─ paymentServices.ts     # Stripe / PayPal / CinetPay
+│  │  ├─ exportService.ts       # Génération HTML/Flutter/JSON
+│  │  ├─ aiService.ts           # IA générative (DeepSeek, OpenAI…)
+│  │  ├─ aiModeration.ts        # IA modération prompts
+│  │  ├─ deployService.ts       # Déploiement (mock Netlify/Vercel/S3)
+│  │  ├─ billingService.ts      # Tracking quotas & usage
+│  │  ├─ emailService.ts        # Envoi basé sur templates DB
+│  │  ├─ cloud.ts               # stockage fichiers / CDN (LOCAL/S3/Cloudinary)
+│  │  └─ eventBus.ts            # EventEmitter + webhooks
 │  │
 │  ├─ utils/
-│  │  ├─ prisma.ts             # client Prisma
-│  │  ├─ jwt.ts                # génération/validation JWT
-│  │  ├─ hash.ts               # hash mot de passe (bcrypt)
-│  │  ├─ mailer.ts             # envoi mails (Sendgrid, Nodemailer…)
-│  │  ├─ logger.ts             # logger Pino/Winston
-│  │  └─ swagger.ts            # config Swagger + Redoc
+│  │  ├─ prisma.ts              # client Prisma
+│  │  ├─ jwt.ts                 # génération/validation JWT
+│  │  ├─ hash.ts                # hash mot de passe (bcrypt)
+│  │  ├─ mailer.ts              # envoi mails (Nodemailer, SMTP)
+│  │  ├─ logger.ts              # logger (Pino/Winston)
+│  │  └─ swagger.ts             # config Swagger + Redoc
 │  │
-│  ├─ __tests__/               # Tests unitaires et intégration
+│  ├─ __tests__/                # Tests unitaires et intégration
 │  │  ├─ auth.test.ts
 │  │  ├─ projects.test.ts
 │  │  ├─ marketplace.test.ts
-│  │  └─ ...
+│  │  ├─ deploy.test.ts
+│  │  └─ billing.test.ts
 │  │
-│  └─ types/                   # Types globaux TypeScript
-│     └─ express.d.ts
+│  └─ types/
+│     └─ express.d.ts           # Typage Express étendu (req.user, req.id…)
 │
 ├─ prisma/
-│  ├─ schema.prisma            # ✅ version enrichie V3 (User, Project, Page, ExportJob, Payment, Subscription, Notification, Badge, Upload, AuditLog, ShareLink, CollabHistory, MarketplaceItem, Purchase, Deployment, ReplaySession…)
-│  └─ seed.ts                  # Script de seed (badges, templates…)
+│  ├─ schema.prisma             # ✅ enrichi (Users, Orgs, Usage, EmailTemplates…)
+│  └─ seed.ts                   # Seed users, orgs, badges, templates…
 │
-├─ uploads/                    # Dossier des fichiers uploadés (statique ou via CDN)
+├─ uploads/                     # Dossier fichiers uploadés
 │
-├─ swagger.yaml                # Doc OpenAPI (auth, projects, marketplace, deploy, replay, monitoring…)
+├─ swagger.yaml                 # Doc OpenAPI (auth, projects, marketplace, deploy, replay, orgs…)
 │
 ├─ package.json
 ├─ tsconfig.json
 ├─ Dockerfile
-├─ docker-compose.yml          # ⚡ backend + MySQL + Prometheus + Grafana
+├─ docker-compose.yml           # ⚡ backend + MySQL + Prometheus + Grafana
 ├─ .dockerignore
-├─ .env.example                # Clés test (Stripe, PayPal, CinetPay, OpenAI…)
-└─ .github/workflows/ci.yml    # CI/CD GitHub Actions (lint, tests, swagger validation)
+├─ .env.example                 # Clés test (Stripe, PayPal, CinetPay, OpenAI…)
+└─ .github/
+   └─ workflows/
+      └─ ci.yml                 # CI/CD GitHub Actions (lint, tests, migrations, swagger)
