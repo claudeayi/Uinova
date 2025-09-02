@@ -1,20 +1,28 @@
-import { createWorker } from "../utils/redis";
+import { Worker } from "bullmq";
+import { queues } from "../utils/queue";
 import { prisma } from "../utils/prisma";
 
-export const exportWorker = createWorker("export", async (job) => {
-  console.log("📦 Export job reçu:", job.id, job.data);
+new Worker(
+  "export",
+  async (job) => {
+    const { projectId, target } = job.data;
 
-  const { projectId, target } = job.data;
+    console.log(`📦 Export job reçu: ${projectId} → ${target}`);
 
-  // ⚡ Ici tu ajoutes ton vrai service exportService
-  // Simu : création d’un fichier
-  await prisma.exportJob.update({
-    where: { id: job.data.exportId },
-    data: {
-      status: "DONE",
-      resultUrl: `/exports/${projectId}-${target}.zip`,
-    },
-  });
+    await prisma.exportJob.update({
+      where: { id: job.id as string },
+      data: { status: "RUNNING" },
+    });
 
-  return { success: true };
-});
+    // 🔧 TODO: logique réelle d’export (HTML/Flutter)
+    await new Promise((r) => setTimeout(r, 2000));
+
+    await prisma.exportJob.update({
+      where: { id: job.id as string },
+      data: { status: "DONE", resultUrl: `/exports/${projectId}-${Date.now()}.zip` },
+    });
+
+    console.log(`✅ Export terminé: ${projectId}`);
+  },
+  { connection: queues.export.opts.connection }
+);
