@@ -1,0 +1,42 @@
+/* ============================================================================
+ * UPGRADE UINOVA DATABASE – 2025-09-02
+ * ============================================================================
+ * Ajouts :
+ *  - ReplaySession enrichi (snapshot, stepsCompressed, meta, startedAt, endedAt)
+ *  - Notification enrichi (actionUrl, meta, type index)
+ *  - Index additionnels pour performances cockpit
+ * ============================================================================
+ */
+
+/* ============================================================================
+ * NOTIFICATION
+ * ============================================================================
+ */
+ALTER TABLE `Notification`
+  ADD COLUMN `actionUrl` VARCHAR(191) NULL AFTER `body`,
+  ADD COLUMN `meta` JSON NULL AFTER `actionUrl`;
+
+-- Ajout d’un index sur le type
+CREATE INDEX `idx_notification_type` ON `Notification` (`type`);
+
+/* ============================================================================
+ * REPLAYSESSION
+ * ============================================================================
+ */
+ALTER TABLE `ReplaySession`
+  ADD COLUMN `snapshot` JSON NULL AFTER `dataUrl`,
+  ADD COLUMN `stepsCompressed` LONGBLOB NULL AFTER `snapshot`,
+  ADD COLUMN `meta` JSON NULL AFTER `stepsCompressed`,
+  ADD COLUMN `startedAt` DATETIME(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3) AFTER `meta`,
+  ADD COLUMN `endedAt` DATETIME(3) NULL AFTER `startedAt`;
+
+-- Index pour cockpit (analytics, recherche)
+CREATE INDEX `idx_replay_projectId` ON `ReplaySession` (`projectId`);
+CREATE INDEX `idx_replay_userId` ON `ReplaySession` (`userId`);
+CREATE INDEX `idx_replay_startedAt` ON `ReplaySession` (`startedAt`);
+
+/* ============================================================================
+ * SÉCURITÉ – cohérence API Keys & Sessions
+ * ============================================================================
+ */
+-- Rien à ajouter ici pour l’instant : ApiKey et UserSession déjà OK
