@@ -15,9 +15,18 @@ import {
   Bar,
 } from "recharts";
 
+interface Invoice {
+  id: string;
+  date: string;
+  amount: number;
+  currency: string;
+  status: "paid" | "pending" | "failed";
+  url: string;
+}
+
 export default function UsagePage() {
   const [usage, setUsage] = useState<UsageSummary | null>(null);
-  const [invoices, setInvoices] = useState<any[]>([]);
+  const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -43,7 +52,7 @@ export default function UsagePage() {
     return (
       <div className="flex justify-center items-center py-20 text-indigo-500">
         <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
-        <span className="ml-3">Chargement des usages...</span>
+        <span className="ml-3">Chargement des usages et factures...</span>
       </div>
     );
   }
@@ -62,50 +71,115 @@ export default function UsagePage() {
     { name: "Stockage (MB)", value: usage.storage },
   ];
 
+  // Exemple d’évolution (fictive pour le rendu)
+  const usageHistory = [
+    { day: "Lun", api: 120, storage: 500 },
+    { day: "Mar", api: 200, storage: 700 },
+    { day: "Mer", api: 180, storage: 750 },
+    { day: "Jeu", api: 250, storage: 900 },
+    { day: "Ven", api: 300, storage: 1100 },
+  ];
+
+  function getStatusBadge(status: Invoice["status"]) {
+    switch (status) {
+      case "paid":
+        return (
+          <span className="px-2 py-1 text-xs rounded-full bg-green-100 text-green-700">
+            Payée
+          </span>
+        );
+      case "pending":
+        return (
+          <span className="px-2 py-1 text-xs rounded-full bg-yellow-100 text-yellow-700">
+            En attente
+          </span>
+        );
+      case "failed":
+        return (
+          <span className="px-2 py-1 text-xs rounded-full bg-red-100 text-red-700">
+            Échouée
+          </span>
+        );
+      default:
+        return status;
+    }
+  }
+
   return (
     <div className="p-6 space-y-6">
-      <h1 className="text-2xl font-bold text-gray-800">📊 Consommation & Facturation</h1>
+      <h1 className="text-2xl font-bold text-gray-800">
+        📊 Consommation & Facturation
+      </h1>
 
-      {/* Carte Résumé */}
+      {/* Cartes Résumé */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        <Card className="shadow-md rounded-2xl">
+        <Card className="shadow-md rounded-2xl transition hover:shadow-lg">
           <CardContent className="p-6 text-center">
             <p className="text-gray-500">Appels API</p>
-            <h2 className="text-xl font-semibold">{usage.apiCalls}</h2>
+            <h2 className="text-2xl font-semibold text-indigo-600 transition-all">
+              {usage.apiCalls}
+            </h2>
           </CardContent>
         </Card>
 
-        <Card className="shadow-md rounded-2xl">
+        <Card className="shadow-md rounded-2xl transition hover:shadow-lg">
           <CardContent className="p-6 text-center">
             <p className="text-gray-500">Projets</p>
-            <h2 className="text-xl font-semibold">{usage.projects}</h2>
+            <h2 className="text-2xl font-semibold text-indigo-600">
+              {usage.projects}
+            </h2>
           </CardContent>
         </Card>
 
-        <Card className="shadow-md rounded-2xl">
+        <Card className="shadow-md rounded-2xl transition hover:shadow-lg">
           <CardContent className="p-6 text-center">
             <p className="text-gray-500">Stockage</p>
-            <h2 className="text-xl font-semibold">{usage.storage} MB</h2>
+            <h2 className="text-2xl font-semibold text-indigo-600">
+              {usage.storage} MB
+            </h2>
           </CardContent>
         </Card>
       </div>
 
-      {/* Graphique Barres */}
-      <Card className="shadow-md rounded-2xl">
-        <CardContent className="p-6">
-          <h2 className="text-lg font-semibold mb-4">📈 Répartition actuelle</h2>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={usageData}>
-              <CartesianGrid strokeDasharray="3 3" />
-              <XAxis dataKey="name" />
-              <YAxis />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="value" fill="#4F46E5" />
-            </BarChart>
-          </ResponsiveContainer>
-        </CardContent>
-      </Card>
+      {/* Graphiques */}
+      <div className="grid md:grid-cols-2 gap-6">
+        {/* Graphique Barres */}
+        <Card className="shadow-md rounded-2xl">
+          <CardContent className="p-6">
+            <h2 className="text-lg font-semibold mb-4">📈 Répartition actuelle</h2>
+            <ResponsiveContainer width="100%" height={300}>
+              <BarChart data={usageData}>
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="name" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+                <Bar dataKey="value" fill="#4F46E5" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        {/* Graphique Evolution */}
+        <Card className="shadow-md rounded-2xl">
+          <CardContent className="p-6">
+            <h2 className="text-lg font-semibold mb-4">
+              📊 Évolution récente (exemple)
+            </h2>
+            <ResponsiveContainer width="100%" height={300}>
+              <LineChart data={usageHistory}>
+                <Line type="monotone" dataKey="api" stroke="#6366f1" />
+                <Line type="monotone" dataKey="storage" stroke="#22c55e" />
+                <CartesianGrid strokeDasharray="3 3" />
+                <XAxis dataKey="day" />
+                <YAxis />
+                <Tooltip />
+                <Legend />
+              </LineChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Factures */}
       <Card className="shadow-md rounded-2xl">
@@ -115,7 +189,7 @@ export default function UsagePage() {
             <p className="text-gray-500">Aucune facture disponible.</p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
+              <table className="w-full border-collapse text-sm">
                 <thead>
                   <tr className="bg-gray-100 text-left">
                     <th className="p-3">Date</th>
@@ -126,10 +200,14 @@ export default function UsagePage() {
                 </thead>
                 <tbody>
                   {invoices.map((inv) => (
-                    <tr key={inv.id} className="border-b">
-                      <td className="p-3">{new Date(inv.date).toLocaleDateString()}</td>
-                      <td className="p-3">{inv.amount} {inv.currency}</td>
-                      <td className="p-3">{inv.status}</td>
+                    <tr key={inv.id} className="border-b hover:bg-gray-50">
+                      <td className="p-3">
+                        {new Date(inv.date).toLocaleDateString()}
+                      </td>
+                      <td className="p-3">
+                        {inv.amount} {inv.currency}
+                      </td>
+                      <td className="p-3">{getStatusBadge(inv.status)}</td>
                       <td className="p-3">
                         <a
                           href={inv.url}
