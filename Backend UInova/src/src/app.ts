@@ -58,6 +58,7 @@ declare global {
 
 const app = express();
 const isProd = process.env.NODE_ENV === "production";
+const useJsonLogs = process.env.JSON_LOGS === "true";
 
 /* ============================================================================
  *  CONFIGURATION DE BASE
@@ -78,9 +79,13 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 // Mode maintenance
 app.use((req, res, next) => {
   if (process.env.MAINTENANCE_MODE === "1") {
+    emitEvent("system.maintenance", { path: req.path, ts: Date.now() });
     return res.status(503).json({
       error: "SERVICE_UNAVAILABLE",
-      message: "UInova est en maintenance, réessayez plus tard.",
+      message:
+        req.lang === "fr"
+          ? "UInova est en maintenance, réessayez plus tard."
+          : "UInova is under maintenance, please try again later.",
     });
   }
   next();
@@ -91,6 +96,8 @@ app.use(
   helmet({
     contentSecurityPolicy: isProd ? { useDefaults: true } : false,
     crossOriginResourcePolicy: { policy: "cross-origin" },
+    hsts: isProd,
+    noSniff: true,
   })
 );
 app.use(securityHeaders);
@@ -122,12 +129,22 @@ app.options("*", cors());
 app.use(express.json({ limit: process.env.JSON_LIMIT || "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: process.env.URLENC_LIMIT || "10mb" }));
 
-// Logger HTTP
-app.use(
-  morgan(isProd ? "combined" : "dev", {
-    skip: () => process.env.MORGAN_SKIP === "1",
-  })
-);
+// Logger HTTP (support JSON logs)
+if (useJsonLogs) {
+  app.use(
+    morgan((tokens, req, res) =>
+      JSON.stringify({
+        method: tokens.method(req, res),
+        url: tokens.url(req, res),
+        status: tokens.status(req, res),
+        responseTime: tokens["response-time"](req, res),
+        requestId: (req as Request).id,
+      })
+    )
+  );
+} else {
+  app.use(morgan(isProd ? "combined" : "dev", { skip: () => process.env.MORGAN_SKIP === "1" }));
+}
 
 // Limite globale API
 app.use("/api", apiLimiter);
@@ -237,9 +254,11 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
           path: req.path,
           status: res.statusCode,
           userId: req.user?.id || null,
+          correlationId: req.correlationId,
         });
       }
     } catch (e) {
+      emitEvent("api.error", { error: e.message, path: req.path });
       console.error("❌ AuditLog insert failed:", e);
     }
   });
@@ -250,12 +269,18 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
  *  404 & ERROR HANDLING
  * ========================================================================== */
 app.use("/api", (_req: Request, res: Response) => {
-  res.status(404).json({ error: "NOT_FOUND", message: "Route API introuvable" });
+  res.status(404).json({
+    error: "NOT_FOUND",
+    message: res.req?.lang === "fr" ? "Route API introuvable" : "API route not found",
+  });
 });
 
 app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
   if (err instanceof SyntaxError && "body" in err) {
-    return res.status(400).json({ error: "BAD_REQUEST", message: "JSON invalide" });
+    return res.status(400).json({
+      error: "BAD_REQUEST",
+      message: _req.lang === "fr" ? "JSON invalide" : "Invalid JSON",
+    });
   }
   return next(err);
 });
@@ -268,9 +293,11 @@ app.use((err: any, req: Request, res: Response, next: NextFunction) =>
  *  PROCESS ERROR HANDLING
  * ========================================================================== */
 process.on("unhandledRejection", (reason) => {
+  emitEvent("system.unhandledRejection", { reason });
   console.error("🚨 UNHANDLED REJECTION:", reason);
 });
 process.on("uncaughtException", (err) => {
+  emitEvent("system.uncaughtException", { error: err.message });
   console.error("🚨 UNCAUGHT EXCEPTION:", err);
 });
 
