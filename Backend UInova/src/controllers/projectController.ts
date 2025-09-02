@@ -1,15 +1,12 @@
-// src/controllers/projectController.ts
 import { Response, Request } from "express";
 import { z } from "zod";
 import { prisma } from "../utils/prisma";
 import { toProjectCardDTO } from "../utils/dto";
-
-// (optionnel) pour du RBAC fin par projet ; sinon on garde le fallback "owner"
 import * as policy from "../services/policy";
 
-// =====================
-// Helpers & constantes
-// =====================
+/* ============================================================================
+ * Helpers & constantes
+ * ========================================================================== */
 const mapFrToInternal: Record<string, "IN_PROGRESS" | "DONE" | "PLANNED"> = {
   EN_COURS: "IN_PROGRESS",
   TERMINE: "DONE",
@@ -41,7 +38,6 @@ async function ensureCanAccessProject(userId: string, projectId: string, need: "
     }
     return;
   }
-  // Fallback: propriétaire
   const p = await prisma.project.findUnique({ where: { id: projectId }, select: { ownerId: true } });
   if (!p || p.ownerId !== userId) {
     const err: any = new Error("Forbidden");
@@ -50,9 +46,9 @@ async function ensureCanAccessProject(userId: string, projectId: string, need: "
   }
 }
 
-// =====================
-// Validation
-// =====================
+/* ============================================================================
+ * Validation
+ * ========================================================================== */
 const ListQuerySchema = z.object({
   status: z.enum(["EN_COURS", "TERMINE", "PLANIFIE"]).optional(),
   q: z.string().trim().optional(),
@@ -66,7 +62,7 @@ const CreateSchema = z.object({
   tagline: z.string().max(200).optional(),
   icon: z.string().max(120).optional(),
   status: z.enum(["EN_COURS", "TERMINE", "PLANIFIE"]).optional(),
-  schema: z.any().optional(), // si tu crées avec un premier schema
+  schema: z.any().optional(), // JSON complet de l’éditeur (useAppStore)
 });
 
 const UpdateSchema = z.object({
@@ -74,17 +70,15 @@ const UpdateSchema = z.object({
   tagline: z.string().max(200).optional().or(z.literal(null)),
   icon: z.string().max(120).optional().or(z.literal(null)),
   status: z.enum(["EN_COURS", "TERMINE", "PLANIFIE"]).optional(),
-  schema: z.any().optional(), // JSON complet de l’éditeur
+  schema: z.any().optional(),
 });
 
-// =====================
-// Controllers
-// =====================
+/* ============================================================================
+ * Controllers
+ * ========================================================================== */
 
 /**
  * GET /api/projects
- * Query: status?, q?, page=1, pageSize=20, sort=updatedAt:desc
- * Response: { items, page, pageSize, total, totalPages }
  */
 export const listProjects = async (req: Request, res: Response) => {
   const user = ensureAuth(req);
@@ -124,12 +118,23 @@ export const listProjects = async (req: Request, res: Response) => {
 
 /**
  * POST /api/projects
- * Body: { name, tagline?, icon?, status?, schema? }
- * Response: ProjectCardDTO
  */
 export const createProject = async (req: Request, res: Response) => {
   const user = ensureAuth(req);
   const body = CreateSchema.parse(req.body);
+
+  // schema par défaut si non fourni
+  const schema = body.schema ?? {
+    pages: [
+      {
+        id: "home",
+        name: "Page d'accueil",
+        elements: [],
+        history: [[]],
+        future: [],
+      },
+    ],
+  };
 
   const p = await prisma.project.create({
     data: {
@@ -138,7 +143,7 @@ export const createProject = async (req: Request, res: Response) => {
       tagline: body.tagline ?? null,
       icon: body.icon ?? null,
       status: body.status ? mapFrToInternal[body.status] : "PLANNED",
-      json: body.schema ?? {}, // ton éditeur peut démarrer vide
+      json: schema,
     },
     select: { id: true, name: true, tagline: true, icon: true, status: true, updatedAt: true },
   });
@@ -148,7 +153,6 @@ export const createProject = async (req: Request, res: Response) => {
 
 /**
  * GET /api/projects/:id
- * Response: { id, title, subtitle, icon, status(FR), schema, updatedAt, createdAt }
  */
 export const getProject = async (req: Request, res: Response) => {
   const user = ensureAuth(req);
@@ -177,7 +181,7 @@ export const getProject = async (req: Request, res: Response) => {
     subtitle: p.tagline,
     icon: p.icon,
     status: mapInternalToFr[p.status as "IN_PROGRESS" | "DONE" | "PLANNED"],
-    schema: p.json || {},
+    schema: p.json || { pages: [] }, // ⚡ frontend attend pages/elements
     updatedAt: p.updatedAt,
     createdAt: p.createdAt,
   });
@@ -185,14 +189,11 @@ export const getProject = async (req: Request, res: Response) => {
 
 /**
  * PUT /api/projects/:id
- * Body: { name?, tagline?, icon?, status?, schema? }
- * Response: ProjectCardDTO
  */
 export const updateProject = async (req: Request, res: Response) => {
   const user = ensureAuth(req);
   const body = UpdateSchema.parse(req.body);
 
-  // contrôle d’accès (EDIT)
   await ensureCanAccessProject(user.id, req.params.id, "EDIT");
 
   const data: any = {};
@@ -204,7 +205,7 @@ export const updateProject = async (req: Request, res: Response) => {
 
   const p = await prisma.project.update({
     where: { id: req.params.id },
-    data,
+    data: { ...data, updatedAt: new Date() },
     select: { id: true, name: true, tagline: true, icon: true, status: true, updatedAt: true },
   });
 
@@ -213,7 +214,6 @@ export const updateProject = async (req: Request, res: Response) => {
 
 /**
  * DELETE /api/projects/:id
- * Response: { ok: true }
  */
 export const deleteProject = async (req: Request, res: Response) => {
   const user = ensureAuth(req);
@@ -225,8 +225,6 @@ export const deleteProject = async (req: Request, res: Response) => {
 
 /**
  * POST /api/projects/:id/duplicate
- * Duplique un projet (name + " (copie)") avec le même schema
- * Response: ProjectCardDTO
  */
 export const duplicateProject = async (req: Request, res: Response) => {
   const user = ensureAuth(req);
@@ -246,10 +244,28 @@ export const duplicateProject = async (req: Request, res: Response) => {
       tagline: src.tagline,
       icon: src.icon,
       status: src.status,
-      json: src.json ?? {},
+      json: src.json ?? { pages: [] },
     },
     select: { id: true, name: true, tagline: true, icon: true, status: true, updatedAt: true },
   });
 
   res.status(201).json(toProjectCardDTO(copy));
+};
+
+/**
+ * PATCH /api/projects/:id/autosave
+ * ⚡ utilisé par useAppStore (saveSnapshot/updateElements)
+ */
+export const autosaveProject = async (req: Request, res: Response) => {
+  const user = ensureAuth(req);
+  await ensureCanAccessProject(user.id, req.params.id, "EDIT");
+
+  const { schema } = req.body;
+  const updated = await prisma.project.update({
+    where: { id: req.params.id },
+    data: { json: schema, updatedAt: new Date() },
+    select: { id: true, updatedAt: true },
+  });
+
+  res.json({ ok: true, updatedAt: updated.updatedAt });
 };
