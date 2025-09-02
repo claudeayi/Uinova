@@ -10,6 +10,18 @@ import { Card, CardContent } from "@/components/ui/card";
 import { toast } from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 
+function RoleBadge({ role }: { role: string }) {
+  const base = "px-2 py-1 text-xs rounded-full font-medium";
+  switch (role) {
+    case "OWNER":
+      return <span className={`${base} bg-purple-100 text-purple-700`}>Propriétaire</span>;
+    case "ADMIN":
+      return <span className={`${base} bg-blue-100 text-blue-700`}>Admin</span>;
+    default:
+      return <span className={`${base} bg-gray-100 text-gray-700`}>Membre</span>;
+  }
+}
+
 export default function OrganizationsPage() {
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [loading, setLoading] = useState(true);
@@ -25,7 +37,7 @@ export default function OrganizationsPage() {
       setOrganizations(data);
     } catch (err) {
       console.error(err);
-      toast.error("Impossible de charger les organisations.");
+      toast.error("❌ Impossible de charger les organisations.");
     } finally {
       setLoading(false);
     }
@@ -36,23 +48,23 @@ export default function OrganizationsPage() {
   }, []);
 
   async function handleCreateOrg() {
-    if (!newOrgName.trim()) return;
+    if (!newOrgName.trim()) return toast.error("Le nom est requis !");
     try {
       await createOrganization(newOrgName);
-      toast.success("Organisation créée !");
+      toast.success("✅ Organisation créée !");
       setNewOrgName("");
       fetchOrgs();
     } catch (err) {
       console.error(err);
-      toast.error("Erreur lors de la création.");
+      toast.error("Erreur lors de la création de l’organisation.");
     }
   }
 
   async function handleInvite(orgId: string) {
-    if (!inviteEmail.trim()) return;
+    if (!inviteEmail.trim()) return toast.error("Email requis !");
     try {
       await inviteMember(orgId, inviteEmail, inviteRole);
-      toast.success("Invitation envoyée !");
+      toast.success("✉️ Invitation envoyée !");
       setInviteEmail("");
       setInviteRole("MEMBER");
       fetchOrgs();
@@ -63,9 +75,10 @@ export default function OrganizationsPage() {
   }
 
   async function handleRemove(orgId: string, memberId: string) {
+    if (!window.confirm("Supprimer ce membre ?")) return;
     try {
       await removeMember(orgId, memberId);
-      toast.success("Membre supprimé.");
+      toast.success("👤 Membre supprimé.");
       fetchOrgs();
     } catch (err) {
       console.error(err);
@@ -87,7 +100,7 @@ export default function OrganizationsPage() {
       <h1 className="text-2xl font-bold text-gray-800">🏢 Organisations</h1>
 
       {/* Formulaire création */}
-      <Card className="shadow-md rounded-2xl">
+      <Card className="shadow-md rounded-2xl hover:shadow-lg transition">
         <CardContent className="p-6 space-y-4">
           <h2 className="text-lg font-semibold">Créer une organisation</h2>
           <div className="flex gap-2">
@@ -96,7 +109,7 @@ export default function OrganizationsPage() {
               value={newOrgName}
               onChange={(e) => setNewOrgName(e.target.value)}
               placeholder="Nom de l’organisation"
-              className="flex-1 border rounded-lg px-3 py-2"
+              className="flex-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
             />
             <Button onClick={handleCreateOrg}>Créer</Button>
           </div>
@@ -105,10 +118,12 @@ export default function OrganizationsPage() {
 
       {/* Liste organisations */}
       {organizations.length === 0 ? (
-        <p className="text-gray-500">Aucune organisation.</p>
+        <p className="text-gray-500 text-center py-10">
+          Aucune organisation créée pour l’instant.
+        </p>
       ) : (
         organizations.map((org) => (
-          <Card key={org.id} className="shadow-md rounded-2xl">
+          <Card key={org.id} className="shadow-md rounded-2xl hover:shadow-lg transition">
             <CardContent className="p-6 space-y-4">
               <div className="flex justify-between items-center">
                 <h2 className="text-lg font-semibold">{org.name}</h2>
@@ -125,9 +140,9 @@ export default function OrganizationsPage() {
                 <div className="space-y-4">
                   <h3 className="font-semibold">Membres</h3>
                   {org.members.length === 0 ? (
-                    <p className="text-gray-500">Aucun membre</p>
+                    <p className="text-gray-500">Aucun membre dans cette organisation.</p>
                   ) : (
-                    <table className="w-full border-collapse">
+                    <table className="w-full border-collapse text-sm">
                       <thead>
                         <tr className="bg-gray-100 text-left">
                           <th className="p-2">Email</th>
@@ -137,9 +152,9 @@ export default function OrganizationsPage() {
                       </thead>
                       <tbody>
                         {org.members.map((m) => (
-                          <tr key={m.id} className="border-b">
+                          <tr key={m.id} className="border-b hover:bg-gray-50">
                             <td className="p-2">{m.email}</td>
-                            <td className="p-2">{m.role}</td>
+                            <td className="p-2"><RoleBadge role={m.role} /></td>
                             <td className="p-2">
                               <Button
                                 size="sm"
@@ -158,18 +173,18 @@ export default function OrganizationsPage() {
                   {/* Invitation */}
                   <div className="space-y-2">
                     <h3 className="font-semibold">Inviter un membre</h3>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <input
                         type="email"
                         value={inviteEmail}
                         onChange={(e) => setInviteEmail(e.target.value)}
                         placeholder="Email du membre"
-                        className="flex-1 border rounded-lg px-3 py-2"
+                        className="flex-1 border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       />
                       <select
                         value={inviteRole}
                         onChange={(e) => setInviteRole(e.target.value)}
-                        className="border rounded-lg px-3 py-2"
+                        className="border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-500"
                       >
                         <option value="MEMBER">Membre</option>
                         <option value="ADMIN">Admin</option>
