@@ -1,29 +1,37 @@
-// src/pages/ReplayPage.tsx
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import axios from "axios";
 import { toast } from "react-hot-toast";
 import DashboardLayout from "@/layouts/DashboardLayout";
+import { getReplays, deleteReplay } from "@/services/replay";
+import { Card, CardContent } from "@/components/ui/card";
+
+interface Replay {
+  id: string;
+  user?: { email?: string };
+  createdAt: string;
+  dataUrl?: string;
+  type?: "video" | "session"; // ajout pour distinguer replay vidéo ou CRDT
+  events?: { t: number; action: string; payload: any }[]; // si session
+}
 
 export default function ReplayPage() {
   const { projectId } = useParams();
-  const [replays, setReplays] = useState<any[]>([]);
+  const [replays, setReplays] = useState<Replay[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
+  const [selectedReplay, setSelectedReplay] = useState<Replay | null>(null);
+  const [sliderPos, setSliderPos] = useState(0);
   const limit = 10;
 
   async function fetchReplays() {
     if (!projectId) return;
     setLoading(true);
     try {
-      const res = await axios.get(
-        `/api/replay/${projectId}?page=${page}&limit=${limit}`,
-        { headers: { Authorization: "Bearer " + localStorage.getItem("token") } }
-      );
-      setReplays(res.data.data || []);
-      setTotal(res.data.pagination?.total || 0);
+      const res = await getReplays(projectId, page, limit);
+      setReplays(res.data || []);
+      setTotal(res.pagination?.total || 0);
       setError(null);
     } catch (err: any) {
       console.error("❌ Erreur chargement replays:", err);
@@ -40,9 +48,7 @@ export default function ReplayPage() {
   async function handleDelete(replayId: string) {
     if (!window.confirm("Supprimer ce replay ?")) return;
     try {
-      await axios.delete(`/api/replay/${projectId}/${replayId}`, {
-        headers: { Authorization: "Bearer " + localStorage.getItem("token") },
-      });
+      await deleteReplay(projectId!, replayId);
       toast.success("Replay supprimé ✅");
       fetchReplays();
     } catch (err) {
@@ -67,54 +73,100 @@ export default function ReplayPage() {
         {error && <p className="text-red-500">{error}</p>}
 
         {!loading && !error && replays.length === 0 && (
-          <p className="text-gray-400">
-            Aucun replay disponible pour ce projet.
-          </p>
+          <p className="text-gray-400">Aucun replay disponible pour ce projet.</p>
         )}
 
         {/* Liste des replays */}
         <div className="grid gap-4">
           {replays.map((r) => (
-            <div
+            <Card
               key={r.id}
-              className="p-4 rounded-lg shadow bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+              className={`p-4 shadow ${
+                selectedReplay?.id === r.id ? "border-indigo-500" : ""
+              }`}
             >
-              <div className="flex justify-between items-start">
-                <div>
-                  <p className="font-semibold">Replay #{r.id}</p>
-                  <p className="text-sm text-gray-500">
-                    👤 {r.user?.email || "Inconnu"} •{" "}
-                    {new Date(r.createdAt).toLocaleString()}
-                  </p>
+              <CardContent className="space-y-3">
+                <div className="flex justify-between items-start">
+                  <div>
+                    <p className="font-semibold">Replay #{r.id}</p>
+                    <p className="text-sm text-gray-500">
+                      👤 {r.user?.email || "Inconnu"} •{" "}
+                      {new Date(r.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => handleDelete(r.id)}
+                      className="px-3 py-1 text-sm rounded bg-red-500 text-white hover:bg-red-600"
+                    >
+                      🗑️ Supprimer
+                    </button>
+                    <button
+                      onClick={() =>
+                        setSelectedReplay(
+                          selectedReplay?.id === r.id ? null : r
+                        )
+                      }
+                      className="px-3 py-1 text-sm rounded bg-indigo-500 text-white hover:bg-indigo-600"
+                    >
+                      {selectedReplay?.id === r.id ? "Fermer" : "Lire"}
+                    </button>
+                  </div>
                 </div>
-                <button
-                  onClick={() => handleDelete(r.id)}
-                  className="px-3 py-1 text-sm rounded bg-red-500 text-white hover:bg-red-600"
-                >
-                  🗑️ Supprimer
-                </button>
-              </div>
 
-              {/* Lecteur intégré si vidéo */}
-              {r.dataUrl?.endsWith(".mp4") ? (
-                <video
-                  controls
-                  className="mt-3 w-full rounded border dark:border-slate-700"
-                  src={r.dataUrl}
-                />
-              ) : (
-                <a
-                  href={r.dataUrl}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-block mt-3 text-indigo-500 hover:underline"
-                >
-                  ▶️ Voir le replay
-                </a>
-              )}
-            </div>
+                {/* Aperçu intégré */}
+                {r.dataUrl?.endsWith(".mp4") ? (
+                  <video
+                    controls
+                    className="w-full rounded border dark:border-slate-700"
+                    src={r.dataUrl}
+                  />
+                ) : (
+                  <a
+                    href={r.dataUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-block text-indigo-500 hover:underline"
+                  >
+                    ▶️ Voir le replay
+                  </a>
+                )}
+              </CardContent>
+            </Card>
           ))}
         </div>
+
+        {/* Viewer interactif */}
+        {selectedReplay && selectedReplay.type === "session" && (
+          <Card className="shadow-md mt-6">
+            <CardContent className="p-4 space-y-4">
+              <h2 className="font-semibold text-lg">
+                🕹️ Lecture interactive – Replay #{selectedReplay.id}
+              </h2>
+              <input
+                type="range"
+                min={0}
+                max={selectedReplay.events?.length || 0}
+                value={sliderPos}
+                onChange={(e) => setSliderPos(Number(e.target.value))}
+                className="w-full"
+              />
+              <div className="p-3 rounded bg-slate-100 dark:bg-slate-800">
+                {selectedReplay.events && selectedReplay.events[sliderPos] ? (
+                  <pre className="text-sm font-mono whitespace-pre-wrap">
+                    {JSON.stringify(
+                      selectedReplay.events[sliderPos],
+                      null,
+                      2
+                    )}
+                  </pre>
+                ) : (
+                  <p className="text-gray-500">Aucun événement à afficher.</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        )}
 
         {/* Pagination */}
         {total > limit && (
