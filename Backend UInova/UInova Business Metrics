@@ -1,0 +1,97 @@
+{
+  "id": null,
+  "uid": "uinova-business",
+  "title": "UInova Business Monitoring",
+  "tags": ["uinova", "business", "subscriptions", "payments"],
+  "timezone": "browser",
+  "schemaVersion": 30,
+  "version": 1,
+  "refresh": "30s",
+  "panels": [
+    {
+      "type": "stat",
+      "title": "Abonnements Actifs",
+      "targets": [
+        { "expr": "uinova_subscriptions_active_total", "legendFormat": "Actifs", "refId": "A" }
+      ],
+      "id": 1,
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 3 }
+    },
+    {
+      "type": "stat",
+      "title": "Abonnements en Essai",
+      "targets": [
+        { "expr": "uinova_subscriptions_trial_total", "legendFormat": "Essais", "refId": "A" }
+      ],
+      "id": 2,
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 3 }
+    },
+    {
+      "type": "stat",
+      "title": "Abonnements Annulés",
+      "targets": [
+        { "expr": "uinova_subscriptions_canceled_total", "legendFormat": "Annulés", "refId": "A" }
+      ],
+      "id": 3,
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 3 }
+    },
+    {
+      "type": "graph",
+      "title": "Évolution Abonnements",
+      "targets": [
+        { "expr": "increase(uinova_subscriptions_active_total[30d])", "legendFormat": "Actifs (30j)", "refId": "A" },
+        { "expr": "increase(uinova_subscriptions_canceled_total[30d])", "legendFormat": "Annulés (30j)", "refId": "B" }
+      ],
+      "id": 4,
+      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 5 }
+    },
+    {
+      "type": "graph",
+      "title": "Revenus par Provider",
+      "targets": [
+        { "expr": "sum(increase(uinova_payments_succeeded_total{provider=\"stripe\"}[30d]))", "legendFormat": "Stripe", "refId": "A" },
+        { "expr": "sum(increase(uinova_payments_succeeded_total{provider=\"paypal\"}[30d]))", "legendFormat": "PayPal", "refId": "B" },
+        { "expr": "sum(increase(uinova_payments_succeeded_total{provider=\"cinetpay\"}[30d]))", "legendFormat": "CinetPay", "refId": "C" }
+      ],
+      "id": 5,
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 5 }
+    },
+    {
+      "type": "stat",
+      "title": "Ventes Marketplace",
+      "targets": [
+        { "expr": "uinova_marketplace_sales_total", "legendFormat": "Ventes", "refId": "A" }
+      ],
+      "id": 6,
+      "gridPos": { "x": 0, "y": 13, "w": 4, "h": 3 }
+    },
+    {
+      "type": "gauge",
+      "title": "Taux de Churn (%)",
+      "targets": [
+        {
+          "expr": "(uinova_subscriptions_canceled_total / (uinova_subscriptions_active_total + uinova_subscriptions_canceled_total)) * 100",
+          "legendFormat": "Churn %",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent" } },
+      "id": 7,
+      "gridPos": { "x": 4, "y": 13, "w": 4, "h": 3 }
+    },
+    {
+      "type": "graph",
+      "title": "Revenus Totaux (30 jours)",
+      "targets": [
+        { "expr": "sum(increase(uinova_payments_succeeded_total[30d]))", "legendFormat": "Revenus €", "refId": "A" }
+      ],
+      "id": 8,
+      "gridPos": { "x": 8, "y": 13, "w": 4, "h": 3 }
+    }
+  ],
+  "templating": { "list": [] },
+  "time": { "from": "now-30d", "to": "now" },
+  "timepicker": {},
+  "annotations": { "list": [] },
+  "editable": true
+}
