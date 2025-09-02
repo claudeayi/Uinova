@@ -5,19 +5,55 @@ export interface EmailTemplate {
   name: string;
   subject: string;
   body: string;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
-export async function listEmailTemplates() {
+/**
+ * 📋 Lister tous les templates email
+ */
+export async function listEmailTemplates(): Promise<EmailTemplate[]> {
   const res = await http.get("/email-templates");
-  return res.data;
+  return res.data.data || res.data;
 }
 
-export async function updateEmailTemplate(id: string, payload: Partial<EmailTemplate>) {
-  const res = await http.patch(`/email-templates/${id}`, payload);
-  return res.data;
-}
-
-export async function createEmailTemplate(payload: Omit<EmailTemplate, "id">) {
+/**
+ * ➕ Créer un template email
+ */
+export async function createEmailTemplate(payload: {
+  name: string;
+  subject: string;
+  body: string;
+}): Promise<EmailTemplate> {
   const res = await http.post("/email-templates", payload);
   return res.data;
+}
+
+/**
+ * ✏️ Mettre à jour un template email
+ */
+export async function updateEmailTemplate(
+  id: string,
+  payload: { name?: string; subject?: string; body?: string }
+): Promise<EmailTemplate> {
+  const res = await http.put(`/email-templates/${id}`, payload);
+  return res.data;
+}
+
+/**
+ * 🧪 Envoyer un test d’email
+ */
+export async function sendTestEmail(
+  id: string,
+  email: string
+): Promise<{ success: boolean }> {
+  const res = await http.post(`/email-templates/${id}/test`, { email });
+  return res.data;
+}
+
+/**
+ * 🗑️ Supprimer un template email
+ */
+export async function deleteEmailTemplate(id: string): Promise<void> {
+  await http.delete(`/email-templates/${id}`);
 }
