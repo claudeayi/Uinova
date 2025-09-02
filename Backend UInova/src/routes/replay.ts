@@ -1,4 +1,3 @@
-// src/routes/replay.ts
 import { Router } from "express";
 import {
   startReplay,
@@ -9,6 +8,8 @@ import {
   listAllReplays,
 } from "../controllers/replayController";
 import { authenticate, authorize } from "../middlewares/security";
+import { param, query } from "express-validator";
+import { handleValidationErrors } from "../middlewares/validate";
 
 const router = Router();
 
@@ -17,24 +18,78 @@ const router = Router();
  * ========================================================================== */
 router.use(authenticate);
 
-// Démarrer un replay
-router.post("/:projectId/start", startReplay);
+/**
+ * POST /api/replay/:projectId/start
+ * ➝ Démarrer un replay pour un projet
+ */
+router.post(
+  "/:projectId/start",
+  param("projectId").isString().notEmpty(),
+  handleValidationErrors,
+  startReplay
+);
 
-// Arrêter un replay
-router.post("/:projectId/stop", stopReplay);
+/**
+ * POST /api/replay/:projectId/stop
+ * ➝ Arrêter un replay en cours
+ */
+router.post(
+  "/:projectId/stop",
+  param("projectId").isString().notEmpty(),
+  handleValidationErrors,
+  stopReplay
+);
 
-// Lister les replays d’un projet
-router.get("/:projectId", listReplays);
+/**
+ * GET /api/replay/:projectId
+ * ➝ Lister les replays d’un projet
+ */
+router.get(
+  "/:projectId",
+  param("projectId").isString().notEmpty(),
+  query("limit").optional().isInt({ min: 1, max: 100 }),
+  handleValidationErrors,
+  listReplays
+);
 
-// Détail d’un replay
-router.get("/:projectId/:replayId", getReplay);
+/**
+ * GET /api/replay/:projectId/:replayId
+ * ➝ Obtenir le détail d’un replay
+ */
+router.get(
+  "/:projectId/:replayId",
+  param("projectId").isString().notEmpty(),
+  param("replayId").isString().notEmpty(),
+  handleValidationErrors,
+  getReplay
+);
 
-// Supprimer un replay (owner ou admin)
-router.delete("/:projectId/:replayId", deleteReplay);
+/**
+ * DELETE /api/replay/:projectId/:replayId
+ * ➝ Supprimer un replay (owner ou admin)
+ */
+router.delete(
+  "/:projectId/:replayId",
+  param("projectId").isString().notEmpty(),
+  param("replayId").isString().notEmpty(),
+  handleValidationErrors,
+  deleteReplay
+);
 
 /* ============================================================================
  *  ROUTES ADMIN REPLAYS
  * ========================================================================== */
-router.get("/admin/replays", authorize(["admin"]), listAllReplays);
+/**
+ * GET /api/replay/admin/replays
+ * ➝ Lister toutes les sessions (admin only)
+ */
+router.get(
+  "/admin/replays",
+  authorize(["ADMIN"]),
+  query("page").optional().isInt({ min: 1 }),
+  query("pageSize").optional().isInt({ min: 1, max: 100 }),
+  handleValidationErrors,
+  listAllReplays
+);
 
 export default router;
