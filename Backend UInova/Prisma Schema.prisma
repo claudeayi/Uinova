@@ -87,9 +87,13 @@ model User {
   uploads       Upload[]
   auditLogs     AuditLog[]
   collabs       CollabHistory[]
-  purchases     Purchase[]       // ⚡ Achats marketplace
-  items         MarketplaceItem[]// ⚡ Templates publiés
-  replays       ReplaySession[]  // ⚡ Sessions replay
+  purchases     Purchase[]
+  items         MarketplaceItem[]
+  replays       ReplaySession[]
+
+  // ⚡ Monitoring & sécurité
+  sessions      UserSession[]
+  apiKeys       ApiKey[]
 }
 
 model Project {
@@ -103,8 +107,8 @@ model Project {
   exports     ExportJob[]
   shareLinks  ShareLink[]
   collabs     CollabHistory[]
-  deployments Deployment[]   // ⚡ Historique déploiements
-  replays     ReplaySession[]// ⚡ Sessions replay
+  deployments Deployment[]
+  replays     ReplaySession[]
   createdAt   DateTime       @default(now())
   updatedAt   DateTime       @updatedAt
 
@@ -130,7 +134,7 @@ model ExportJob {
   project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId   String
   target      ExportTarget
-  status      String        @default("PENDING") // PENDING|RUNNING|DONE|ERROR
+  status      String        @default("PENDING")
   resultUrl   String?
   error       String?
   createdAt   DateTime      @default(now())
@@ -171,7 +175,7 @@ model Payment {
   userId         String?
   subscription   Subscription?    @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
   subscriptionId String?
-  project        Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull) // ⚡ Lien direct projet
+  project        Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
   projectId      String?
 
   @@index([provider, status])
@@ -184,7 +188,7 @@ model Notification {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
-  type      String
+  type      String   @default("info")
   title     String
   body      String?
   read      Boolean  @default(false)
@@ -210,7 +214,7 @@ model UserBadge {
   badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
   badgeId   String
   earnedAt  DateTime @default(now())
-  meta      Json?    // ⚡ infos additionnelles (ex: raison d’attribution)
+  meta      Json?
 
   @@unique([userId, badgeId])
   @@index([userId])
@@ -295,7 +299,7 @@ model Deployment {
   projectId   String
   status      DeploymentStatus @default(PENDING)
   logs        String?
-  targetUrl   String?          // URL du déploiement généré
+  targetUrl   String?
   createdAt   DateTime         @default(now())
   updatedAt   DateTime         @updatedAt
 }
@@ -306,7 +310,29 @@ model ReplaySession {
   projectId   String
   user        User     @relation(fields: [userId], references: [id])
   userId      String
-  dataUrl     String   // URL vers le replay (JSON/vidéo)
+  dataUrl     String
   startedAt   DateTime @default(now())
   endedAt     DateTime?
+}
+
+/* ============================================================================
+ * SECURITY / MONITORING
+ * ========================================================================== */
+model UserSession {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+  expiredAt DateTime?
+}
+
+model ApiKey {
+  id        String   @id @default(cuid())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  userId    String
+  key       String   @unique
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
 }
