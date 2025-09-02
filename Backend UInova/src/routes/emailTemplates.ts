@@ -1,57 +1,80 @@
 import { Router } from "express";
+import { body, param } from "express-validator";
+import {
+  listTemplates,
+  getTemplate,
+  createTemplate,
+  updateTemplate,
+  deleteTemplate,
+  previewTemplate,
+} from "../controllers/emailTemplateController";
 import { authenticate, authorize } from "../middlewares/security";
-import { prisma } from "../utils/prisma";
+import { handleValidationErrors } from "../middlewares/validate";
 
 const router = Router();
+
+/* ============================================================================
+ * EMAIL TEMPLATE ROUTES – ADMIN ONLY
+ * ========================================================================== */
 router.use(authenticate, authorize(["ADMIN"]));
 
-// 📩 Lister tous les templates
-router.get("/", async (_req, res) => {
-  const templates = await prisma.emailTemplate.findMany({ orderBy: { createdAt: "desc" } });
-  res.json({ success: true, data: templates });
-});
+/**
+ * GET /api/admin/email-templates
+ * Liste tous les templates
+ */
+router.get("/", listTemplates);
 
-// 📩 Créer un template
-router.post("/", async (req, res) => {
-  const { code, name, subject, bodyHtml, bodyText } = req.body;
-  const tpl = await prisma.emailTemplate.create({
-    data: { code, name, subject, bodyHtml, bodyText },
-  });
-  res.status(201).json({ success: true, data: tpl });
-});
+/**
+ * GET /api/admin/email-templates/:id
+ * Détail d’un template
+ */
+router.get("/:id", param("id").isString(), handleValidationErrors, getTemplate);
 
-// 📩 Mettre à jour un template
-router.put("/:id", async (req, res) => {
-  const { id } = req.params;
-  const { name, subject, bodyHtml, bodyText } = req.body;
-  const tpl = await prisma.emailTemplate.update({
-    where: { id },
-    data: { name, subject, bodyHtml, bodyText },
-  });
-  res.json({ success: true, data: tpl });
-});
+/**
+ * POST /api/admin/email-templates
+ * Créer un template
+ */
+router.post(
+  "/",
+  body("code").isString().isLength({ min: 3, max: 50 }),
+  body("name").isString().isLength({ min: 3, max: 100 }),
+  body("subject").isString().isLength({ min: 3, max: 200 }),
+  body("bodyHtml").isString().isLength({ min: 3 }),
+  handleValidationErrors,
+  createTemplate
+);
 
-// 📩 Supprimer un template
-router.delete("/:id", async (req, res) => {
-  const { id } = req.params;
-  await prisma.emailTemplate.delete({ where: { id } });
-  res.json({ success: true });
-});
+/**
+ * PUT /api/admin/email-templates/:id
+ * Mettre à jour un template
+ */
+router.put(
+  "/:id",
+  param("id").isString(),
+  body("name").optional().isString(),
+  body("subject").optional().isString(),
+  body("bodyHtml").optional().isString(),
+  body("bodyText").optional().isString(),
+  handleValidationErrors,
+  updateTemplate
+);
 
-// 📩 Tester un template
-router.post("/:id/test", async (req, res) => {
-  const { id } = req.params;
-  const { to, variables } = req.body;
-  const tpl = await prisma.emailTemplate.findUnique({ where: { id } });
-  if (!tpl) return res.status(404).json({ success: false, message: "Template introuvable" });
+/**
+ * DELETE /api/admin/email-templates/:id
+ * Supprimer un template
+ */
+router.delete("/:id", param("id").isString(), handleValidationErrors, deleteTemplate);
 
-  try {
-    const { sendTemplatedEmail } = await import("../services/emailService");
-    await sendTemplatedEmail(tpl.code, to, variables || {});
-    res.json({ success: true, message: "Email test envoyé" });
-  } catch (err: any) {
-    res.status(500).json({ success: false, message: err.message });
-  }
-});
+/**
+ * POST /api/admin/email-templates/:id/preview
+ * Générer un rendu preview du template
+ */
+router.post(
+  "/:id/preview",
+  param("id").isString(),
+  body("variables").isObject().optional(),
+  handleValidationErrors,
+  previewTemplate
+);
 
 export default router;
