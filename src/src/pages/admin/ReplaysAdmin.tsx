@@ -1,27 +1,39 @@
-// src/pages/admin/ReplaysAdmin.tsx
 import { useEffect, useState } from "react";
-import { getAllReplays } from "@/services/admin";
-import toast from "react-hot-toast";
+import { getAllReplays, deleteReplay, AdminReplay } from "@/services/admin";
+import { Card, CardContent } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { toast } from "react-hot-toast";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 export default function ReplaysAdmin() {
-  const [replays, setReplays] = useState<any[]>([]);
+  const [replays, setReplays] = useState<AdminReplay[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
-  const [filterDate, setFilterDate] = useState("all");
   const [page, setPage] = useState(1);
-  const pageSize = 15;
+  const pageSize = 10;
 
   async function fetchReplays() {
     try {
       setLoading(true);
-      const res = await getAllReplays();
-      setReplays(res || []);
+      const data = await getAllReplays();
+      setReplays(data || []);
     } catch (err) {
       console.error("❌ Erreur chargement replays:", err);
-      toast.error("Impossible de charger les replays");
+      toast.error("Impossible de charger les replays.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDelete(id: string) {
+    if (!window.confirm("⚠️ Supprimer ce replay définitivement ?")) return;
+    try {
+      await deleteReplay(id);
+      toast.success("🗑️ Replay supprimé.");
+      setReplays((prev) => prev.filter((r) => r.id !== id));
+    } catch (err) {
+      console.error("❌ Erreur suppression replay:", err);
+      toast.error("Erreur lors de la suppression.");
     }
   }
 
@@ -29,151 +41,134 @@ export default function ReplaysAdmin() {
     fetchReplays();
   }, []);
 
-  if (loading) return <p className="p-6 text-gray-500">⏳ Chargement replays...</p>;
-
-  // 🔎 Filtrage recherche + date
-  const now = Date.now();
-  const filtered = replays.filter((r) => {
-    const matchesSearch =
-      r.user?.email?.toLowerCase().includes(search.toLowerCase()) ||
-      r.project?.name?.toLowerCase().includes(search.toLowerCase());
-
-    let matchesDate = true;
-    if (filterDate === "24h") {
-      matchesDate = new Date(r.startedAt).getTime() > now - 24 * 60 * 60 * 1000;
-    } else if (filterDate === "7d") {
-      matchesDate = new Date(r.startedAt).getTime() > now - 7 * 24 * 60 * 60 * 1000;
-    } else if (filterDate === "30d") {
-      matchesDate = new Date(r.startedAt).getTime() > now - 30 * 24 * 60 * 60 * 1000;
-    }
-
-    return matchesSearch && matchesDate;
-  });
-
-  // Pagination
-  const totalPages = Math.ceil(filtered.length / pageSize);
+  // 🔎 Filtrage + pagination
+  const filtered = replays.filter(
+    (r) =>
+      r.projectId.toLowerCase().includes(search.toLowerCase()) ||
+      (r.user?.email || "").toLowerCase().includes(search.toLowerCase())
+  );
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
+  const totalPages = Math.ceil(filtered.length / pageSize);
 
-  const getDurationLabel = (r: any) => {
-    if (!r.endedAt) return <span className="px-2 py-1 text-xs rounded bg-yellow-100 text-yellow-600">⏳ En cours</span>;
-    const mins = Math.round(
-      (new Date(r.endedAt).getTime() - new Date(r.startedAt).getTime()) /
-        1000 /
-        60
-    );
+  if (loading) {
     return (
-      <span className="px-2 py-1 text-xs rounded bg-green-100 text-green-600">
-        {mins} min
-      </span>
+      <DashboardLayout>
+        <p className="p-6 text-gray-500">⏳ Chargement des replays...</p>
+      </DashboardLayout>
     );
-  };
+  }
 
   return (
     <DashboardLayout>
       <div className="max-w-7xl mx-auto p-6 space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
-          <h1 className="text-2xl font-bold">🎥 Replays Collaboratifs</h1>
-          <div className="flex flex-wrap gap-2">
+        <header className="flex flex-col md:flex-row justify-between items-center gap-4">
+          <h1 className="text-2xl font-bold">🎬 Gestion des replays</h1>
+          <div className="flex gap-2">
             <input
               type="text"
-              placeholder="Rechercher par utilisateur ou projet..."
+              placeholder="Rechercher par projet ou utilisateur..."
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
                 setPage(1);
               }}
-              className="border rounded px-3 py-2 w-64 dark:bg-slate-900 dark:border-slate-700"
+              className="border rounded px-3 py-2 w-full md:w-72 dark:bg-slate-900 dark:border-slate-700"
             />
-            <select
-              value={filterDate}
-              onChange={(e) => {
-                setFilterDate(e.target.value);
-                setPage(1);
-              }}
-              className="border rounded px-2 py-2 dark:bg-slate-900 dark:border-slate-700"
-            >
-              <option value="all">Toutes dates</option>
-              <option value="24h">Dernières 24h</option>
-              <option value="7d">7 derniers jours</option>
-              <option value="30d">30 derniers jours</option>
-            </select>
-            <button
-              onClick={fetchReplays}
-              className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 transition"
-            >
-              🔄 Rafraîchir
-            </button>
+            <Button onClick={fetchReplays}>🔄 Rafraîchir</Button>
           </div>
-        </div>
+        </header>
 
-        {filtered.length === 0 ? (
-          <p className="text-gray-500">Aucun replay disponible.</p>
-        ) : (
-          <div className="overflow-x-auto shadow rounded-lg">
-            <table className="w-full border-collapse text-sm">
-              <thead>
-                <tr className="bg-gray-100 dark:bg-slate-800 text-left">
-                  <th className="p-3 border">Projet</th>
-                  <th className="p-3 border">Utilisateur</th>
-                  <th className="p-3 border">Date début</th>
-                  <th className="p-3 border">Durée</th>
-                  <th className="p-3 border">Replay</th>
-                </tr>
-              </thead>
-              <tbody>
-                {paginated.map((r) => (
-                  <tr
-                    key={r.id}
-                    className="border-b dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800"
-                  >
-                    <td className="p-3">{r.project?.name || "—"}</td>
-                    <td className="p-3">{r.user?.email || "—"}</td>
-                    <td className="p-3">
-                      {new Date(r.startedAt).toLocaleString("fr-FR")}
-                    </td>
-                    <td className="p-3">{getDurationLabel(r)}</td>
-                    <td className="p-3">
-                      {r.dataUrl ? (
-                        <a
-                          href={r.dataUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-indigo-500 hover:underline"
-                        >
-                          ▶️ Voir
-                        </a>
-                      ) : (
-                        <span className="text-gray-400">—</span>
-                      )}
-                    </td>
+        <p className="text-sm text-gray-500">
+          {filtered.length} replay(s) trouvé(s)
+        </p>
+
+        {/* Tableau */}
+        <Card className="shadow-md rounded-2xl">
+          <CardContent className="overflow-x-auto p-0">
+            {paginated.length === 0 ? (
+              <p className="text-center text-gray-500 py-10">
+                Aucun replay trouvé.
+              </p>
+            ) : (
+              <table className="w-full border-collapse text-sm">
+                <thead>
+                  <tr className="bg-gray-100 dark:bg-slate-800 text-left">
+                    <th className="p-3 border">Projet</th>
+                    <th className="p-3 border">Utilisateur</th>
+                    <th className="p-3 border">Date</th>
+                    <th className="p-3 border">Aperçu</th>
+                    <th className="p-3 border text-center">Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                </thead>
+                <tbody>
+                  {paginated.map((r) => (
+                    <tr
+                      key={r.id}
+                      className="border-b dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800"
+                    >
+                      <td className="p-3 font-medium">{r.projectId}</td>
+                      <td className="p-3">{r.user?.email || "—"}</td>
+                      <td className="p-3">
+                        {new Date(r.createdAt).toLocaleString("fr-FR")}
+                      </td>
+                      <td className="p-3">
+                        {r.dataUrl?.endsWith(".mp4") ? (
+                          <video
+                            src={r.dataUrl}
+                            className="w-32 rounded border"
+                            controls
+                          />
+                        ) : r.dataUrl ? (
+                          <a
+                            href={r.dataUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-indigo-600 hover:underline"
+                          >
+                            ▶️ Voir
+                          </a>
+                        ) : (
+                          "—"
+                        )}
+                      </td>
+                      <td className="p-3 text-center">
+                        <Button
+                          size="sm"
+                          variant="destructive"
+                          onClick={() => handleDelete(r.id)}
+                        >
+                          🗑️ Supprimer
+                        </Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex justify-center items-center gap-3 mt-4">
-            <button
+          <div className="flex justify-center mt-4 space-x-2">
+            <Button
+              variant="outline"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
               disabled={page === 1}
-              className="px-3 py-1 rounded border disabled:opacity-50"
             >
               ← Précédent
-            </button>
-            <span>
+            </Button>
+            <span className="px-3 py-1">
               Page {page} / {totalPages}
             </span>
-            <button
+            <Button
+              variant="outline"
               onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
               disabled={page === totalPages}
-              className="px-3 py-1 rounded border disabled:opacity-50"
             >
               Suivant →
-            </button>
+            </Button>
           </div>
         )}
       </div>
