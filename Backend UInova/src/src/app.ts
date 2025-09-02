@@ -26,11 +26,16 @@ import adminRoutes from "./routes/admin";
 import uploadRoutes from "./routes/upload";
 import aiRoutes from "./routes/ai";
 
-// Routes API (V3)
+// Routes API (V3 existantes)
 import marketplaceRoutes from "./routes/marketplace";
 import deployRoutes from "./routes/deploy";
 import replayRoutes from "./routes/replay";
 import monitoringRoutes from "./routes/monitoring";
+
+// 🚀 Nouvelles routes alignées frontend
+import arRoutes from "./routes/ar";             // ARPreviewPage
+import assistantRoutes from "./routes/assistant"; // AIAssistantPage
+import templateRoutes from "./routes/templates"; // TemplatePage / Marketplace
 
 // ---- Typage Express.Request
 declare global {
@@ -157,6 +162,11 @@ app.use("/api/marketplace", marketplaceRoutes);
 app.use("/api/deploy", deployRoutes);
 app.use("/api/replay", replayRoutes);
 app.use("/api/monitoring", monitoringRoutes);
+
+// 🚀 Nouvelles
+app.use("/api/ar", arRoutes);
+app.use("/api/assistant", assistantRoutes);
+app.use("/api/templates", templateRoutes);
 
 /* ============================================================================
  *  SWAGGER
