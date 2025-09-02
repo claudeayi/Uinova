@@ -1,69 +1,120 @@
 {
   "id": null,
-  "uid": "uinova-backend",
-  "title": "UInova Backend Monitoring",
-  "tags": ["uinova", "backend", "monitoring"],
+  "uid": "uinova-cockpit",
+  "title": "UInova Cockpit Monitoring",
+  "tags": ["uinova", "backend", "mysql", "node", "monitoring"],
   "timezone": "browser",
   "schemaVersion": 30,
-  "version": 1,
+  "version": 2,
   "refresh": "10s",
   "panels": [
     {
       "type": "stat",
-      "title": "Uptime (s)",
+      "title": "Backend Uptime (s)",
       "targets": [
-        {
-          "expr": "nodejs_uptime_seconds",
-          "legendFormat": "uptime",
-          "refId": "A"
-        }
+        { "expr": "nodejs_uptime_seconds", "legendFormat": "uptime", "refId": "A" }
       ],
       "id": 1,
-      "gridPos": { "x": 0, "y": 0, "w": 6, "h": 4 }
+      "gridPos": { "x": 0, "y": 0, "w": 4, "h": 3 }
     },
     {
       "type": "gauge",
-      "title": "Memory Used (%)",
+      "title": "Backend Memory Used (%)",
       "targets": [
-        {
-          "expr": "(nodejs_memory_used_bytes / nodejs_memory_total_bytes) * 100",
-          "legendFormat": "used %",
-          "refId": "A"
-        }
+        { "expr": "(nodejs_memory_used_bytes / nodejs_memory_total_bytes) * 100", "legendFormat": "used %", "refId": "A" }
       ],
-      "fieldConfig": {
-        "defaults": {
-          "min": 0,
-          "max": 100,
-          "unit": "percent"
-        }
-      },
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent" } },
       "id": 2,
-      "gridPos": { "x": 6, "y": 0, "w": 6, "h": 4 }
+      "gridPos": { "x": 4, "y": 0, "w": 4, "h": 3 }
+    },
+    {
+      "type": "gauge",
+      "title": "API Requests/sec",
+      "targets": [
+        { "expr": "rate(http_requests_total[1m])", "legendFormat": "req/s", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0, "unit": "reqps" } },
+      "id": 3,
+      "gridPos": { "x": 8, "y": 0, "w": 4, "h": 3 }
     },
     {
       "type": "graph",
-      "title": "CPU Load",
+      "title": "CPU Load (backend)",
       "targets": [
         { "expr": "nodejs_load1", "legendFormat": "1m", "refId": "A" },
         { "expr": "nodejs_load5", "legendFormat": "5m", "refId": "B" },
         { "expr": "nodejs_load15", "legendFormat": "15m", "refId": "C" }
       ],
-      "id": 3,
-      "gridPos": { "x": 0, "y": 4, "w": 12, "h": 6 }
+      "id": 4,
+      "gridPos": { "x": 0, "y": 3, "w": 12, "h": 5 }
+    },
+    {
+      "type": "stat",
+      "title": "MySQL Connections",
+      "targets": [
+        { "expr": "mysql_global_status_threads_connected", "legendFormat": "connections", "refId": "A" }
+      ],
+      "id": 5,
+      "gridPos": { "x": 0, "y": 8, "w": 4, "h": 3 }
+    },
+    {
+      "type": "gauge",
+      "title": "MySQL Queries/sec",
+      "targets": [
+        { "expr": "rate(mysql_global_status_questions_total[1m])", "legendFormat": "QPS", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0, "unit": "qps" } },
+      "id": 6,
+      "gridPos": { "x": 4, "y": 8, "w": 4, "h": 3 }
+    },
+    {
+      "type": "graph",
+      "title": "MySQL Buffer Pool Usage",
+      "targets": [
+        { "expr": "mysql_global_status_buffer_pool_pages_total", "legendFormat": "total", "refId": "A" },
+        { "expr": "mysql_global_status_buffer_pool_pages_data", "legendFormat": "data", "refId": "B" }
+      ],
+      "id": 7,
+      "gridPos": { "x": 8, "y": 8, "w": 4, "h": 3 }
+    },
+    {
+      "type": "stat",
+      "title": "Host CPU Usage (%)",
+      "targets": [
+        { "expr": "100 - (avg by(instance) (irate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)", "legendFormat": "cpu %", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent" } },
+      "id": 8,
+      "gridPos": { "x": 0, "y": 11, "w": 4, "h": 3 }
+    },
+    {
+      "type": "stat",
+      "title": "Host Memory Usage (%)",
+      "targets": [
+        { "expr": "(1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100", "legendFormat": "mem %", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent" } },
+      "id": 9,
+      "gridPos": { "x": 4, "y": 11, "w": 4, "h": 3 }
+    },
+    {
+      "type": "stat",
+      "title": "Disk Usage (%)",
+      "targets": [
+        { "expr": "(node_filesystem_size_bytes{fstype!=\"tmpfs\"} - node_filesystem_free_bytes{fstype!=\"tmpfs\"}) / node_filesystem_size_bytes{fstype!=\"tmpfs\"} * 100", "legendFormat": "disk %", "refId": "A" }
+      ],
+      "fieldConfig": { "defaults": { "min": 0, "max": 100, "unit": "percent" } },
+      "id": 10,
+      "gridPos": { "x": 8, "y": 11, "w": 4, "h": 3 }
     },
     {
       "type": "table",
-      "title": "Audit Logs (DB)",
+      "title": "Audit Logs (UInova)",
       "targets": [
-        {
-          "expr": "uinova_audit_logs_count",
-          "legendFormat": "Logs en DB",
-          "refId": "A"
-        }
+        { "expr": "uinova_audit_logs_count", "legendFormat": "Logs DB", "refId": "A" }
       ],
-      "id": 4,
-      "gridPos": { "x": 0, "y": 10, "w": 12, "h": 6 }
+      "id": 11,
+      "gridPos": { "x": 0, "y": 14, "w": 12, "h": 5 }
     }
   ],
   "templating": { "list": [] },
