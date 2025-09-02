@@ -14,8 +14,9 @@ import { errorHandler } from "./middlewares/errorHandler";
 import { prisma } from "./utils/prisma";
 import { setupSwagger } from "./utils/swagger";
 import { bullBoardAdapter } from "./utils/bullBoard";
+import { emitEvent } from "./services/eventBus";
 
-// Routes API (core)
+// Routes API
 import authRoutes from "./routes/auth";
 import projectRoutes from "./routes/projects";
 import pageRoutes from "./routes/pages";
@@ -26,22 +27,20 @@ import notificationRoutes from "./routes/notifications";
 import adminRoutes from "./routes/admin";
 import uploadRoutes from "./routes/upload";
 import aiRoutes from "./routes/ai";
-
-// Routes API (V3 existantes)
 import marketplaceRoutes from "./routes/marketplace";
 import deployRoutes from "./routes/deploy";
 import replayRoutes from "./routes/replay";
 import monitoringRoutes from "./routes/monitoring";
 
 // 🚀 Nouvelles routes alignées frontend
-import arRoutes from "./routes/ar";               // ARPreviewPage
-import assistantRoutes from "./routes/assistant"; // AIAssistantPage
-import templateRoutes from "./routes/templates";  // TemplatePage / Marketplace
+import arRoutes from "./routes/ar";
+import assistantRoutes from "./routes/assistant";
+import templateRoutes from "./routes/templates";
 
-// 🚀 Nouvelles routes backend révolutionnaires
-import collabRoutes from "./routes/collab";       // Collaboration CRDT
-import webhookRoutes from "./routes/webhooks";    // Event bus / webhooks
-import billingRoutes from "./routes/billing";     // Usage dynamique & quotas
+// 🚀 Nouvelles routes backend
+import collabRoutes from "./routes/collab";
+import webhookRoutes from "./routes/webhooks";
+import billingRoutes from "./routes/billing";
 
 // ---- Typage Express.Request
 declare global {
@@ -49,7 +48,9 @@ declare global {
     interface Request {
       id?: string;
       startAt?: number;
-      user?: { id: string; role: string }; // injecté par authenticate()
+      correlationId?: string;
+      lang?: string;
+      user?: { id: string; role: string };
     }
   }
 }
@@ -62,18 +63,34 @@ const isProd = process.env.NODE_ENV === "production";
  * ========================================================================== */
 app.set("trust proxy", 1);
 
-// ID de requête + horodatage
+// ID + correlation ID + lang
 app.use((req: Request, res: Response, next: NextFunction) => {
   req.id = (req.headers["x-request-id"] as string) || nanoid(12);
+  req.correlationId = (req.headers["x-correlation-id"] as string) || req.id;
   req.startAt = Date.now();
+  req.lang = (req.headers["accept-language"] as string)?.split(",")[0] || "fr";
   res.setHeader("x-request-id", req.id);
+  res.setHeader("x-correlation-id", req.correlationId);
+  next();
+});
+
+// Mode maintenance
+app.use((req, res, next) => {
+  if (process.env.MAINTENANCE_MODE === "1") {
+    return res.status(503).json({
+      error: "SERVICE_UNAVAILABLE",
+      message: "UInova est en maintenance, réessayez plus tard.",
+    });
+  }
   next();
 });
 
 // Sécurité
 app.use(
   helmet({
-    contentSecurityPolicy: false,
+    contentSecurityPolicy: isProd
+      ? { useDefaults: true }
+      : false,
     crossOriginResourcePolicy: { policy: "cross-origin" },
   })
 );
@@ -90,15 +107,21 @@ app.use(
     origin: allowedOrigins.length === 1 && allowedOrigins[0] === "*" ? "*" : allowedOrigins,
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "x-request-id"],
+    allowedHeaders: [
+      "Content-Type",
+      "Authorization",
+      "X-Requested-With",
+      "x-request-id",
+      "x-correlation-id",
+    ],
     maxAge: 86400,
   })
 );
 app.options("*", cors());
 
 // Parsers
-app.use(express.json({ limit: process.env.JSON_LIMIT || "5mb" }));
-app.use(express.urlencoded({ extended: true, limit: process.env.URLENC_LIMIT || "5mb" }));
+app.use(express.json({ limit: process.env.JSON_LIMIT || "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: process.env.URLENC_LIMIT || "10mb" }));
 
 // Logger HTTP
 app.use(
@@ -133,7 +156,6 @@ app.use((req, res, next) => {
   next();
 });
 
-// Endpoint Prometheus (technique)
 app.get("/metrics", async (_req, res) => {
   res.set("Content-Type", client.register.contentType);
   res.end(await client.register.metrics());
@@ -155,7 +177,6 @@ app.get("/version", (_req, res) =>
 /* ============================================================================
  *  ROUTES API
  * ========================================================================== */
-// Core
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/pages", pageRoutes);
@@ -167,23 +188,20 @@ app.use("/api/admin", adminRoutes);
 app.use("/api/upload", uploadRoutes);
 app.use("/api/ai", aiRoutes);
 
-// V3 modules
 app.use("/api/marketplace", marketplaceRoutes);
 app.use("/api/deploy", deployRoutes);
 app.use("/api/replay", replayRoutes);
 app.use("/api/monitoring", monitoringRoutes);
 
-// Nouvelles pages frontend
 app.use("/api/ar", arRoutes);
 app.use("/api/assistant", assistantRoutes);
 app.use("/api/templates", templateRoutes);
 
-// Nouvelles fonctionnalités backend
 app.use("/api/collab", collabRoutes);
 app.use("/api/webhooks", webhookRoutes);
 app.use("/api/billing", billingRoutes);
 
-// Bull Board (jobs async monitoring, admin only)
+// Bull Board
 app.use("/api/admin/jobs", bullBoardAdapter.getRouter());
 
 /* ============================================================================
@@ -192,7 +210,7 @@ app.use("/api/admin/jobs", bullBoardAdapter.getRouter());
 setupSwagger(app);
 
 /* ============================================================================
- *  AUDIT LOG (chaque requête API)
+ *  AUDIT LOG + EVENT BUS
  * ========================================================================== */
 app.use(async (req: Request, res: Response, next: NextFunction) => {
   res.on("finish", async () => {
@@ -205,11 +223,21 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
             metadata: {
               status: res.statusCode,
               requestId: req.id,
+              correlationId: req.correlationId,
               durationMs: Date.now() - (req.startAt || Date.now()),
               ip: req.ip,
               ua: req.headers["user-agent"] || null,
+              lang: req.lang,
             },
           },
+        });
+
+        // ⚡ Emit event bus (utile pour webhooks & monitoring)
+        emitEvent("api.request", {
+          method: req.method,
+          path: req.path,
+          status: res.statusCode,
+          userId: req.user?.id || null,
         });
       }
     } catch (e) {
@@ -233,7 +261,6 @@ app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
   return next(err);
 });
 
-// Handler global
 app.use((err: any, req: Request, res: Response, next: NextFunction) =>
   errorHandler(err, req, res, next)
 );
