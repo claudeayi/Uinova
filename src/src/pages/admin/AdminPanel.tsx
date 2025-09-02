@@ -2,31 +2,22 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import axios from "axios";
 import { toast } from "react-hot-toast";
-
-interface Stats {
-  users: number;
-  projects: number;
-  payments: number;
-  emailTemplates: number;
-}
+import { getAdminStats, AdminStats } from "@/services/admin";
 
 export default function AdminPanel() {
-  const [stats, setStats] = useState<Stats | null>(null);
+  const [stats, setStats] = useState<AdminStats | null>(null);
   const [loading, setLoading] = useState(true);
   const navigate = useNavigate();
 
   async function fetchStats() {
     try {
       setLoading(true);
-      const res = await axios.get("/api/admin/stats", {
-        headers: { Authorization: "Bearer " + localStorage.getItem("token") },
-      });
-      setStats(res.data.data || res.data);
+      const data = await getAdminStats();
+      setStats(data);
     } catch (err) {
       console.error(err);
-      toast.error("❌ Impossible de charger les stats.");
+      toast.error("❌ Impossible de charger les statistiques admin.");
     } finally {
       setLoading(false);
     }
@@ -84,16 +75,10 @@ export default function AdminPanel() {
         <CardContent className="p-6 space-y-6">
           <h2 className="text-lg font-semibold">📂 Sections Admin</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            <Button
-              variant="outline"
-              onClick={() => navigate("/admin/users")}
-            >
+            <Button variant="outline" onClick={() => navigate("/admin/users")}>
               👥 Utilisateurs
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => navigate("/admin/projects")}
-            >
+            <Button variant="outline" onClick={() => navigate("/admin/projects")}>
               📁 Projets
             </Button>
             <Button
@@ -102,10 +87,7 @@ export default function AdminPanel() {
             >
               🛒 Marketplace
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => navigate("/admin/webhooks")}
-            >
+            <Button variant="outline" onClick={() => navigate("/admin/webhooks")}>
               🔗 Webhooks
             </Button>
             <Button
@@ -120,10 +102,7 @@ export default function AdminPanel() {
             >
               🏢 Organisations
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => navigate("/admin/usage")}
-            >
+            <Button variant="outline" onClick={() => navigate("/admin/usage")}>
               📊 Usage & Facturation
             </Button>
           </div>
