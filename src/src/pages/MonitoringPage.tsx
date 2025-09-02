@@ -1,4 +1,3 @@
-// src/pages/MonitoringPage.tsx
 import { useEffect, useState } from "react";
 import axios from "axios";
 import toast from "react-hot-toast";
@@ -22,9 +21,23 @@ interface Metrics {
   arch: string;
 }
 
+interface LogEntry {
+  id: string;
+  createdAt: string;
+  action: string;
+  metadata?: Record<string, any>;
+}
+
+function formatDuration(sec: number) {
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = Math.floor(sec % 60);
+  return `${h}h ${m}m ${s}s`;
+}
+
 export default function MonitoringPage() {
   const [metrics, setMetrics] = useState<Metrics | null>(null);
-  const [logs, setLogs] = useState<any[]>([]);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [cpuHistory, setCpuHistory] = useState<any[]>([]);
   const [memHistory, setMemHistory] = useState<any[]>([]);
@@ -37,7 +50,7 @@ export default function MonitoringPage() {
       const data = res.data.data || res.data;
       setMetrics(data);
 
-      // Historique CPU / mémoire
+      // Historique CPU / mémoire (dernier 20 points)
       setCpuHistory((prev) => [
         ...prev.slice(-19),
         { time: new Date().toLocaleTimeString(), value: data.cpu.loadAvg[0] },
@@ -63,7 +76,7 @@ export default function MonitoringPage() {
       });
       setLogs(res.data.data || []);
     } catch {
-      /* ignore si pas admin */
+      /* ignorer si pas admin */
     }
   };
 
@@ -76,6 +89,17 @@ export default function MonitoringPage() {
 
   if (loading)
     return <p className="text-center">⏳ Chargement des métriques...</p>;
+
+  // CPU color dynamique
+  const cpuPercent = metrics
+    ? Math.min(100, (metrics.cpu.loadAvg[0] / metrics.cpu.cores) * 100)
+    : 0;
+  const cpuColor =
+    cpuPercent < 50
+      ? "bg-green-500"
+      : cpuPercent < 80
+      ? "bg-yellow-500"
+      : "bg-red-500";
 
   return (
     <DashboardLayout>
@@ -99,7 +123,7 @@ export default function MonitoringPage() {
             {/* Uptime */}
             <div className="p-4 bg-white dark:bg-slate-800 rounded shadow">
               <h2 className="font-semibold mb-1">⏱️ Uptime</h2>
-              <p>{Math.floor(metrics.uptime / 60)} min</p>
+              <p>{formatDuration(metrics.uptime)}</p>
             </div>
 
             {/* Mémoire */}
@@ -108,7 +132,7 @@ export default function MonitoringPage() {
               <p>{metrics.memory.usagePercent}</p>
               <div className="w-full bg-gray-200 dark:bg-slate-700 rounded h-2 mt-1">
                 <div
-                  className="bg-green-500 h-2 rounded"
+                  className="bg-green-500 h-2 rounded transition-all duration-500"
                   style={{
                     width: metrics.memory.usagePercent,
                   }}
@@ -124,14 +148,8 @@ export default function MonitoringPage() {
               </p>
               <div className="w-full bg-gray-200 dark:bg-slate-700 rounded h-2 mt-1">
                 <div
-                  className="bg-purple-500 h-2 rounded"
-                  style={{
-                    width:
-                      Math.min(
-                        100,
-                        (metrics.cpu.loadAvg[0] / metrics.cpu.cores) * 100
-                      ).toFixed(0) + "%",
-                  }}
+                  className={`${cpuColor} h-2 rounded transition-all duration-500`}
+                  style={{ width: cpuPercent.toFixed(0) + "%" }}
                 />
               </div>
             </div>
@@ -188,11 +206,16 @@ export default function MonitoringPage() {
         {logs.length > 0 && (
           <div className="p-4 bg-black text-green-400 rounded shadow font-mono text-xs">
             <h2 className="font-semibold mb-3 text-white">📝 Derniers logs</h2>
-            <ul className="max-h-64 overflow-y-auto space-y-1">
+            <ul className="max-h-64 overflow-y-auto space-y-2">
               {logs.map((l) => (
-                <li key={l.id}>
-                  [{new Date(l.createdAt).toLocaleTimeString()}] {l.action} →{" "}
-                  {JSON.stringify(l.metadata)}
+                <li key={l.id} className="whitespace-pre-wrap">
+                  <span className="text-gray-400">
+                    [{new Date(l.createdAt).toLocaleTimeString()}]
+                  </span>{" "}
+                  <span className="text-cyan-400">{l.action}</span> →{" "}
+                  <pre className="inline text-green-400">
+                    {JSON.stringify(l.metadata, null, 2)}
+                  </pre>
                 </li>
               ))}
             </ul>
