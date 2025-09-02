@@ -1,5 +1,7 @@
+// src/controllers/deployController.ts
 import { Request, Response } from "express";
 import { prisma } from "../utils/prisma";
+import { emitEvent } from "../services/eventBus";
 
 /* ============================================================================
  *  DEPLOY CONTROLLER – gestion des déploiements cloud (mock infra-as-code)
@@ -29,7 +31,7 @@ export async function startDeployment(req: Request, res: Response) {
       },
     });
 
-    // Audit
+    // Audit + EventBus
     await prisma.auditLog.create({
       data: {
         userId: user.id,
@@ -37,8 +39,9 @@ export async function startDeployment(req: Request, res: Response) {
         metadata: { projectId, deployId: deployment.id },
       },
     });
+    emitEvent("deployment.started", { projectId, deployId: deployment.id });
 
-    // ⚡ Simulation async
+    // ⚡ Simulation async (mock infra pipeline)
     setTimeout(async () => {
       await prisma.deployment.update({
         where: { id: deployment.id },
@@ -47,6 +50,7 @@ export async function startDeployment(req: Request, res: Response) {
           logs: (deployment.logs || "") + "\n⚙️ Build en cours...",
         },
       });
+      emitEvent("deployment.running", { projectId, deployId: deployment.id });
     }, 2000);
 
     setTimeout(async () => {
@@ -57,6 +61,7 @@ export async function startDeployment(req: Request, res: Response) {
           logs: (deployment.logs || "") + "\n✅ Déploiement terminé avec succès.",
         },
       });
+      emitEvent("deployment.success", { projectId, deployId: deployment.id });
     }, 6000);
 
     res.status(201).json(deployment);
@@ -77,7 +82,7 @@ export async function getDeploymentStatus(req: Request, res: Response) {
     if (!deployment) {
       return res.status(404).json({ error: "NOT_FOUND", message: "Aucun déploiement trouvé" });
     }
-    res.json(deployment);
+    res.json({ success: true, data: deployment });
   } catch (err) {
     console.error("❌ getDeploymentStatus error:", err);
     res.status(500).json({ error: "SERVER_ERROR", message: "Erreur serveur" });
@@ -92,7 +97,7 @@ export async function getDeploymentHistory(req: Request, res: Response) {
       where: { projectId },
       orderBy: { createdAt: "desc" },
     });
-    res.json(deployments);
+    res.json({ success: true, data: deployments });
   } catch (err) {
     console.error("❌ getDeploymentHistory error:", err);
     res.status(500).json({ error: "SERVER_ERROR", message: "Erreur serveur" });
@@ -127,8 +132,9 @@ export async function rollbackDeployment(req: Request, res: Response) {
         metadata: { projectId, rollbackId: rollback.id, from: deployId },
       },
     });
+    emitEvent("deployment.rollback", { projectId, rollbackId: rollback.id, from: deployId });
 
-    res.json({ success: true, rollback });
+    res.json({ success: true, data: rollback });
   } catch (err) {
     console.error("❌ rollbackDeployment error:", err);
     res.status(500).json({ error: "SERVER_ERROR", message: "Erreur serveur" });
