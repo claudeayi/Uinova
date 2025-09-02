@@ -4,57 +4,79 @@ import { setupCollabSocket, io as collabIO } from "./services/collab";
 import collabRoutes from "./routes/collabRoutes";
 import collabReplayRoutes from "./routes/collabReplayRoutes"; // 🔹 nouveau
 import { prisma } from "./utils/prisma";
+import { initScheduler } from "./utils/scheduler";
+import { collectBusinessMetrics } from "./services/businessMetrics";
+import { collectDeploymentMetrics } from "./services/deploymentMetrics";
 
+// ======================
+// CONFIG
+// ======================
 const HOST = process.env.HOST || "0.0.0.0";
 const PORT = normalizePort(process.env.PORT || "5000");
 
-// Brancher routes collab REST
+// ======================
+// API EXTRA ROUTES
+// ======================
 app.use("/api/collab", collabRoutes);
 app.use("/api/collab/replay", collabReplayRoutes); // 🔹 nouveau
 
-// Expose le port à Express (utile pour certains middlewares)
+// Expose le port à Express (utile pour middlewares)
 app.set("port", PORT);
 
-// Crée le serveur HTTP
+// ======================
+// HTTP + SOCKET.IO SERVER
+// ======================
 const server = http.createServer(app);
 
-// Durées recommandées (Node 18+) pour éviter des connexions bloquées
+// Durées recommandées (Node 18+) pour éviter connexions bloquées
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 66_000;
 
-// Active la collaboration (Socket.io)
+// Collaboration temps réel (Socket.io + Y.js CRDT)
 setupCollabSocket(server);
 
-// Écoute
+// ======================
+// START SERVER
+// ======================
 server.listen(PORT as number, HOST, () => {
   const base =
     process.env.API_BASE_URL ||
     `http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`;
   console.log(`\x1b[32m✅ UInova API prête sur ${base}\x1b[0m`);
   console.log(`📚 Docs: ${base.replace(/\/+$/, "")}/api-docs`);
+
+  // Scheduler (auto-scaling, retry, rollback…)
+  initScheduler();
 });
 
-// Gestion d'erreurs serveur
+// ======================
+// SERVER EVENTS
+// ======================
 server.on("error", onError);
 
 // Monitoring connexions actives
 server.on("connection", () => {
   const count = collabIO?.engine?.clientsCount || 0;
-  console.log(`🌐 Nouvelle connexion TCP | Sockets actifs: ${count}`);
+  console.log(`🌐 Connexion TCP | Sockets actifs: ${count}`);
 });
 
-// Arrêt propre (SIGINT/SIGTERM/SIGUSR2)
+// ======================
+// GRACEFUL SHUTDOWN
+// ======================
 ["SIGINT", "SIGTERM", "SIGUSR2"].forEach((sig) => {
   process.once(sig as NodeJS.Signals, async () => {
     console.log(`\n⏹️  Signal ${sig} reçu: arrêt en cours...`);
     try {
-      // Ferme Socket.io si initialisé
+      // Ferme Socket.io
       try {
         collabIO?.close?.();
       } catch {}
 
-      // Ferme les connexions HTTP
+      // Ferme serveur HTTP
       await new Promise<void>((resolve) => server.close(() => resolve()));
+
+      // Ferme Prisma proprement
+      await prisma.$disconnect();
 
       console.log("👋 Serveur arrêté proprement.");
       process.exit(0);
@@ -65,12 +87,11 @@ server.on("connection", () => {
   });
 });
 
-/* ======================
- * Gestion erreurs globales
- * ====================== */
+// ======================
+// GLOBAL ERROR HANDLING
+// ======================
 process.on("unhandledRejection", async (reason: any) => {
-  console.error("UNHANDLED REJECTION:", reason);
-
+  console.error("🚨 UNHANDLED REJECTION:", reason);
   try {
     await prisma.auditLog.create({
       data: {
@@ -79,13 +100,12 @@ process.on("unhandledRejection", async (reason: any) => {
       },
     });
   } catch (e) {
-    console.error("❌ Impossible d'écrire dans AuditLog:", e);
+    console.error("❌ AuditLog write failed:", e);
   }
 });
 
 process.on("uncaughtException", async (err: Error) => {
-  console.error("UNCAUGHT EXCEPTION:", err);
-
+  console.error("🚨 UNCAUGHT EXCEPTION:", err);
   try {
     await prisma.auditLog.create({
       data: {
@@ -94,16 +114,14 @@ process.on("uncaughtException", async (err: Error) => {
       },
     });
   } catch (e) {
-    console.error("❌ Impossible d'écrire dans AuditLog:", e);
+    console.error("❌ AuditLog write failed:", e);
   }
-
-  // Optionnel: tuer le process si tu veux forcer un redémarrage
-  // process.exit(1);
+  // process.exit(1); // optionnel si tu veux un restart auto
 });
 
-/* ======================
- * Helpers
- * ====================== */
+// ======================
+// HELPERS
+// ======================
 function normalizePort(val: string): number | string {
   const port = parseInt(val, 10);
   if (Number.isNaN(port)) return val; // named pipe
@@ -114,7 +132,6 @@ function normalizePort(val: string): number | string {
 function onError(error: any) {
   if (error.syscall !== "listen") throw error;
   const bind = typeof PORT === "string" ? `Pipe ${PORT}` : `Port ${PORT}`;
-
   switch (error.code) {
     case "EACCES":
       console.error(`${bind} nécessite des privilèges élevés`);
@@ -126,3 +143,16 @@ function onError(error: any) {
       throw error;
   }
 }
+
+// ======================
+// PROMETHEUS BUSINESS + DEPLOY METRICS
+// ======================
+// Hook sur collectDefaultMetrics déjà dans app.ts
+setInterval(async () => {
+  try {
+    await collectBusinessMetrics();
+    await collectDeploymentMetrics();
+  } catch (err) {
+    console.error("❌ Erreur collecte métriques:", err);
+  }
+}, 30_000);
