@@ -94,6 +94,9 @@ model User {
   // ⚡ Monitoring & sécurité
   sessions      UserSession[]
   apiKeys       ApiKey[]
+
+  // ⚡ Emails envoyés
+  emailLogs     EmailLog[]
 }
 
 model Project {
@@ -345,4 +348,37 @@ model ApiKey {
   key       String   @unique
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
+}
+
+/* ============================================================================
+ * EMAIL SYSTEM (Admin Cockpit)
+ * ========================================================================== */
+model EmailTemplate {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  subject   String
+  bodyHtml  String
+  bodyText  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  logs      EmailLog[]
+}
+
+model EmailLog {
+  id          String        @id @default(cuid())
+  template    EmailTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  templateId  String?
+  user        User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId      String?
+  to          String
+  subject     String
+  body        String
+  status      String         // SUCCESS | FAILED
+  error       String?
+  createdAt   DateTime @default(now())
+
+  @@index([userId])
+  @@index([status])
 }
