@@ -1,3 +1,4 @@
+// src/App.tsx
 import { Routes, Route } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { Suspense, lazy } from "react";
@@ -25,10 +26,10 @@ function Loader() {
 /* ============================================================================
  *  PAGES – Lazy Loading pour perf
  * ========================================================================== */
-
 // 🌍 Public & User
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const ProjectsPage = lazy(() => import("./pages/ProjectsPage"));
+const ProjectDetailPage = lazy(() => import("./pages/ProjectDetailPage"));
 const EditorPage = lazy(() => import("./pages/EditorPage"));
 const PreviewPage = lazy(() => import("./pages/PreviewPage"));
 const ARPreviewPage = lazy(() => import("./pages/ARPreviewPage"));
@@ -36,6 +37,9 @@ const DeployPage = lazy(() => import("./pages/DeployPage"));
 const ReplayPage = lazy(() => import("./pages/ReplayPage"));
 const MonitoringPage = lazy(() => import("./pages/MonitoringPage"));
 const AIAssistantPage = lazy(() => import("./pages/AIAssistantPage"));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
+const BadgesPage = lazy(() => import("./pages/BadgesPage"));
+const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
 
 // 🔑 Auth
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -52,8 +56,12 @@ const PaymentCancelPage = lazy(() => import("./pages/PaymentCancelPage"));
 // ✉️ Divers
 const ContactPage = lazy(() => import("./pages/ContactPage"));
 
-// 🔐 Admin (hub unique)
+// 🔐 Admin
 const AdminPanel = lazy(() => import("./pages/admin/AdminPanel"));
+const UsersAdmin = lazy(() => import("./pages/admin/UsersAdmin"));
+const ProjectsAdmin = lazy(() => import("./pages/admin/ProjectsAdmin"));
+const LogsAdmin = lazy(() => import("./pages/admin/LogsAdmin"));
+const ReplaysAdmin = lazy(() => import("./pages/admin/ReplaysAdmin"));
 
 /* ============================================================================
  *  APP ROOT
@@ -66,7 +74,7 @@ export default function App() {
 
       {/* ✅ Zone principale */}
       <div className="flex flex-col flex-1">
-        {/* ✅ Header minimal (global actions) */}
+        {/* ✅ Header global */}
         <Navbar />
 
         {/* ✅ Contenu central */}
@@ -76,6 +84,7 @@ export default function App() {
               {/* 🌍 Public */}
               <Route path="/" element={<Dashboard />} />
               <Route path="/projects" element={<ProjectsPage />} />
+              <Route path="/projects/:id" element={<ProjectDetailPage />} />
               <Route path="/editor/:id" element={<EditorPage />} />
               <Route path="/preview/:projectId/:pageId" element={<PreviewPage />} />
               <Route path="/ar/:projectId" element={<ARPreviewPage />} />
@@ -83,6 +92,9 @@ export default function App() {
               <Route path="/replay/:projectId" element={<ReplayPage />} />
               <Route path="/monitoring" element={<MonitoringPage />} />
               <Route path="/ai" element={<AIAssistantPage />} />
+              <Route path="/notifications" element={<NotificationsPage />} />
+              <Route path="/badges" element={<BadgesPage />} />
+              <Route path="/onboarding" element={<OnboardingPage />} />
               <Route path="/contact" element={<ContactPage />} />
 
               {/* 🔑 Auth */}
@@ -103,6 +115,38 @@ export default function App() {
                 element={
                   <ProtectedRoute role="admin">
                     <AdminPanel />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/users"
+                element={
+                  <ProtectedRoute role="admin">
+                    <UsersAdmin />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/projects"
+                element={
+                  <ProtectedRoute role="admin">
+                    <ProjectsAdmin />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/logs"
+                element={
+                  <ProtectedRoute role="admin">
+                    <LogsAdmin />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/replays"
+                element={
+                  <ProtectedRoute role="admin">
+                    <ReplaysAdmin />
                   </ProtectedRoute>
                 }
               />
@@ -135,6 +179,12 @@ export default function App() {
             },
             error: {
               style: { background: "#dc2626" },
+            },
+            warning: {
+              style: { background: "#f59e0b" },
+            },
+            info: {
+              style: { background: "#3b82f6" },
             },
           }}
         />
