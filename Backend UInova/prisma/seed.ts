@@ -1,27 +1,38 @@
-import { PrismaClient, UserRole, ProjectStatus, SubscriptionPlan, SubscriptionStatus, PaymentProvider, PaymentStatus } from "@prisma/client";
+import {
+  PrismaClient,
+  UserRole,
+  ProjectStatus,
+  SubscriptionPlan,
+  SubscriptionStatus,
+  PaymentProvider,
+  PaymentStatus,
+} from "@prisma/client";
 
 const prisma = new PrismaClient();
 
 async function main() {
+  /* ============================================================================
+   * USER PREMIUM (John Doe)
+   * ========================================================================== */
   const email = "john.doe@uinova.dev";
 
-  // ✅ User seed
   const user = await prisma.user.upsert({
     where: { email },
     update: {},
     create: {
       email,
-      passwordHash: "$2a$10$W2Hk3o5dJx3s4vW1Q0JROuu7oYoG0nHnF9r8n9aFZlI0k1aC6wqGi", // hash = "Secret123!"
+      passwordHash:
+        "$2a$10$W2Hk3o5dJx3s4vW1Q0JROuu7oYoG0nHnF9r8n9aFZlI0k1aC6wqGi", // hash = "Secret123!"
       name: "John Doe",
       role: UserRole.PREMIUM,
       avatarUrl: "https://i.pravatar.cc/150?u=john",
     },
   });
 
-  // 🔄 Clean anciens projets de ce user
+  // 🔄 Nettoyage anciens projets
   await prisma.project.deleteMany({ where: { ownerId: user.id } });
 
-  // ✅ Projects
+  // ✅ Projets
   const [alpha, beta, gamma] = await prisma.$transaction([
     prisma.project.create({
       data: {
@@ -78,11 +89,21 @@ async function main() {
     },
   });
 
-  // ✅ Notification
+  // ✅ Notifications
   await prisma.notification.createMany({
     data: [
-      { userId: user.id, type: "info", title: "Bienvenue 🎉", body: "Merci d’avoir rejoint UInova !" },
-      { userId: user.id, type: "warning", title: "Quota", body: "Vous avez atteint 80% de votre quota d’assets." },
+      {
+        userId: user.id,
+        type: "info",
+        title: "Bienvenue 🎉",
+        body: "Merci d’avoir rejoint UInova !",
+      },
+      {
+        userId: user.id,
+        type: "warning",
+        title: "Quota",
+        body: "Vous avez atteint 80% de votre quota d’assets.",
+      },
     ],
   });
 
@@ -132,8 +153,44 @@ async function main() {
     },
   });
 
+  /* ============================================================================
+   * ADMIN USER (Cockpit)
+   * ========================================================================== */
+  const adminEmail = "admin@uinova.dev";
+
+  const admin = await prisma.user.upsert({
+    where: { email: adminEmail },
+    update: {},
+    create: {
+      email: adminEmail,
+      passwordHash:
+        "$2a$10$W2Hk3o5dJx3s4vW1Q0JROuu7oYoG0nHnF9r8n9aFZlI0k1aC6wqGi", // hash = "Secret123!"
+      name: "Admin UInova",
+      role: UserRole.ADMIN,
+      avatarUrl: "https://i.pravatar.cc/150?u=admin",
+    },
+  });
+
+  await prisma.notification.create({
+    data: {
+      userId: admin.id,
+      type: "info",
+      title: "Cockpit prêt 🚀",
+      body: "Bienvenue dans l’espace administrateur d’UInova",
+    },
+  });
+
+  await prisma.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: "ADMIN_SEED",
+      metadata: { init: true, message: "Compte admin créé via seed" },
+    },
+  });
+
   console.log("✅ Seed terminé avec succès.");
-  console.log("➡️ User:", email, "pwd: Secret123!");
+  console.log("➡️ User Premium:", email, "pwd: Secret123!");
+  console.log("➡️ Admin Cockpit:", adminEmail, "pwd: Secret123!");
 }
 
 main()
