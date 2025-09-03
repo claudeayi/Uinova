@@ -7,6 +7,7 @@ import {
   deleteProject,
 } from "@/services/projects";
 import { useProject } from "@/context/ProjectContext";
+import { useWorkspace } from "@/context/WorkspaceContext";
 import { toast } from "react-hot-toast";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import {
@@ -16,9 +17,19 @@ import {
   Copy,
   Eye,
   Pencil,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
 
 /* ============================================================================
  *  Interfaces
@@ -36,17 +47,23 @@ interface Project {
  * ========================================================================== */
 export default function ProjectsPage() {
   const { projectId, setProjectId } = useProject();
+  const { current: workspace } = useWorkspace();
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [newName, setNewName] = useState("");
+  const [creating, setCreating] = useState(false);
+
   const limit = 6;
 
   // Charger les projets
   useEffect(() => {
     async function fetchProjects() {
+      if (!workspace) return;
+      setLoading(true);
       try {
-        const res = await getProjects();
+        const res = await getProjects(workspace.id);
         setProjects(res || []);
       } catch (err) {
         console.error("❌ Erreur chargement projets:", err);
@@ -56,19 +73,22 @@ export default function ProjectsPage() {
       }
     }
     fetchProjects();
-  }, []);
+  }, [workspace]);
 
-  // Créer un projet (modal simplifiée)
+  // Créer un projet
   async function handleCreate() {
-    const name = prompt("Nom du projet ?");
-    if (!name) return;
+    if (!newName.trim() || !workspace) return;
+    setCreating(true);
     try {
-      const project = await createProject({ name });
+      const project = await createProject({ name: newName, workspaceId: workspace.id });
       setProjects((prev) => [...prev, project]);
       toast.success("✅ Projet créé");
+      setNewName("");
     } catch (err) {
       console.error("❌ Erreur création projet:", err);
       toast.error("Erreur lors de la création du projet.");
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -86,7 +106,7 @@ export default function ProjectsPage() {
     }
   }
 
-  // Dupliquer un projet (mock)
+  // Dupliquer un projet (mock local)
   function handleDuplicate(project: Project) {
     const copy: Project = {
       ...project,
@@ -119,7 +139,7 @@ export default function ProjectsPage() {
           <FolderOpen className="w-6 h-6 text-blue-600" /> Mes projets
         </h1>
         <div className="flex gap-3">
-          <input
+          <Input
             type="text"
             placeholder="🔍 Rechercher..."
             value={search}
@@ -127,31 +147,47 @@ export default function ProjectsPage() {
               setSearch(e.target.value);
               setPage(1);
             }}
-            className="border rounded-lg px-3 py-2 dark:bg-slate-900 dark:border-slate-700"
+            className="w-56"
           />
-          <Button onClick={handleCreate} className="bg-indigo-600 text-white">
-            <PlusCircle className="w-5 h-5 mr-2" /> Nouveau
-          </Button>
+          <Dialog>
+            <DialogTrigger asChild>
+              <Button className="bg-indigo-600 text-white">
+                <PlusCircle className="w-5 h-5 mr-2" /> Nouveau
+              </Button>
+            </DialogTrigger>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Nouveau projet</DialogTitle>
+              </DialogHeader>
+              <Input
+                placeholder="Nom du projet"
+                value={newName}
+                onChange={(e) => setNewName(e.target.value)}
+              />
+              <DialogFooter>
+                <Button
+                  onClick={handleCreate}
+                  disabled={creating || !newName.trim()}
+                >
+                  {creating && <Loader2 className="w-4 h-4 animate-spin mr-2" />}
+                  Créer
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
         </div>
       </div>
 
       {/* Résumé */}
       {projects.length > 0 && (
         <div className="mb-6 flex flex-wrap gap-3 text-xs">
+          <Badge label={`Total : ${projects.length}`} color="blue" />
           <Badge
-            label={`Total : ${projects.length}`}
-            color="blue"
-          />
-          <Badge
-            label={`Publiés : ${
-              projects.filter((p) => p.status === "published").length
-            }`}
+            label={`Publiés : ${projects.filter((p) => p.status === "published").length}`}
             color="green"
           />
           <Badge
-            label={`Brouillons : ${
-              projects.filter((p) => !p.status || p.status === "draft").length
-            }`}
+            label={`Brouillons : ${projects.filter((p) => !p.status || p.status === "draft").length}`}
             color="yellow"
           />
         </div>
@@ -159,10 +195,13 @@ export default function ProjectsPage() {
 
       {/* Liste des projets */}
       {loading ? (
-        <p className="text-gray-500">⏳ Chargement...</p>
+        <div className="flex justify-center items-center py-12 text-indigo-600">
+          <Loader2 className="w-6 h-6 animate-spin mr-2" />
+          Chargement...
+        </div>
       ) : projects.length === 0 ? (
         <p className="text-gray-400">
-          Aucun projet trouvé. Créez-en un pour commencer 🚀
+          Aucun projet trouvé dans ce workspace. Créez-en un pour commencer 🚀
         </p>
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -183,16 +222,10 @@ export default function ProjectsPage() {
                 </div>
 
                 <div className="mt-3 flex flex-wrap gap-2">
-                  <Link
-                    to={`/editor/${p.id}`}
-                    className="btn-primary"
-                  >
+                  <Link to={`/editor/${p.id}`} className="btn-primary">
                     <Pencil className="w-4 h-4" /> Éditer
                   </Link>
-                  <Link
-                    to={`/preview/${p.id}/home`}
-                    className="btn-secondary"
-                  >
+                  <Link to={`/preview/${p.id}/home`} className="btn-secondary">
                     <Eye className="w-4 h-4" /> Preview
                   </Link>
                   <Button
@@ -203,18 +236,10 @@ export default function ProjectsPage() {
                   >
                     {projectId === p.id ? "✅ Actif" : "🎯 Activer"}
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => handleDuplicate(p)}
-                  >
+                  <Button size="sm" variant="outline" onClick={() => handleDuplicate(p)}>
                     <Copy className="w-4 h-4" /> Dupliquer
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="destructive"
-                    onClick={() => handleDelete(p.id)}
-                  >
+                  <Button size="sm" variant="destructive" onClick={() => handleDelete(p.id)}>
                     <Trash2 className="w-4 h-4" /> Supprimer
                   </Button>
                 </div>
@@ -260,9 +285,7 @@ function Badge({ label, color }: { label: string; color: "blue" | "green" | "yel
     yellow: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200",
   };
   return (
-    <span
-      className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[color]}`}
-    >
+    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[color]}`}>
       {label}
     </span>
   );
