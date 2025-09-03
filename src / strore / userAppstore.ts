@@ -29,6 +29,9 @@ export type ProjectData = {
   lastSavedAt?: number;
 };
 
+/* ===============================
+   AppState
+=============================== */
 interface AppState {
   projects: ProjectData[];
   currentProjectId: string | null;
@@ -70,6 +73,18 @@ interface AppState {
   getCurrentPage: () => PageData | null;
   getComponents: (pageId: string) => ElementData[];
   setComponents: (pageId: string, elements: ElementData[]) => void;
+
+  // ⚙️ Préférences utilisateur
+  preferences: {
+    theme: "light" | "dark";
+    language: "fr" | "en";
+    notifications: { email: boolean; push: boolean };
+    twoFA: boolean;
+  };
+  setTheme: (theme: "light" | "dark") => void;
+  setLanguage: (lang: "fr" | "en") => void;
+  toggleNotification: (type: "email" | "push", value: boolean) => void;
+  toggleTwoFA: (value: boolean) => void;
 }
 
 /* ===============================
@@ -394,5 +409,41 @@ export const useAppStore = create<AppState>((set, get) => ({
           : proj
       ),
     });
+  },
+
+  /* === Préférences globales === */
+  preferences: {
+    theme: (localStorage.getItem("theme") as "light" | "dark") || "light",
+    language: (localStorage.getItem("lang") as "fr" | "en") || "fr",
+    notifications: {
+      email: localStorage.getItem("notif_email") === "true",
+      push: localStorage.getItem("notif_push") === "true",
+    },
+    twoFA: localStorage.getItem("twoFA") === "true",
+  },
+
+  setTheme: (theme) => {
+    localStorage.setItem("theme", theme);
+    set((state) => ({ preferences: { ...state.preferences, theme } }));
+  },
+
+  setLanguage: (language) => {
+    localStorage.setItem("lang", language);
+    set((state) => ({ preferences: { ...state.preferences, language } }));
+  },
+
+  toggleNotification: (type, value) => {
+    localStorage.setItem(`notif_${type}`, String(value));
+    set((state) => ({
+      preferences: {
+        ...state.preferences,
+        notifications: { ...state.preferences.notifications, [type]: value },
+      },
+    }));
+  },
+
+  toggleTwoFA: (value) => {
+    localStorage.setItem("twoFA", String(value));
+    set((state) => ({ preferences: { ...state.preferences, twoFA: value } }));
   },
 }));
