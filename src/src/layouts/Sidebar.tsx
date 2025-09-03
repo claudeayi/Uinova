@@ -27,13 +27,14 @@ import {
   User,
   LogIn,
   UserPlus,
+  Server, // ✅ NEW pour Déploiements Admin
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/context/ProjectContext";
 import { useAuth } from "@/hooks/useAuth";
 
 /* ============================================================================
- *  Sidebar – Navigation UInova v5
+ *  Sidebar – Navigation UInova v5 enrichie
  * ========================================================================== */
 export default function Sidebar() {
   const location = useLocation();
@@ -65,6 +66,7 @@ export default function Sidebar() {
     { label: "Paiements", path: "/admin/payments", icon: <CreditCard className="w-5 h-5" /> },
     { label: "Facturation", path: "/admin/billing", icon: <Settings className="w-5 h-5" /> },
     { label: "Logs", path: "/admin/logs", icon: <FileText className="w-5 h-5" /> },
+    { label: "Déploiements", path: "/admin/deployments", icon: <Server className="w-5 h-5" /> }, // ✅ NEW
   ];
 
   const projectItems = [
