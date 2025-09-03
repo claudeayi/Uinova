@@ -1,3 +1,4 @@
+// src/App.tsx
 import { Routes, Route } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { Suspense, lazy } from "react";
@@ -67,6 +68,7 @@ const PaymentsAdmin = lazy(() => import("./pages/admin/PaymentsAdmin"));
 const AdminBilling = lazy(() => import("./pages/admin/AdminBilling"));
 const AdminStatsPage = lazy(() => import("./pages/admin/AdminStats"));
 const LogsAdmin = lazy(() => import("./pages/admin/LogsAdmin"));
+const AdminDeployments = lazy(() => import("./pages/admin/AdminDeployments")); // ✅ NEW
 
 /* ============================================================================
  *  APP ROOT
@@ -186,6 +188,14 @@ export default function App() {
                 element={
                   <ProtectedRoute role="admin">
                     <LogsAdmin />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/deployments"
+                element={
+                  <ProtectedRoute role="admin">
+                    <AdminDeployments />
                   </ProtectedRoute>
                 }
               />
