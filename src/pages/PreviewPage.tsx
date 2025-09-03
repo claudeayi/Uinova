@@ -14,21 +14,29 @@ import {
   Wifi,
   WifiOff,
   Store,
+  Loader2,
 } from "lucide-react";
 
 /* ============================================================================
- *  PreviewPage – Aperçu public UInova
+ *  PreviewPage – Aperçu public UInova v6
  *  ✅ Lecture seule avec rendu components
  *  ✅ Copier lien, rafraîchir, responsive devices
- *  ✅ Indicateur online/offline
+ *  ✅ Support multi-pages
+ *  ✅ Indicateur online/offline + hotkeys
  * ========================================================================== */
 export default function PreviewPage() {
   const { shareId } = useParams<{ shareId: string }>();
   const navigate = useNavigate();
-  const [project, setProject] = useState<{ id: string; name: string } | null>(
-    null
-  );
-  const [elements, setElements] = useState<DroppedComponent[]>([]);
+
+  const [project, setProject] = useState<{
+    id: string;
+    name: string;
+    status?: string;
+    updatedAt?: string;
+    pages?: { id: string; name: string; elements: DroppedComponent[] }[];
+  } | null>(null);
+
+  const [pageIndex, setPageIndex] = useState(0);
   const [loading, setLoading] = useState(true);
   const [device, setDevice] = useState<"desktop" | "tablet" | "mobile">("desktop");
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
@@ -38,8 +46,8 @@ export default function PreviewPage() {
     setLoading(true);
     try {
       const res = await axios.get(`/api/share/${shareId}`);
-      setProject(res.data.project);
-      setElements(res.data.elements || []);
+      setProject(res.data.project || null);
+      setPageIndex(0);
     } catch (err: any) {
       console.error("❌ fetchPreview error:", err);
       toast.error("Impossible de charger l’aperçu.");
@@ -55,15 +63,19 @@ export default function PreviewPage() {
   /* === Copier lien === */
   function handleCopyLink() {
     navigator.clipboard.writeText(window.location.href);
-    toast.success("🔗 Lien copié dans le presse-papier !");
+    toast.success("🔗 Lien copié !");
   }
 
-  /* === Hotkey Ctrl+C === */
+  /* === Hotkeys === */
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
-      if (e.ctrlKey && e.key === "c") {
+      if (e.ctrlKey && e.key.toLowerCase() === "c") {
         e.preventDefault();
         handleCopyLink();
+      }
+      if (e.ctrlKey && e.key.toLowerCase() === "r") {
+        e.preventDefault();
+        fetchPreview();
       }
     }
     window.addEventListener("keydown", handleKey);
@@ -85,8 +97,8 @@ export default function PreviewPage() {
   if (loading) {
     return (
       <div className="flex justify-center items-center h-screen text-indigo-500">
-        <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
-        <span className="ml-3">Chargement de l’aperçu...</span>
+        <Loader2 className="animate-spin w-6 h-6 mr-2" />
+        Chargement de l’aperçu...
       </div>
     );
   }
@@ -102,11 +114,35 @@ export default function PreviewPage() {
     );
   }
 
+  const currentPage = project.pages?.[pageIndex] || { elements: [] };
+
   return (
     <div className="h-screen flex flex-col">
       {/* HEADER PREVIEW */}
       <header className="sticky top-0 z-10 p-4 bg-indigo-600 text-white flex justify-between items-center shadow">
-        <h1 className="font-bold">{project.name} — Aperçu public</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="font-bold">{project.name} — Aperçu public</h1>
+          {project.status && (
+            <span
+              className={`px-2 py-0.5 rounded-full text-xs ${
+                project.status === "published"
+                  ? "bg-green-500/20 text-green-100"
+                  : project.status === "draft"
+                  ? "bg-yellow-500/20 text-yellow-100"
+                  : "bg-gray-500/20 text-gray-100"
+              }`}
+            >
+              {project.status}
+            </span>
+          )}
+          {project.updatedAt && (
+            <span className="text-xs opacity-75">
+              Dernière mise à jour :{" "}
+              {new Date(project.updatedAt).toLocaleDateString("fr-FR")}
+            </span>
+          )}
+        </div>
+
         <div className="flex gap-2 items-center">
           {/* Online status */}
           <span
@@ -117,6 +153,7 @@ export default function PreviewPage() {
             {isOnline ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
             {isOnline ? "En ligne" : "Hors ligne"}
           </span>
+
           {/* Device switcher */}
           <Button
             size="sm"
@@ -139,20 +176,41 @@ export default function PreviewPage() {
           >
             <Smartphone className="w-4 h-4" />
           </Button>
+
           {/* Actions */}
           <Button variant="secondary" size="sm" onClick={handleCopyLink}>
             <Copy className="w-4 h-4 mr-1" /> Copier
           </Button>
-          <Button size="sm" onClick={fetchPreview} className="bg-white text-indigo-600 hover:bg-gray-100">
+          <Button
+            size="sm"
+            onClick={fetchPreview}
+            className="bg-white text-indigo-600 hover:bg-gray-100"
+          >
             <RefreshCw className="w-4 h-4 mr-1" /> Rafraîchir
           </Button>
         </div>
       </header>
 
+      {/* Navigation entre pages */}
+      {project.pages && project.pages.length > 1 && (
+        <nav className="flex gap-2 justify-center border-b bg-slate-100 dark:bg-slate-800 py-2">
+          {project.pages.map((p, idx) => (
+            <Button
+              key={p.id}
+              size="sm"
+              variant={idx === pageIndex ? "default" : "outline"}
+              onClick={() => setPageIndex(idx)}
+            >
+              {p.name || `Page ${idx + 1}`}
+            </Button>
+          ))}
+        </nav>
+      )}
+
       {/* LIVE PREVIEW (readonly) */}
       <main className="flex-1 bg-gray-50 dark:bg-slate-900 overflow-auto flex justify-center items-start py-6">
         <div
-          className={`bg-white dark:bg-slate-800 border rounded-lg shadow relative ${
+          className={`bg-white dark:bg-slate-800 border rounded-lg shadow relative transition-all ${
             device === "desktop"
               ? "w-[1024px] min-h-[600px]"
               : device === "tablet"
@@ -161,13 +219,13 @@ export default function PreviewPage() {
           }`}
         >
           <div className="p-6 relative">
-            {elements.length === 0 ? (
+            {currentPage.elements.length === 0 ? (
               <p className="text-gray-400 text-center py-20">
-                Aucun contenu disponible pour ce projet.
+                Aucun contenu disponible pour cette page.
               </p>
             ) : (
               <div className="relative min-h-[400px]">
-                {elements.map((c) => {
+                {currentPage.elements.map((c) => {
                   const { x, y, width, height, rotate } = c.props || {};
                   return (
                     <div
@@ -182,7 +240,7 @@ export default function PreviewPage() {
                       }}
                     >
                       {c.type === "Bouton" && (
-                        <button className="w-full h-full bg-indigo-600 text-white rounded">
+                        <button className="w-full h-full bg-indigo-600 text-white rounded shadow">
                           {c.props?.text || "Bouton"}
                         </button>
                       )}
@@ -196,6 +254,10 @@ export default function PreviewPage() {
                           src={c.props?.src || "https://via.placeholder.com/150"}
                           alt="Aperçu"
                           className="w-full h-full object-cover rounded"
+                          onError={(e) =>
+                            ((e.target as HTMLImageElement).src =
+                              "https://via.placeholder.com/150")
+                          }
                         />
                       )}
                       {c.type === "Formulaire" && (
