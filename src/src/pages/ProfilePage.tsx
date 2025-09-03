@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "react-hot-toast";
 import axios from "axios";
-import { LogOut, Upload } from "lucide-react";
+import { LogOut, Upload, Mail, Shield } from "lucide-react";
 
 export default function ProfilePage() {
   const { user, logout } = useAuth();
@@ -49,7 +49,7 @@ export default function ProfilePage() {
 
   return (
     <DashboardLayout>
-      <div className="max-w-3xl mx-auto p-6 space-y-6">
+      <div className="max-w-3xl mx-auto p-6 space-y-8">
         <h1 className="text-2xl font-bold">👤 Mon Profil</h1>
 
         {/* Infos principales */}
@@ -57,7 +57,7 @@ export default function ProfilePage() {
           <CardContent className="space-y-4 p-6">
             <div className="flex items-center gap-6">
               {/* Avatar */}
-              <div>
+              <div className="flex flex-col items-center">
                 <img
                   src={
                     avatar
@@ -65,9 +65,9 @@ export default function ProfilePage() {
                       : user.avatar || "https://via.placeholder.com/100"
                   }
                   alt="Avatar"
-                  className="w-20 h-20 rounded-full object-cover border"
+                  className="w-24 h-24 rounded-full object-cover border shadow"
                 />
-                <label className="block mt-2 text-sm cursor-pointer text-indigo-600 hover:underline">
+                <label className="block mt-3 text-sm cursor-pointer text-indigo-600 hover:underline">
                   <Upload className="inline w-4 h-4 mr-1" /> Changer avatar
                   <input
                     type="file"
@@ -79,9 +79,19 @@ export default function ProfilePage() {
               </div>
 
               {/* Infos utilisateur */}
-              <div>
-                <p className="font-semibold">{user.email}</p>
-                <p className="text-xs text-gray-500">Rôle : {user.role}</p>
+              <div className="flex-1">
+                <p className="font-semibold flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-gray-500" /> {user.email}
+                </p>
+                <p className="text-xs text-gray-500 flex items-center gap-1 mt-1">
+                  <Shield className="w-4 h-4 text-gray-400" />
+                  Rôle : {user.role}
+                </p>
+                {user.createdAt && (
+                  <p className="text-xs text-gray-400 mt-1">
+                    Membre depuis le {new Date(user.createdAt).toLocaleDateString()}
+                  </p>
+                )}
               </div>
             </div>
           </CardContent>
@@ -109,6 +119,9 @@ export default function ProfilePage() {
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-3 py-2 border rounded dark:bg-slate-800 dark:border-slate-700"
               />
+              <p className="text-xs text-gray-400 mt-1">
+                Laissez vide si vous ne souhaitez pas changer de mot de passe.
+              </p>
             </div>
 
             <Button
