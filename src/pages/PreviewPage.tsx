@@ -15,18 +15,23 @@ import {
   WifiOff,
   Store,
   Loader2,
+  Download,
 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
+import { duplicateProject } from "@/services/projects";
 
 /* ============================================================================
- *  PreviewPage – Aperçu public UInova v6
+ *  PreviewPage – Aperçu public UInova v7
  *  ✅ Lecture seule avec rendu components
  *  ✅ Copier lien, rafraîchir, responsive devices
  *  ✅ Support multi-pages
  *  ✅ Indicateur online/offline + hotkeys
+ *  ✅ Duplication dans son compte
  * ========================================================================== */
 export default function PreviewPage() {
   const { shareId } = useParams<{ shareId: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
 
   const [project, setProject] = useState<{
     id: string;
@@ -40,6 +45,7 @@ export default function PreviewPage() {
   const [loading, setLoading] = useState(true);
   const [device, setDevice] = useState<"desktop" | "tablet" | "mobile">("desktop");
   const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+  const [duplicating, setDuplicating] = useState(false);
 
   async function fetchPreview() {
     if (!shareId) return;
@@ -53,6 +59,23 @@ export default function PreviewPage() {
       toast.error("Impossible de charger l’aperçu.");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleDuplicate() {
+    if (!project) return;
+    try {
+      setDuplicating(true);
+      const copy = await duplicateProject(project.id);
+      if (copy) {
+        toast.success("📂 Projet dupliqué dans votre compte !");
+        navigate(`/editor/${copy.id}`);
+      }
+    } catch (err) {
+      console.error("❌ duplicateProject error:", err);
+      toast.error("Erreur lors de la duplication.");
+    } finally {
+      setDuplicating(false);
     }
   }
 
@@ -188,6 +211,23 @@ export default function PreviewPage() {
           >
             <RefreshCw className="w-4 h-4 mr-1" /> Rafraîchir
           </Button>
+
+          {/* Duplication */}
+          {user && (
+            <Button
+              size="sm"
+              onClick={handleDuplicate}
+              disabled={duplicating}
+              className="bg-pink-600 text-white hover:bg-pink-700"
+            >
+              {duplicating ? (
+                <Loader2 className="w-4 h-4 animate-spin mr-1" />
+              ) : (
+                <Download className="w-4 h-4 mr-1" />
+              )}
+              Dupliquer
+            </Button>
+          )}
         </div>
       </header>
 
