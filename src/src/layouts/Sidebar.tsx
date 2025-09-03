@@ -11,17 +11,24 @@ import {
   FileText,
   ShoppingBag,
   Settings,
+  Rocket,
+  Film,
+  Scan,
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useProject } from "@/context/ProjectContext";
 
 /* ============================================================================
  *  Sidebar – Navigation principale UInova
  * ========================================================================== */
 export default function Sidebar() {
   const location = useLocation();
+  const { projectId } = useProject();
+
   const [adminOpen, setAdminOpen] = useState(true);
+  const [projectOpen, setProjectOpen] = useState(true);
 
   const navItems = [
     { label: "Dashboard", path: "/", icon: <LayoutDashboard className="w-5 h-5" /> },
@@ -39,6 +46,12 @@ export default function Sidebar() {
     { label: "Logs", path: "/admin/logs", icon: <FileText className="w-5 h-5" /> },
   ];
 
+  const projectItems = [
+    { label: "Deploy", path: `/deploy/${projectId}`, icon: <Rocket className="w-5 h-5" /> },
+    { label: "Replay", path: `/replay/${projectId}`, icon: <Film className="w-5 h-5" /> },
+    { label: "AR/VR", path: `/ar/${projectId}`, icon: <Scan className="w-5 h-5" /> },
+  ];
+
   return (
     <aside className="w-64 bg-white dark:bg-slate-900 border-r dark:border-slate-800 flex flex-col">
       {/* Logo */}
@@ -49,28 +62,51 @@ export default function Sidebar() {
       {/* Navigation principale */}
       <nav className="flex-1 px-2 space-y-1">
         {navItems.map((item) => (
-          <NavItem
-            key={item.path}
-            {...item}
-            active={location.pathname === item.path}
-          />
+          <NavItem key={item.path} {...item} active={location.pathname === item.path} />
         ))}
 
-        {/* Section Administration */}
-        <div className="mt-6 mb-2 px-3 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 flex items-center justify-between cursor-pointer">
-          <span>Administration</span>
-          <button
-            onClick={() => setAdminOpen((o) => !o)}
-            className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"
-          >
-            {adminOpen ? (
-              <ChevronDown className="w-4 h-4" />
-            ) : (
-              <ChevronRight className="w-4 h-4" />
-            )}
-          </button>
-        </div>
+        {/* Section Projets actifs */}
+        {projectId ? (
+          <>
+            <div
+              className="mt-6 mb-2 px-3 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 flex items-center justify-between cursor-pointer"
+              onClick={() => setProjectOpen((o) => !o)}
+            >
+              <span>Projet actif</span>
+              {projectOpen ? (
+                <ChevronDown className="w-4 h-4" />
+              ) : (
+                <ChevronRight className="w-4 h-4" />
+              )}
+            </div>
+            {projectOpen &&
+              projectItems.map((item) => (
+                <NavItem
+                  key={item.path}
+                  {...item}
+                  active={location.pathname.startsWith(item.path)}
+                  className="ml-4"
+                />
+              ))}
+          </>
+        ) : (
+          <p className="mt-6 px-3 text-xs italic text-gray-400">
+            Aucun projet actif
+          </p>
+        )}
 
+        {/* Section Administration */}
+        <div
+          className="mt-6 mb-2 px-3 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 flex items-center justify-between cursor-pointer"
+          onClick={() => setAdminOpen((o) => !o)}
+        >
+          <span>Administration</span>
+          {adminOpen ? (
+            <ChevronDown className="w-4 h-4" />
+          ) : (
+            <ChevronRight className="w-4 h-4" />
+          )}
+        </div>
         {adminOpen &&
           adminItems.map((item) => (
             <NavItem
