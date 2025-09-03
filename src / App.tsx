@@ -62,6 +62,8 @@ const UsersAdmin = lazy(() => import("./pages/admin/UsersAdmin"));
 const ProjectsAdmin = lazy(() => import("./pages/admin/ProjectsAdmin"));
 const LogsAdmin = lazy(() => import("./pages/admin/LogsAdmin"));
 const ReplaysAdmin = lazy(() => import("./pages/admin/ReplaysAdmin"));
+const PaymentsAdmin = lazy(() => import("./pages/admin/PaymentsAdmin"));
+const AdminBilling = lazy(() => import("./pages/admin/AdminBilling"));
 
 /* ============================================================================
  *  APP ROOT
@@ -135,18 +137,34 @@ export default function App() {
                 }
               />
               <Route
-                path="/admin/logs"
-                element={
-                  <ProtectedRoute role="admin">
-                    <LogsAdmin />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
                 path="/admin/replays"
                 element={
                   <ProtectedRoute role="admin">
                     <ReplaysAdmin />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/payments"
+                element={
+                  <ProtectedRoute role="admin">
+                    <PaymentsAdmin />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/billing"
+                element={
+                  <ProtectedRoute role="admin">
+                    <AdminBilling />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/logs"
+                element={
+                  <ProtectedRoute role="admin">
+                    <LogsAdmin />
                   </ProtectedRoute>
                 }
               />
