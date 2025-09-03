@@ -1,4 +1,3 @@
-// src/App.tsx
 import { Routes, Route } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { Suspense, lazy } from "react";
@@ -18,7 +17,7 @@ function Loader() {
       aria-live="polite"
     >
       <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
-      <span className="ml-3">Chargement...</span>
+      <span className="ml-3 font-medium">Chargement...</span>
     </div>
   );
 }
@@ -42,6 +41,7 @@ const BadgesPage = lazy(() => import("./pages/BadgesPage"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const ProfilePage = lazy(() => import("./pages/ProfilePage"));
+const FavoritesPage = lazy(() => import("./pages/FavoritesPage")); // ✅ NEW
 
 // 🔑 Auth
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -49,8 +49,8 @@ const RegisterPage = lazy(() => import("./pages/RegisterPage"));
 
 // 🛒 Marketplace & Paiements
 const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
-const TemplateExplorer = lazy(() => import("./pages/TemplateExplorer")); // ✅ NEW
-const TemplatePage = lazy(() => import("./pages/TemplatePage"));
+const TemplateExplorer = lazy(() => import("./pages/TemplateExplorer"));
+const TemplateDetail = lazy(() => import("./pages/TemplateDetail")); // ✅ Renommé pour cohérence
 const PricingPage = lazy(() => import("./pages/PricingPage"));
 const PaymentPage = lazy(() => import("./pages/PaymentPage"));
 const PaymentSuccessPage = lazy(() => import("./pages/PaymentSuccessPage"));
@@ -94,7 +94,7 @@ export default function App() {
               <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/projects/:id" element={<ProjectDetailPage />} />
               <Route path="/editor/:id" element={<EditorPage />} />
-              <Route path="/preview/:shareId" element={<PreviewPage />} /> {/* ✅ MAJ */}
+              <Route path="/preview/:shareId" element={<PreviewPage />} />
               <Route path="/ar/:projectId" element={<ARPreviewPage />} />
               <Route path="/deploy/:projectId" element={<DeployPage />} />
               <Route path="/replay/:projectId" element={<ReplayPage />} />
@@ -106,6 +106,7 @@ export default function App() {
               <Route path="/contact" element={<ContactPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/profile" element={<ProfilePage />} />
+              <Route path="/favorites" element={<FavoritesPage />} /> {/* ✅ NEW */}
 
               {/* 🔑 Auth */}
               <Route path="/login" element={<LoginPage />} />
@@ -113,8 +114,8 @@ export default function App() {
 
               {/* 🛒 Marketplace & Paiements */}
               <Route path="/marketplace" element={<MarketplacePage />} />
-              <Route path="/marketplace/templates" element={<TemplateExplorer />} /> {/* ✅ NEW */}
-              <Route path="/marketplace/:id" element={<TemplatePage />} />
+              <Route path="/marketplace/templates" element={<TemplateExplorer />} />
+              <Route path="/marketplace/:id" element={<TemplateDetail />} />
               <Route path="/pricing" element={<PricingPage />} />
               <Route path="/payment" element={<PaymentPage />} />
               <Route path="/payment/success" element={<PaymentSuccessPage />} />
@@ -221,6 +222,7 @@ export default function App() {
           position="top-right"
           toastOptions={{
             duration: 4000,
+            className: "rounded-lg shadow-lg text-sm font-medium",
             style: { background: "#1e293b", color: "#fff" },
             success: { style: { background: "#16a34a" } },
             error: { style: { background: "#dc2626" } },
