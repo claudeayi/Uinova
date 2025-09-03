@@ -15,7 +15,7 @@ export default function ReplaysAdmin() {
   async function fetchReplays() {
     try {
       setLoading(true);
-      const data = await getAllReplays();
+      const data = await getAllReplays({ limit: 200 }); // limite backend
       setReplays(data || []);
     } catch (err) {
       console.error("❌ Erreur chargement replays:", err);
@@ -50,14 +50,6 @@ export default function ReplaysAdmin() {
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
   const totalPages = Math.ceil(filtered.length / pageSize);
 
-  if (loading) {
-    return (
-      <DashboardLayout>
-        <p className="p-6 text-gray-500">⏳ Chargement des replays...</p>
-      </DashboardLayout>
-    );
-  }
-
   return (
     <DashboardLayout>
       <div className="max-w-7xl mx-auto p-6 space-y-6">
@@ -75,18 +67,27 @@ export default function ReplaysAdmin() {
               }}
               className="border rounded px-3 py-2 w-full md:w-72 dark:bg-slate-900 dark:border-slate-700"
             />
-            <Button onClick={fetchReplays}>🔄 Rafraîchir</Button>
+            <Button variant="outline" onClick={fetchReplays}>
+              🔄 Rafraîchir
+            </Button>
           </div>
         </header>
 
-        <p className="text-sm text-gray-500">
-          {filtered.length} replay(s) trouvé(s)
-        </p>
+        {/* Info résultats */}
+        {loading ? (
+          <p className="p-6 text-gray-500">⏳ Chargement des replays...</p>
+        ) : (
+          <p className="text-sm text-gray-500">
+            {filtered.length} replay(s) trouvé(s)
+          </p>
+        )}
 
         {/* Tableau */}
         <Card className="shadow-md rounded-2xl">
           <CardContent className="overflow-x-auto p-0">
-            {paginated.length === 0 ? (
+            {loading ? (
+              <div className="text-center py-10 text-gray-500">Chargement...</div>
+            ) : paginated.length === 0 ? (
               <p className="text-center text-gray-500 py-10">
                 Aucun replay trouvé.
               </p>
@@ -105,7 +106,7 @@ export default function ReplaysAdmin() {
                   {paginated.map((r) => (
                     <tr
                       key={r.id}
-                      className="border-b dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800"
+                      className="border-b dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800 transition"
                     >
                       <td className="p-3 font-medium">{r.projectId}</td>
                       <td className="p-3">{r.user?.email || "—"}</td>
