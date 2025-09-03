@@ -16,6 +16,10 @@ import {
   Scan,
   ChevronDown,
   ChevronRight,
+  Bell,
+  Award,
+  Cpu,
+  BarChart4,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/context/ProjectContext";
@@ -29,6 +33,7 @@ export default function Sidebar() {
 
   const [adminOpen, setAdminOpen] = useState(true);
   const [projectOpen, setProjectOpen] = useState(true);
+  const [toolsOpen, setToolsOpen] = useState(true);
 
   const navItems = [
     { label: "Dashboard", path: "/", icon: <LayoutDashboard className="w-5 h-5" /> },
@@ -52,6 +57,13 @@ export default function Sidebar() {
     { label: "AR/VR", path: `/ar/${projectId}`, icon: <Scan className="w-5 h-5" /> },
   ];
 
+  const toolsItems = [
+    { label: "Monitoring", path: "/monitoring", icon: <BarChart4 className="w-5 h-5" /> },
+    { label: "Copilot IA", path: "/ai", icon: <Cpu className="w-5 h-5" /> },
+    { label: "Notifications", path: "/notifications", icon: <Bell className="w-5 h-5" /> },
+    { label: "Badges", path: "/badges", icon: <Award className="w-5 h-5" /> },
+  ];
+
   return (
     <aside className="w-64 bg-white dark:bg-slate-900 border-r dark:border-slate-800 flex flex-col">
       {/* Logo */}
@@ -65,20 +77,14 @@ export default function Sidebar() {
           <NavItem key={item.path} {...item} active={location.pathname === item.path} />
         ))}
 
-        {/* Section Projets actifs */}
+        {/* Section Projet actif */}
         {projectId ? (
           <>
-            <div
-              className="mt-6 mb-2 px-3 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 flex items-center justify-between cursor-pointer"
-              onClick={() => setProjectOpen((o) => !o)}
-            >
-              <span>Projet actif</span>
-              {projectOpen ? (
-                <ChevronDown className="w-4 h-4" />
-              ) : (
-                <ChevronRight className="w-4 h-4" />
-              )}
-            </div>
+            <SectionHeader
+              label="Projet actif"
+              open={projectOpen}
+              toggle={() => setProjectOpen((o) => !o)}
+            />
             {projectOpen &&
               projectItems.map((item) => (
                 <NavItem
@@ -90,23 +96,31 @@ export default function Sidebar() {
               ))}
           </>
         ) : (
-          <p className="mt-6 px-3 text-xs italic text-gray-400">
-            Aucun projet actif
-          </p>
+          <p className="mt-6 px-3 text-xs italic text-gray-400">Aucun projet actif</p>
         )}
 
+        {/* Section Outils */}
+        <SectionHeader
+          label="Outils"
+          open={toolsOpen}
+          toggle={() => setToolsOpen((o) => !o)}
+        />
+        {toolsOpen &&
+          toolsItems.map((item) => (
+            <NavItem
+              key={item.path}
+              {...item}
+              active={location.pathname.startsWith(item.path)}
+              className="ml-4"
+            />
+          ))}
+
         {/* Section Administration */}
-        <div
-          className="mt-6 mb-2 px-3 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 flex items-center justify-between cursor-pointer"
-          onClick={() => setAdminOpen((o) => !o)}
-        >
-          <span>Administration</span>
-          {adminOpen ? (
-            <ChevronDown className="w-4 h-4" />
-          ) : (
-            <ChevronRight className="w-4 h-4" />
-          )}
-        </div>
+        <SectionHeader
+          label="Administration"
+          open={adminOpen}
+          toggle={() => setAdminOpen((o) => !o)}
+        />
         {adminOpen &&
           adminItems.map((item) => (
             <NavItem
@@ -156,5 +170,32 @@ function NavItem({
       {icon}
       {label}
     </Link>
+  );
+}
+
+/* ============================================================================
+ *  SectionHeader – titre + chevron collapse
+ * ========================================================================== */
+function SectionHeader({
+  label,
+  open,
+  toggle,
+}: {
+  label: string;
+  open: boolean;
+  toggle: () => void;
+}) {
+  return (
+    <div
+      className="mt-6 mb-2 px-3 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 flex items-center justify-between cursor-pointer"
+      onClick={toggle}
+    >
+      <span>{label}</span>
+      {open ? (
+        <ChevronDown className="w-4 h-4" />
+      ) : (
+        <ChevronRight className="w-4 h-4" />
+      )}
+    </div>
   );
 }
