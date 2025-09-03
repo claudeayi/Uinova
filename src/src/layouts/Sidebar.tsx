@@ -1,132 +1,124 @@
 // src/layouts/Sidebar.tsx
 import { useState } from "react";
-import { NavLink, useNavigate, useLocation } from "react-router-dom";
-import { useProject } from "@/context/ProjectContext";
-import { useAuth } from "@/hooks/useAuth";
+import { Link, useLocation } from "react-router-dom";
+import {
+  LayoutDashboard,
+  Boxes,
+  Users,
+  PlayCircle,
+  CreditCard,
+  BarChart3,
+  FileText,
+  ShoppingBag,
+  Settings,
+  ChevronDown,
+  ChevronRight,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 
-const linkClass =
-  "flex items-center gap-2 px-3 py-2 rounded hover:bg-slate-200 dark:hover:bg-slate-700 transition";
-const activeClass =
-  "bg-slate-300 dark:bg-slate-800 font-semibold text-blue-600 dark:text-blue-400";
-
-const NewBadge = () => (
-  <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full 
-    bg-gradient-to-r from-pink-500 to-yellow-400 text-white font-bold shadow animate-pulse">
-    Nouveau
-  </span>
-);
-
+/* ============================================================================
+ *  Sidebar – Navigation principale UInova
+ * ========================================================================== */
 export default function Sidebar() {
-  const [collapsed, setCollapsed] = useState(false);
-  const { projectId } = useProject();
-  const { user } = useAuth();
-  const navigate = useNavigate();
   const location = useLocation();
+  const [adminOpen, setAdminOpen] = useState(true);
 
-  const adminLinks = [
-    { path: "/admin", label: "Panel Admin", icon: "🛠️" },
-    { path: "/admin/users", label: "Utilisateurs", icon: "👥" },
-    { path: "/admin/projects", label: "Projets", icon: "📂" },
-    { path: "/admin/replays", label: "Replays", icon: "🎬" },
-    { path: "/admin/payments", label: "Paiements", icon: "💳" },
-    { path: "/admin/billing", label: "Facturation", icon: "📜" },
-    { path: "/admin/logs", label: "Logs", icon: "📑" },
+  const navItems = [
+    { label: "Dashboard", path: "/", icon: <LayoutDashboard className="w-5 h-5" /> },
+    { label: "Projets", path: "/projects", icon: <Boxes className="w-5 h-5" /> },
+    { label: "Marketplace", path: "/marketplace", icon: <ShoppingBag className="w-5 h-5" /> },
+  ];
+
+  const adminItems = [
+    { label: "Stats", path: "/admin/stats", icon: <BarChart3 className="w-5 h-5" /> },
+    { label: "Utilisateurs", path: "/admin/users", icon: <Users className="w-5 h-5" /> },
+    { label: "Projets", path: "/admin/projects", icon: <Boxes className="w-5 h-5" /> },
+    { label: "Replays", path: "/admin/replays", icon: <PlayCircle className="w-5 h-5" /> },
+    { label: "Paiements", path: "/admin/payments", icon: <CreditCard className="w-5 h-5" /> },
+    { label: "Facturation", path: "/admin/billing", icon: <Settings className="w-5 h-5" /> },
+    { label: "Logs", path: "/admin/logs", icon: <FileText className="w-5 h-5" /> },
   ];
 
   return (
-    <aside
-      className={`h-screen bg-white dark:bg-slate-900 border-r dark:border-slate-700 flex flex-col transition-all duration-300 ${
-        collapsed ? "w-16" : "w-64"
-      }`}
-    >
-      {/* Logo + collapse btn */}
-      <div className="flex items-center justify-between p-3 border-b dark:border-slate-700">
-        <span className="text-xl font-bold text-blue-600 dark:text-blue-400">
-          {collapsed ? "U" : "UInova"}
-        </span>
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="text-sm px-2 py-1 rounded bg-slate-200 dark:bg-slate-700"
-        >
-          {collapsed ? "➡️" : "⬅️"}
-        </button>
+    <aside className="w-64 bg-white dark:bg-slate-900 border-r dark:border-slate-800 flex flex-col">
+      {/* Logo */}
+      <div className="px-6 py-4 text-xl font-extrabold text-indigo-600 dark:text-indigo-400 tracking-wide">
+        UInova
       </div>
 
-      {/* Menu principal */}
-      <nav className="flex-1 overflow-y-auto p-2 space-y-1">
-        <NavLink to="/" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-          🏠 {collapsed ? "" : "Dashboard"}
-        </NavLink>
-        <NavLink to="/projects" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-          📂 {collapsed ? "" : "Projets"}
-        </NavLink>
-        <NavLink to="/marketplace" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-          🛒 {collapsed ? "" : "Marketplace"}
-        </NavLink>
+      {/* Navigation principale */}
+      <nav className="flex-1 px-2 space-y-1">
+        {navItems.map((item) => (
+          <NavItem
+            key={item.path}
+            {...item}
+            active={location.pathname === item.path}
+          />
+        ))}
 
-        {/* Section Admin */}
-        {user?.role === "admin" && (
-          <div className="mt-4">
-            {!collapsed && (
-              <p className="px-3 mb-1 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
-                Administration
-              </p>
+        {/* Section Administration */}
+        <div className="mt-6 mb-2 px-3 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 flex items-center justify-between cursor-pointer">
+          <span>Administration</span>
+          <button
+            onClick={() => setAdminOpen((o) => !o)}
+            className="p-1 hover:bg-slate-200 dark:hover:bg-slate-700 rounded"
+          >
+            {adminOpen ? (
+              <ChevronDown className="w-4 h-4" />
+            ) : (
+              <ChevronRight className="w-4 h-4" />
             )}
-            {adminLinks.map(({ path, label, icon }) => (
-              <NavLink
-                key={path}
-                to={path}
-                className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}
-              >
-                {icon} {collapsed ? "" : label}
-                {path === "/admin" && <NewBadge />}
-              </NavLink>
-            ))}
-          </div>
-        )}
+          </button>
+        </div>
 
-        <NavLink to="/pricing" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-          💎 {collapsed ? "" : "Tarifs"}
-        </NavLink>
-        <NavLink to="/payment" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-          💳 {collapsed ? "" : "Paiement"}
-        </NavLink>
-        <NavLink to="/contact" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-          📩 {collapsed ? "" : "Contact"}
-        </NavLink>
-
-        {projectId ? (
-          <>
-            <NavLink to={`/deploy/${projectId}`} className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-              🚀 {collapsed ? "" : "Deploy"}
-            </NavLink>
-            <NavLink to={`/replay/${projectId}`} className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-              🎬 {collapsed ? "" : "Replay"}
-            </NavLink>
-            <NavLink to={`/ar/${projectId}`} className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-              🕶️ {collapsed ? "" : "AR/VR"}
-            </NavLink>
-          </>
-        ) : (
-          !collapsed && <p className="text-xs text-gray-400 px-3">Aucun projet actif</p>
-        )}
-
-        <NavLink to="/monitoring" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-          📊 {collapsed ? "" : "Monitoring"}
-        </NavLink>
-
-        <button
-          onClick={() => navigate("/ai")}
-          className="w-full flex items-center gap-2 px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 transition"
-        >
-          🤖 {collapsed ? "" : "Copilot"}
-        </button>
+        {adminOpen &&
+          adminItems.map((item) => (
+            <NavItem
+              key={item.path}
+              {...item}
+              active={location.pathname.startsWith(item.path)}
+              className="ml-4"
+            />
+          ))}
       </nav>
 
       {/* Footer */}
-      <div className="p-3 border-t dark:border-slate-700 text-xs text-gray-400">
-        {collapsed ? "©UI" : "© 2025 UInova"}
+      <div className="p-3 border-t dark:border-slate-700 text-xs text-gray-400 text-center">
+        © {new Date().getFullYear()} UInova
       </div>
     </aside>
+  );
+}
+
+/* ============================================================================
+ *  NavItem – lien individuel stylé
+ * ========================================================================== */
+function NavItem({
+  label,
+  path,
+  icon,
+  active,
+  className,
+}: {
+  label: string;
+  path: string;
+  icon: JSX.Element;
+  active: boolean;
+  className?: string;
+}) {
+  return (
+    <Link
+      to={path}
+      className={cn(
+        "flex items-center gap-3 px-3 py-2 rounded-md transition text-sm font-medium",
+        active
+          ? "bg-indigo-600 text-white shadow"
+          : "text-gray-700 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-slate-800",
+        className
+      )}
+    >
+      {icon}
+      {label}
+    </Link>
   );
 }
