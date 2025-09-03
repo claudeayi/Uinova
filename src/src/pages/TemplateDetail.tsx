@@ -1,4 +1,3 @@
-// src/pages/TemplateDetail.tsx
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import axios from "axios";
@@ -13,6 +12,7 @@ import {
   Monitor,
   Tablet,
   Smartphone,
+  Star,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -20,6 +20,7 @@ import { useAuth } from "@/hooks/useAuth";
 import { duplicateProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import { DroppedComponent } from "@/components/Editor/LiveEditor";
+import { useFavorites } from "@/context/FavoritesContext";
 
 /* ============================================================================
  *  TemplateDetail – Vue détaillée avec mini-preview intégré
@@ -39,6 +40,7 @@ export default function TemplateDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { toggleFavorite, isFavorite } = useFavorites();
 
   const [template, setTemplate] = useState<Template | null>(null);
   const [loading, setLoading] = useState(true);
@@ -84,7 +86,11 @@ export default function TemplateDetail() {
     <DashboardLayout>
       <div className="p-6">
         {loading ? (
-          <div className="flex justify-center items-center py-20 text-indigo-500">
+          <div
+            className="flex justify-center items-center py-20 text-indigo-500"
+            role="status"
+            aria-live="polite"
+          >
             <Loader2 className="animate-spin w-6 h-6 mr-2" />
             Chargement du template...
           </div>
@@ -92,7 +98,10 @@ export default function TemplateDetail() {
           <div className="text-center py-20 text-gray-500">
             ❌ Template introuvable
             <div className="mt-4">
-              <Button onClick={() => navigate("/marketplace")} className="bg-indigo-600 text-white">
+              <Button
+                onClick={() => navigate("/marketplace")}
+                className="bg-indigo-600 text-white"
+              >
                 Retour à la Marketplace
               </Button>
             </div>
@@ -101,11 +110,35 @@ export default function TemplateDetail() {
           <div className="max-w-5xl mx-auto space-y-6">
             {/* Header */}
             <div className="flex items-center justify-between">
-              <Button variant="ghost" onClick={() => navigate(-1)} className="flex items-center gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => navigate(-1)}
+                className="flex items-center gap-2"
+              >
                 <ArrowLeft className="w-4 h-4" /> Retour
               </Button>
+              {user && (
+                <button
+                  onClick={() => toggleFavorite(template.id)}
+                  className="p-2 rounded hover:bg-yellow-100 dark:hover:bg-slate-700"
+                  aria-label={
+                    isFavorite(template.id)
+                      ? "Retirer des favoris"
+                      : "Ajouter aux favoris"
+                  }
+                >
+                  <Star
+                    className={`w-6 h-6 ${
+                      isFavorite(template.id)
+                        ? "fill-yellow-400 text-yellow-500"
+                        : "text-gray-400"
+                    }`}
+                  />
+                </button>
+              )}
             </div>
 
+            {/* Infos principales */}
             <Card>
               <CardContent className="p-6">
                 <h1 className="text-2xl font-bold text-indigo-600 mb-2">
@@ -117,7 +150,8 @@ export default function TemplateDetail() {
 
                 <div className="flex flex-wrap gap-4 text-sm text-gray-500 dark:text-gray-400 mb-6">
                   <span className="flex items-center gap-1">
-                    <User className="w-4 h-4" /> {template.owner?.email || "Anonyme"}
+                    <User className="w-4 h-4" />{" "}
+                    {template.owner?.email || "Anonyme"}
                   </span>
                   <span className="flex items-center gap-1">
                     <Calendar className="w-4 h-4" />
@@ -161,7 +195,7 @@ export default function TemplateDetail() {
               </CardContent>
             </Card>
 
-            {/* Pages */}
+            {/* Pages incluses */}
             {template.pages && template.pages.length > 0 && (
               <Card>
                 <CardContent className="p-6">
