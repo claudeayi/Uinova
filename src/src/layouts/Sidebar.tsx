@@ -1,5 +1,6 @@
+// src/layouts/Sidebar.tsx
 import { useState } from "react";
-import { NavLink, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate, useLocation } from "react-router-dom";
 import { useProject } from "@/context/ProjectContext";
 import { useAuth } from "@/hooks/useAuth";
 
@@ -20,6 +21,17 @@ export default function Sidebar() {
   const { projectId } = useProject();
   const { user } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+
+  const adminLinks = [
+    { path: "/admin", label: "Panel Admin", icon: "🛠️" },
+    { path: "/admin/users", label: "Utilisateurs", icon: "👥" },
+    { path: "/admin/projects", label: "Projets", icon: "📂" },
+    { path: "/admin/replays", label: "Replays", icon: "🎬" },
+    { path: "/admin/payments", label: "Paiements", icon: "💳" },
+    { path: "/admin/billing", label: "Facturation", icon: "📜" },
+    { path: "/admin/logs", label: "Logs", icon: "📑" },
+  ];
 
   return (
     <aside
@@ -40,7 +52,7 @@ export default function Sidebar() {
         </button>
       </div>
 
-      {/* Menu */}
+      {/* Menu principal */}
       <nav className="flex-1 overflow-y-auto p-2 space-y-1">
         <NavLink to="/" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
           🏠 {collapsed ? "" : "Dashboard"}
@@ -52,10 +64,25 @@ export default function Sidebar() {
           🛒 {collapsed ? "" : "Marketplace"}
         </NavLink>
 
+        {/* Section Admin */}
         {user?.role === "admin" && (
-          <NavLink to="/admin" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
-            🛠️ {collapsed ? "" : "Admin Panel"} <NewBadge />
-          </NavLink>
+          <div className="mt-4">
+            {!collapsed && (
+              <p className="px-3 mb-1 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">
+                Administration
+              </p>
+            )}
+            {adminLinks.map(({ path, label, icon }) => (
+              <NavLink
+                key={path}
+                to={path}
+                className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}
+              >
+                {icon} {collapsed ? "" : label}
+                {path === "/admin" && <NewBadge />}
+              </NavLink>
+            ))}
+          </div>
         )}
 
         <NavLink to="/pricing" className={({ isActive }) => `${linkClass} ${isActive ? activeClass : ""}`}>
