@@ -1,6 +1,6 @@
 // src/pages/MarketplacePage.tsx
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 import DashboardLayout from "@/layouts/DashboardLayout";
@@ -32,7 +32,9 @@ export default function MarketplacePage() {
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
   const [filter, setFilter] = useState<"all" | "template" | "component" | "free">("all");
+  const [buying, setBuying] = useState<string | null>(null);
   const pageSize = 9;
+  const navigate = useNavigate();
 
   async function fetchItems() {
     try {
@@ -60,7 +62,16 @@ export default function MarketplacePage() {
       toast("✅ Déjà installé");
       return;
     }
+
+    if (item.priceCents > 0) {
+      // 🔀 Redirection vers page paiement
+      navigate(`/payment?plan=${item.id}`);
+      return;
+    }
+
+    // Gratuit → installation directe
     try {
+      setBuying(item.id);
       await axios.post(
         "/api/marketplace/purchase",
         { itemId: item.id },
@@ -69,9 +80,11 @@ export default function MarketplacePage() {
       setItems((prev) =>
         prev.map((i) => (i.id === item.id ? { ...i, purchased: true } : i))
       );
-      toast.success("🎉 Achat réussi !");
+      toast.success("🎉 Ajout réussi !");
     } catch {
-      toast.error("Impossible d’acheter cet item.");
+      toast.error("Impossible d’installer cet item.");
+    } finally {
+      setBuying(null);
     }
   }
 
@@ -147,6 +160,9 @@ export default function MarketplacePage() {
                       color={item.type === "template" ? "blue" : "purple"}
                     />
                     {item.priceCents === 0 && <Badge label="Gratuit" color="green" />}
+                    {item.owner?.email && (
+                      <span className="text-gray-400">👤 {item.owner.email}</span>
+                    )}
                   </div>
                 </div>
 
@@ -171,6 +187,7 @@ export default function MarketplacePage() {
                     </Link>
                     <button
                       onClick={() => handleBuy(item)}
+                      disabled={!!buying && buying === item.id}
                       className={`px-3 py-1 text-sm rounded flex items-center gap-1 ${
                         item.purchased
                           ? "bg-gray-400 text-white cursor-not-allowed"
@@ -178,7 +195,13 @@ export default function MarketplacePage() {
                       }`}
                     >
                       <ShoppingCart size={14} />
-                      {item.purchased ? "Installé" : "Acheter"}
+                      {buying === item.id
+                        ? "⏳..."
+                        : item.purchased
+                        ? "Installé"
+                        : item.priceCents > 0
+                        ? "Acheter"
+                        : "Installer"}
                     </button>
                   </div>
                 </div>
@@ -247,9 +270,10 @@ function Badge({ label, color }: { label: string; color: "blue" | "purple" | "gr
     green: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200",
   };
   return (
-    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[color]}`}>
-      <Tag size={12} className="inline mr-1" />
-      {label}
+    <span
+      className={`px-2 py-0.5 rounded-full text-xs font-medium flex items-center gap-1 ${colors[color]}`}
+    >
+      <Tag size={12} /> {label}
     </span>
   );
 }
