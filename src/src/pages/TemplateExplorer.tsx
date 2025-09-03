@@ -5,7 +5,7 @@ import axios from "axios";
 import { toast } from "react-hot-toast";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Loader2, Eye, Download, User, Calendar } from "lucide-react";
+import { Loader2, Eye, Download, User, Calendar, Info } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 import { duplicateProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
@@ -80,10 +80,16 @@ export default function TemplateExplorer() {
         ) : (
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {templates.map((tpl) => (
-              <Card key={tpl.id} className="hover:shadow-lg transition">
+              <Card
+                key={tpl.id}
+                className="hover:shadow-lg transition cursor-pointer"
+                onClick={() => navigate(`/marketplace/${tpl.id}`)} // ✅ clic carte = détails
+              >
                 <CardContent className="p-4 flex flex-col h-full justify-between">
                   <div>
-                    <h2 className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-1">
+                    <h2
+                      className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-1 hover:text-indigo-600"
+                    >
                       {tpl.name}
                     </h2>
                     <div className="flex gap-2 text-xs text-gray-500 dark:text-gray-400 mb-2">
@@ -106,12 +112,21 @@ export default function TemplateExplorer() {
                     </span>
                   </div>
 
-                  <div className="mt-4 flex flex-wrap gap-2">
+                  <div
+                    className="mt-4 flex flex-wrap gap-2"
+                    onClick={(e) => e.stopPropagation()} // ✅ évite ouverture détail si clic sur boutons
+                  >
                     <Link
                       to={`/preview/${tpl.shareId}`}
                       className="flex items-center gap-1 px-3 py-1 text-sm bg-gray-100 hover:bg-gray-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded"
                     >
                       <Eye className="w-4 h-4" /> Aperçu
+                    </Link>
+                    <Link
+                      to={`/marketplace/${tpl.id}`}
+                      className="flex items-center gap-1 px-3 py-1 text-sm bg-blue-100 hover:bg-blue-200 dark:bg-slate-800 dark:hover:bg-slate-700 rounded"
+                    >
+                      <Info className="w-4 h-4" /> Détails
                     </Link>
                     {user && (
                       <Button
