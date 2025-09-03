@@ -1,6 +1,6 @@
 // src/layouts/Sidebar.tsx
 import { useState } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   LayoutDashboard,
   Boxes,
@@ -23,16 +23,23 @@ import {
   Layers,
   Puzzle,
   Receipt,
+  LogOut,
+  User,
+  LogIn,
+  UserPlus,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/context/ProjectContext";
+import { useAuth } from "@/hooks/useAuth";
 
 /* ============================================================================
- *  Sidebar – Navigation principale UInova
+ *  Sidebar – Navigation UInova v5
  * ========================================================================== */
 export default function Sidebar() {
   const location = useLocation();
+  const navigate = useNavigate();
   const { projectId } = useProject();
+  const { user, logout } = useAuth();
 
   const [adminOpen, setAdminOpen] = useState(true);
   const [projectOpen, setProjectOpen] = useState(true);
@@ -75,47 +82,31 @@ export default function Sidebar() {
 
   return (
     <aside className="w-64 bg-white dark:bg-slate-900 border-r dark:border-slate-800 flex flex-col">
+      {/* Header Logo */}
       <div className="px-6 py-4 text-xl font-extrabold text-indigo-600 dark:text-indigo-400 tracking-wide">
         UInova
       </div>
 
+      {/* Navigation */}
       <nav className="flex-1 px-2 space-y-1">
         {navItems.map((item) => (
           <NavItem key={item.path} {...item} active={location.pathname === item.path} />
         ))}
 
         {/* Marketplace */}
-        <SectionHeader
-          label="Marketplace"
-          open={marketplaceOpen}
-          toggle={() => setMarketplaceOpen((o) => !o)}
-        />
+        <SectionHeader label="Marketplace" open={marketplaceOpen} toggle={() => setMarketplaceOpen((o) => !o)} />
         {marketplaceOpen &&
           marketplaceItems.map((item) => (
-            <NavItem
-              key={item.path}
-              {...item}
-              active={location.pathname.startsWith(item.path)}
-              className="ml-4"
-            />
+            <NavItem key={item.path} {...item} active={location.pathname.startsWith(item.path)} className="ml-4" />
           ))}
 
         {/* Projet actif */}
         {projectId ? (
           <>
-            <SectionHeader
-              label="Projet actif"
-              open={projectOpen}
-              toggle={() => setProjectOpen((o) => !o)}
-            />
+            <SectionHeader label="Projet actif" open={projectOpen} toggle={() => setProjectOpen((o) => !o)} />
             {projectOpen &&
               projectItems.map((item) => (
-                <NavItem
-                  key={item.path}
-                  {...item}
-                  active={location.pathname.startsWith(item.path)}
-                  className="ml-4"
-                />
+                <NavItem key={item.path} {...item} active={location.pathname.startsWith(item.path)} className="ml-4" />
               ))}
           </>
         ) : (
@@ -123,40 +114,61 @@ export default function Sidebar() {
         )}
 
         {/* Outils */}
-        <SectionHeader
-          label="Outils"
-          open={toolsOpen}
-          toggle={() => setToolsOpen((o) => !o)}
-        />
+        <SectionHeader label="Outils" open={toolsOpen} toggle={() => setToolsOpen((o) => !o)} />
         {toolsOpen &&
           toolsItems.map((item) => (
-            <NavItem
-              key={item.path}
-              {...item}
-              active={location.pathname.startsWith(item.path)}
-              className="ml-4"
-            />
+            <NavItem key={item.path} {...item} active={location.pathname.startsWith(item.path)} className="ml-4" />
           ))}
 
-        {/* Administration */}
-        <SectionHeader
-          label="Administration"
-          open={adminOpen}
-          toggle={() => setAdminOpen((o) => !o)}
-        />
-        {adminOpen &&
-          adminItems.map((item) => (
-            <NavItem
-              key={item.path}
-              {...item}
-              active={location.pathname.startsWith(item.path)}
-              className="ml-4"
-            />
-          ))}
+        {/* Admin */}
+        {user?.role === "ADMIN" && (
+          <>
+            <SectionHeader label="Administration" open={adminOpen} toggle={() => setAdminOpen((o) => !o)} />
+            {adminOpen &&
+              adminItems.map((item) => (
+                <NavItem key={item.path} {...item} active={location.pathname.startsWith(item.path)} className="ml-4" />
+              ))}
+          </>
+        )}
       </nav>
 
-      <div className="p-3 border-t dark:border-slate-700 text-xs text-gray-400 text-center">
-        © {new Date().getFullYear()} UInova
+      {/* Footer Auth */}
+      <div className="p-4 border-t dark:border-slate-700">
+        {user ? (
+          <div className="space-y-2">
+            <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 truncate">{user.email}</div>
+            <Link
+              to="/profile"
+              className="flex items-center gap-2 px-3 py-2 rounded text-sm bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
+            >
+              <User className="w-4 h-4" /> Profil
+            </Link>
+            <button
+              onClick={() => {
+                logout();
+                navigate("/login");
+              }}
+              className="w-full flex items-center gap-2 px-3 py-2 rounded text-sm bg-red-600 text-white hover:bg-red-700"
+            >
+              <LogOut className="w-4 h-4" /> Déconnexion
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <Link
+              to="/login"
+              className="flex items-center gap-2 px-3 py-2 rounded text-sm bg-indigo-600 text-white hover:bg-indigo-700"
+            >
+              <LogIn className="w-4 h-4" /> Connexion
+            </Link>
+            <Link
+              to="/register"
+              className="flex items-center gap-2 px-3 py-2 rounded text-sm bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
+            >
+              <UserPlus className="w-4 h-4" /> Inscription
+            </Link>
+          </div>
+        )}
       </div>
     </aside>
   );
@@ -198,26 +210,14 @@ function NavItem({
 /* ============================================================================
  *  SectionHeader
  * ========================================================================== */
-function SectionHeader({
-  label,
-  open,
-  toggle,
-}: {
-  label: string;
-  open: boolean;
-  toggle: () => void;
-}) {
+function SectionHeader({ label, open, toggle }: { label: string; open: boolean; toggle: () => void }) {
   return (
     <div
       className="mt-6 mb-2 px-3 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 flex items-center justify-between cursor-pointer"
       onClick={toggle}
     >
       <span>{label}</span>
-      {open ? (
-        <ChevronDown className="w-4 h-4" />
-      ) : (
-        <ChevronRight className="w-4 h-4" />
-      )}
+      {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
     </div>
   );
 }
