@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "react-hot-toast";
 import { getUsers, updateUserRole, AdminUser } from "@/services/admin";
 import DashboardLayout from "@/layouts/DashboardLayout";
+import { useNavigate } from "react-router-dom";
 
 export default function UsersAdmin() {
   const [users, setUsers] = useState<AdminUser[]>([]);
@@ -12,6 +13,7 @@ export default function UsersAdmin() {
   const [page, setPage] = useState(1);
   const [updating, setUpdating] = useState<string | null>(null);
   const limit = 10;
+  const navigate = useNavigate();
 
   async function fetchUsers() {
     try {
@@ -76,13 +78,23 @@ export default function UsersAdmin() {
         {/* Header */}
         <header className="flex flex-col md:flex-row justify-between items-center gap-4">
           <h1 className="text-2xl font-bold">👥 Gestion des utilisateurs</h1>
-          <input
-            type="text"
-            placeholder="🔍 Rechercher par email..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="border rounded-lg px-3 py-2 w-full md:w-72 dark:bg-slate-900 dark:border-slate-700"
-          />
+          <div className="flex gap-2">
+            <input
+              type="text"
+              placeholder="🔍 Rechercher par email..."
+              value={search}
+              onChange={(e) => {
+                setSearch(e.target.value);
+                setPage(1);
+              }}
+              className="border rounded-lg px-3 py-2 w-72 dark:bg-slate-900 dark:border-slate-700"
+            />
+            {search && (
+              <Button variant="outline" onClick={() => setSearch("")}>
+                ❌ Reset
+              </Button>
+            )}
+          </div>
         </header>
 
         <p className="text-sm text-gray-500">
@@ -103,7 +115,7 @@ export default function UsersAdmin() {
                     <th className="p-3 border">Email</th>
                     <th className="p-3 border">Rôle</th>
                     <th className="p-3 border">Créé le</th>
-                    <th className="p-3 border text-center">Action</th>
+                    <th className="p-3 border text-center">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -129,7 +141,8 @@ export default function UsersAdmin() {
                       <td className="p-3 text-gray-500">
                         {new Date(u.createdAt).toLocaleDateString("fr-FR")}
                       </td>
-                      <td className="p-3 text-center">
+                      <td className="p-3 flex gap-2 justify-center">
+                        {/* Rôle */}
                         <select
                           value={u.role}
                           disabled={updating === u.id}
@@ -145,6 +158,15 @@ export default function UsersAdmin() {
                           <option value="PREMIUM">PREMIUM</option>
                           <option value="ADMIN">ADMIN</option>
                         </select>
+
+                        {/* Voir profil */}
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => navigate(`/admin/users/${u.id}`)}
+                        >
+                          Voir profil
+                        </Button>
                       </td>
                     </tr>
                   ))}
