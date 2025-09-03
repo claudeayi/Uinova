@@ -1,15 +1,33 @@
 // src/pages/DeployPage.tsx
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 import DashboardLayout from "@/layouts/DashboardLayout";
+import { Button } from "@/components/ui/button";
+import {
+  RefreshCw,
+  Rocket,
+  Ban,
+  RotateCcw,
+  Loader,
+  Globe,
+  Terminal,
+} from "lucide-react";
 
+/* ============================================================================
+ * DeployPage – UInova
+ *  ✅ Déploiement + Annulation + Relance + Rollback
+ *  ✅ Logs live + Timeline enrichie
+ *  ✅ Hotkeys (r = refresh, d = deploy)
+ * ========================================================================== */
 export default function DeployPage() {
   const { projectId } = useParams();
   const [status, setStatus] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const logRef = useRef<HTMLPreElement>(null);
 
   /* ===============================
    * API Calls
@@ -88,13 +106,53 @@ export default function DeployPage() {
     }
   };
 
+  const rollbackDeploy = async (deployId: string) => {
+    try {
+      await axios.post(
+        `/api/deploy/${projectId}/rollback/${deployId}`,
+        {},
+        { headers: { Authorization: "Bearer " + localStorage.getItem("token") } }
+      );
+      toast.success("↩️ Rollback effectué !");
+      fetchStatus();
+      fetchHistory();
+    } catch {
+      toast.error("Erreur rollback");
+    }
+  };
+
   /* ===============================
    * Effects
    * =============================== */
   useEffect(() => {
     fetchStatus();
     fetchHistory();
-  }, [projectId]);
+
+    if (autoRefresh) {
+      const interval = setInterval(() => {
+        fetchStatus();
+        fetchHistory();
+      }, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [projectId, autoRefresh]);
+
+  /* Auto-scroll logs */
+  useEffect(() => {
+    if (logRef.current) {
+      logRef.current.scrollTop = logRef.current.scrollHeight;
+    }
+  }, [status?.data?.logs]);
+
+  /* Hotkeys */
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "r") fetchStatus();
+      if (e.key === "d") startDeploy();
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, []);
 
   /* ===============================
    * Helpers
@@ -118,73 +176,86 @@ export default function DeployPage() {
   return (
     <DashboardLayout>
       <div className="p-6 space-y-6">
+        {/* Header */}
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold">🚀 Déploiement du projet</h1>
-          <button
+          <Button
+            variant="outline"
             onClick={() => {
               fetchStatus();
               fetchHistory();
             }}
-            className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
           >
-            🔄 Rafraîchir
-          </button>
+            <RefreshCw className="w-4 h-4 mr-1" /> Rafraîchir
+          </Button>
         </div>
 
         {/* Actions */}
         <div className="space-x-3">
-          <button
+          <Button
             onClick={startDeploy}
             disabled={loading}
-            className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 disabled:opacity-50"
+            className="bg-indigo-600 text-white hover:bg-indigo-700"
           >
-            {loading ? "..." : "Lancer un déploiement"}
-          </button>
+            {loading ? <Loader className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
+            {loading ? "Déploiement..." : "Lancer un déploiement"}
+          </Button>
           {status?.data?.status === "RUNNING" && (
-            <button
-              onClick={cancelDeploy}
-              className="px-4 py-2 bg-red-600 text-white rounded hover:bg-red-700"
-            >
-              ❌ Annuler
-            </button>
+            <Button onClick={cancelDeploy} variant="destructive">
+              <Ban className="w-4 h-4 mr-1" /> Annuler
+            </Button>
           )}
           {status?.data?.status === "ERROR" && (
-            <button
-              onClick={restartDeploy}
-              className="px-4 py-2 bg-yellow-500 text-white rounded hover:bg-yellow-600"
-            >
-              🔄 Relancer
-            </button>
+            <Button onClick={restartDeploy} className="bg-yellow-500 hover:bg-yellow-600 text-white">
+              <RotateCcw className="w-4 h-4 mr-1" /> Relancer
+            </Button>
           )}
         </div>
 
         {/* Statut courant */}
         {status && (
-          <div className="mt-4 p-4 bg-white dark:bg-slate-800 rounded shadow">
-            <h2 className="font-semibold">📡 Statut actuel</h2>
+          <div className="mt-4 p-4 bg-white dark:bg-slate-800 rounded shadow space-y-3">
+            <h2 className="font-semibold flex items-center gap-2">
+              📡 Statut actuel
+              {status?.data?.status === "RUNNING" && (
+                <span className="flex-1 h-1 bg-yellow-200 rounded overflow-hidden">
+                  <span className="block w-1/2 h-full bg-yellow-500 animate-pulse"></span>
+                </span>
+              )}
+            </h2>
             <p
-              className={`inline-block mt-1 px-2 py-1 rounded text-sm font-semibold ${getStatusColor(
+              className={`inline-block px-2 py-1 rounded text-sm font-semibold ${getStatusColor(
                 status?.data?.status
               )}`}
             >
               {status?.data?.status || "Inconnu"}
             </p>
+
             {status?.data?.targetUrl && (
               <p className="mt-2">
                 <a
                   href={status.data.targetUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="text-indigo-500 hover:underline"
+                  className="flex items-center gap-1 text-indigo-600 hover:underline"
                 >
-                  🌍 Voir le site déployé
+                  <Globe className="w-4 h-4" /> Voir le site déployé
                 </a>
               </p>
             )}
+
             {status?.data?.logs && (
-              <pre className="mt-3 p-2 bg-slate-900 text-green-400 rounded text-xs overflow-x-auto max-h-64">
-                {status.data.logs}
-              </pre>
+              <div>
+                <h3 className="text-sm font-semibold flex items-center gap-2">
+                  <Terminal className="w-4 h-4" /> Logs
+                </h3>
+                <pre
+                  ref={logRef}
+                  className="mt-2 p-3 bg-slate-900 text-green-400 rounded text-xs overflow-y-auto max-h-64"
+                >
+                  {status.data.logs}
+                </pre>
+              </div>
             )}
           </div>
         )}
@@ -205,16 +276,27 @@ export default function DeployPage() {
                     {new Date(d.createdAt).toLocaleString()}
                   </time>
                   <p className="font-semibold">{d.status}</p>
-                  {d.targetUrl && (
-                    <a
-                      href={d.targetUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-indigo-500 hover:underline text-sm"
-                    >
-                      🌍 Voir le déploiement
-                    </a>
-                  )}
+                  <div className="flex gap-2 mt-1">
+                    {d.targetUrl && (
+                      <a
+                        href={d.targetUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-indigo-500 hover:underline text-sm"
+                      >
+                        🌍 Voir
+                      </a>
+                    )}
+                    {d.status === "SUCCESS" && (
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() => rollbackDeploy(d.id)}
+                      >
+                        ↩️ Rollback
+                      </Button>
+                    )}
+                  </div>
                 </li>
               ))}
             </ol>
