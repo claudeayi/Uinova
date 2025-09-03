@@ -1,4 +1,3 @@
-// src/App.tsx
 import { Routes, Route } from "react-router-dom";
 import { Toaster } from "react-hot-toast";
 import { Suspense, lazy } from "react";
@@ -24,7 +23,7 @@ function Loader() {
 }
 
 /* ============================================================================
- *  PAGES – Lazy Loading pour perf
+ *  PAGES – Lazy Loading pour perf et scalabilité
  * ========================================================================== */
 // 🌍 Public & User
 const Dashboard = lazy(() => import("./pages/Dashboard"));
@@ -40,6 +39,7 @@ const AIAssistantPage = lazy(() => import("./pages/AIAssistantPage"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 const BadgesPage = lazy(() => import("./pages/BadgesPage"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
+const SettingsPage = lazy(() => import("./pages/SettingsPage")); // ✅ NEW
 
 // 🔑 Auth
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -64,7 +64,7 @@ const LogsAdmin = lazy(() => import("./pages/admin/LogsAdmin"));
 const ReplaysAdmin = lazy(() => import("./pages/admin/ReplaysAdmin"));
 const PaymentsAdmin = lazy(() => import("./pages/admin/PaymentsAdmin"));
 const AdminBilling = lazy(() => import("./pages/admin/AdminBilling"));
-const AdminStatsPage = lazy(() => import("./pages/admin/AdminStats")); // ✅ NEW
+const AdminStatsPage = lazy(() => import("./pages/admin/AdminStats"));
 
 /* ============================================================================
  *  APP ROOT
@@ -99,6 +99,7 @@ export default function App() {
               <Route path="/badges" element={<BadgesPage />} />
               <Route path="/onboarding" element={<OnboardingPage />} />
               <Route path="/contact" element={<ContactPage />} />
+              <Route path="/settings" element={<SettingsPage />} /> {/* ✅ NEW */}
 
               {/* 🔑 Auth */}
               <Route path="/login" element={<LoginPage />} />
@@ -162,18 +163,18 @@ export default function App() {
                 }
               />
               <Route
-                path="/admin/logs"
-                element={
-                  <ProtectedRoute role="admin">
-                    <LogsAdmin />
-                  </ProtectedRoute>
-                }
-              />
-              <Route
                 path="/admin/stats"
                 element={
                   <ProtectedRoute role="admin">
                     <AdminStatsPage />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/logs"
+                element={
+                  <ProtectedRoute role="admin">
+                    <LogsAdmin />
                   </ProtectedRoute>
                 }
               />
@@ -201,18 +202,10 @@ export default function App() {
               background: "#1e293b",
               color: "#fff",
             },
-            success: {
-              style: { background: "#16a34a" },
-            },
-            error: {
-              style: { background: "#dc2626" },
-            },
-            warning: {
-              style: { background: "#f59e0b" },
-            },
-            info: {
-              style: { background: "#3b82f6" },
-            },
+            success: { style: { background: "#16a34a" } },
+            error: { style: { background: "#dc2626" } },
+            warning: { style: { background: "#f59e0b" } },
+            info: { style: { background: "#3b82f6" } },
           }}
         />
       </div>
