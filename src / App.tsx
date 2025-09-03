@@ -49,6 +49,7 @@ const RegisterPage = lazy(() => import("./pages/RegisterPage"));
 
 // 🛒 Marketplace & Paiements
 const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
+const TemplateExplorer = lazy(() => import("./pages/TemplateExplorer")); // ✅ NEW
 const TemplatePage = lazy(() => import("./pages/TemplatePage"));
 const PricingPage = lazy(() => import("./pages/PricingPage"));
 const PaymentPage = lazy(() => import("./pages/PaymentPage"));
@@ -68,7 +69,7 @@ const PaymentsAdmin = lazy(() => import("./pages/admin/PaymentsAdmin"));
 const AdminBilling = lazy(() => import("./pages/admin/AdminBilling"));
 const AdminStatsPage = lazy(() => import("./pages/admin/AdminStats"));
 const LogsAdmin = lazy(() => import("./pages/admin/LogsAdmin"));
-const AdminDeployments = lazy(() => import("./pages/admin/AdminDeployments")); // ✅ NEW
+const AdminDeployments = lazy(() => import("./pages/admin/AdminDeployments"));
 
 /* ============================================================================
  *  APP ROOT
@@ -93,7 +94,7 @@ export default function App() {
               <Route path="/projects" element={<ProjectsPage />} />
               <Route path="/projects/:id" element={<ProjectDetailPage />} />
               <Route path="/editor/:id" element={<EditorPage />} />
-              <Route path="/preview/:projectId/:pageId" element={<PreviewPage />} />
+              <Route path="/preview/:shareId" element={<PreviewPage />} /> {/* ✅ MAJ */}
               <Route path="/ar/:projectId" element={<ARPreviewPage />} />
               <Route path="/deploy/:projectId" element={<DeployPage />} />
               <Route path="/replay/:projectId" element={<ReplayPage />} />
@@ -112,6 +113,7 @@ export default function App() {
 
               {/* 🛒 Marketplace & Paiements */}
               <Route path="/marketplace" element={<MarketplacePage />} />
+              <Route path="/marketplace/templates" element={<TemplateExplorer />} /> {/* ✅ NEW */}
               <Route path="/marketplace/:id" element={<TemplatePage />} />
               <Route path="/pricing" element={<PricingPage />} />
               <Route path="/payment" element={<PaymentPage />} />
@@ -122,7 +124,7 @@ export default function App() {
               <Route
                 path="/admin"
                 element={
-                  <ProtectedRoute role="admin">
+                  <ProtectedRoute role="ADMIN">
                     <AdminPanel />
                   </ProtectedRoute>
                 }
@@ -130,7 +132,7 @@ export default function App() {
               <Route
                 path="/admin/users"
                 element={
-                  <ProtectedRoute role="admin">
+                  <ProtectedRoute role="ADMIN">
                     <UsersAdmin />
                   </ProtectedRoute>
                 }
@@ -138,7 +140,7 @@ export default function App() {
               <Route
                 path="/admin/users/:id"
                 element={
-                  <ProtectedRoute role="admin">
+                  <ProtectedRoute role="ADMIN">
                     <AdminProfilePage />
                   </ProtectedRoute>
                 }
@@ -146,7 +148,7 @@ export default function App() {
               <Route
                 path="/admin/projects"
                 element={
-                  <ProtectedRoute role="admin">
+                  <ProtectedRoute role="ADMIN">
                     <ProjectsAdmin />
                   </ProtectedRoute>
                 }
@@ -154,7 +156,7 @@ export default function App() {
               <Route
                 path="/admin/replays"
                 element={
-                  <ProtectedRoute role="admin">
+                  <ProtectedRoute role="ADMIN">
                     <ReplaysAdmin />
                   </ProtectedRoute>
                 }
@@ -162,7 +164,7 @@ export default function App() {
               <Route
                 path="/admin/payments"
                 element={
-                  <ProtectedRoute role="admin">
+                  <ProtectedRoute role="ADMIN">
                     <PaymentsAdmin />
                   </ProtectedRoute>
                 }
@@ -170,7 +172,7 @@ export default function App() {
               <Route
                 path="/admin/billing"
                 element={
-                  <ProtectedRoute role="admin">
+                  <ProtectedRoute role="ADMIN">
                     <AdminBilling />
                   </ProtectedRoute>
                 }
@@ -178,7 +180,7 @@ export default function App() {
               <Route
                 path="/admin/stats"
                 element={
-                  <ProtectedRoute role="admin">
+                  <ProtectedRoute role="ADMIN">
                     <AdminStatsPage />
                   </ProtectedRoute>
                 }
@@ -186,7 +188,7 @@ export default function App() {
               <Route
                 path="/admin/logs"
                 element={
-                  <ProtectedRoute role="admin">
+                  <ProtectedRoute role="ADMIN">
                     <LogsAdmin />
                   </ProtectedRoute>
                 }
@@ -194,7 +196,7 @@ export default function App() {
               <Route
                 path="/admin/deployments"
                 element={
-                  <ProtectedRoute role="admin">
+                  <ProtectedRoute role="ADMIN">
                     <AdminDeployments />
                   </ProtectedRoute>
                 }
