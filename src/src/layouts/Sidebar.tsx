@@ -1,4 +1,3 @@
-// src/layouts/Sidebar.tsx
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -8,7 +7,6 @@ import {
   PlayCircle,
   CreditCard,
   FileText,
-  ShoppingBag,
   Settings,
   Rocket,
   Film,
@@ -29,6 +27,7 @@ import {
   UserPlus,
   Server,
   Plus,
+  Star,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/context/ProjectContext";
@@ -43,7 +42,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 /* ============================================================================
- *  Sidebar – Navigation UInova v7 ultra-pro
+ *  Sidebar – Navigation UInova v8 ultra-pro
  * ========================================================================== */
 export default function Sidebar() {
   const location = useLocation();
@@ -60,10 +59,11 @@ export default function Sidebar() {
   const navItems = [
     { label: "Dashboard", path: "/", icon: <LayoutDashboard className="w-5 h-5" /> },
     { label: "Projets", path: "/projects", icon: <Boxes className="w-5 h-5" /> },
+    { label: "Favoris", path: "/favorites", icon: <Star className="w-5 h-5" /> }, // ✅ NEW
   ];
 
   const marketplaceItems = [
-    { label: "Templates", path: "/marketplace/templates", icon: <Layers className="w-5 h-5" /> }, // ✅ MAJ
+    { label: "Templates", path: "/marketplace/templates", icon: <Layers className="w-5 h-5" /> },
     { label: "Composants", path: "/marketplace/components", icon: <Puzzle className="w-5 h-5" /> },
     { label: "Achats", path: "/marketplace/purchases", icon: <Receipt className="w-5 h-5" /> },
   ];
@@ -213,7 +213,9 @@ export default function Sidebar() {
       <div className="p-4 border-t dark:border-slate-700">
         {user ? (
           <div className="space-y-2">
-            <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 truncate">{user.email}</div>
+            <div className="text-xs text-gray-500 dark:text-gray-400 mb-2 truncate">
+              {user.email}
+            </div>
             <Link
               to="/profile"
               className="flex items-center gap-2 px-3 py-2 rounded text-sm bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700"
@@ -273,7 +275,7 @@ function NavItem({
       aria-label={label}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex items-center gap-3 px-3 py-2 rounded-md transition text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500",
+        "flex items-center gap-3 px-3 py-2 rounded-md transition text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2",
         active
           ? "bg-indigo-600 text-white shadow"
           : "text-gray-700 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-slate-800",
@@ -289,7 +291,15 @@ function NavItem({
 /* ============================================================================
  *  SectionHeader
  * ========================================================================== */
-function SectionHeader({ label, open, toggle }: { label: string; open: boolean; toggle: () => void }) {
+function SectionHeader({
+  label,
+  open,
+  toggle,
+}: {
+  label: string;
+  open: boolean;
+  toggle: () => void;
+}) {
   return (
     <div
       role="button"
