@@ -40,7 +40,7 @@ const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 const BadgesPage = lazy(() => import("./pages/BadgesPage"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
-const ProfilePage = lazy(() => import("./pages/ProfilePage")); // ✅ NEW
+const ProfilePage = lazy(() => import("./pages/ProfilePage"));
 
 // 🔑 Auth
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -60,13 +60,13 @@ const ContactPage = lazy(() => import("./pages/ContactPage"));
 // 🔐 Admin
 const AdminPanel = lazy(() => import("./pages/admin/AdminPanel"));
 const UsersAdmin = lazy(() => import("./pages/admin/UsersAdmin"));
+const AdminProfilePage = lazy(() => import("./pages/admin/AdminProfilePage"));
 const ProjectsAdmin = lazy(() => import("./pages/admin/ProjectsAdmin"));
-const LogsAdmin = lazy(() => import("./pages/admin/LogsAdmin"));
 const ReplaysAdmin = lazy(() => import("./pages/admin/ReplaysAdmin"));
 const PaymentsAdmin = lazy(() => import("./pages/admin/PaymentsAdmin"));
 const AdminBilling = lazy(() => import("./pages/admin/AdminBilling"));
 const AdminStatsPage = lazy(() => import("./pages/admin/AdminStats"));
-const AdminProfilePage = lazy(() => import("./pages/admin/AdminProfilePage")); // ✅ NEW
+const LogsAdmin = lazy(() => import("./pages/admin/LogsAdmin"));
 
 /* ============================================================================
  *  APP ROOT
@@ -102,7 +102,7 @@ export default function App() {
               <Route path="/onboarding" element={<OnboardingPage />} />
               <Route path="/contact" element={<ContactPage />} />
               <Route path="/settings" element={<SettingsPage />} />
-              <Route path="/profile" element={<ProfilePage />} /> {/* ✅ NEW */}
+              <Route path="/profile" element={<ProfilePage />} />
 
               {/* 🔑 Auth */}
               <Route path="/login" element={<LoginPage />} />
@@ -140,7 +140,7 @@ export default function App() {
                     <AdminProfilePage />
                   </ProtectedRoute>
                 }
-              /> {/* ✅ Détail utilisateur */}
+              />
               <Route
                 path="/admin/projects"
                 element={
