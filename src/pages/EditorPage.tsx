@@ -27,12 +27,18 @@ import {
   RefreshCw,
   Wifi,
   WifiOff,
+  Globe,
 } from "lucide-react";
-import { saveProject, getProject } from "@/services/projects";
+import {
+  saveProject,
+  getProject,
+  publishProject,
+  shareProject,
+} from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ============================================================================
- *  EditorPage – UInova v5
+ *  EditorPage – UInova v6
  *  ✅ Undo/Redo réels (LiveEditor ref)
  *  ✅ Preview image live
  *  ✅ Persistance cohérente dans useAppStore
@@ -43,6 +49,7 @@ import DashboardLayout from "@/layouts/DashboardLayout";
  *  ✅ Historique IA enrichi
  *  ✅ Hotkeys (Ctrl+S, Ctrl+Z, Ctrl+Y)
  *  ✅ Confirmation avant quit si unsaved
+ *  ✅ Publication + partage API
  * ========================================================================== */
 export default function EditorPage() {
   const {
@@ -58,6 +65,7 @@ export default function EditorPage() {
   const editorRef = useRef<LiveEditorHandles>(null);
 
   const [showShare, setShowShare] = useState(false);
+  const [shareLink, setShareLink] = useState<string | null>(null);
   const [showAssets, setShowAssets] = useState(false);
   const [saving, setSaving] = useState(false);
   const [unsaved, setUnsaved] = useState(false);
@@ -105,6 +113,29 @@ export default function EditorPage() {
     } catch (err) {
       console.error("❌ Erreur reload:", err);
       toast.error("Impossible de recharger.");
+    }
+  }
+
+  async function handlePublish() {
+    if (!currentProjectId) return;
+    try {
+      const res = await publishProject(currentProjectId);
+      if (res) toast.success("🚀 Projet publié");
+    } catch (err) {
+      console.error("❌ Erreur publication:", err);
+    }
+  }
+
+  async function handleShare() {
+    if (!currentProjectId) return;
+    try {
+      const res = await shareProject(currentProjectId);
+      if (res?.url) {
+        setShareLink(res.url);
+        setShowShare(true);
+      }
+    } catch (err) {
+      console.error("❌ Erreur partage:", err);
     }
   }
 
@@ -263,6 +294,11 @@ export default function EditorPage() {
             <h2 className="font-bold text-lg text-blue-600 dark:text-blue-400">
               ✨ UInova Éditeur
             </h2>
+            {project?.status === "published" && (
+              <span className="text-xs px-2 py-0.5 bg-green-200 text-green-800 rounded">
+                Publié
+              </span>
+            )}
             {unsaved ? (
               <span className="text-xs text-orange-500 animate-pulse">
                 ● Modifications non sauvegardées
@@ -290,10 +326,16 @@ export default function EditorPage() {
               className="bg-gray-600 text-white hover:bg-gray-700"
             />
             <ToolbarButton
-              onClick={() => setShowShare(true)}
+              onClick={handleShare}
               icon={<Share2 />}
               label="Partager"
               className="bg-blue-600 text-white hover:bg-blue-700"
+            />
+            <ToolbarButton
+              onClick={handlePublish}
+              icon={<Globe />}
+              label="Publier"
+              className="bg-green-600 text-white hover:bg-green-700"
             />
             <ToolbarButton
               onClick={handleRefresh}
@@ -430,7 +472,9 @@ export default function EditorPage() {
           )}
         </form>
 
-        {showShare && <ShareModal onClose={() => setShowShare(false)} />}
+        {showShare && shareLink && (
+          <ShareModal url={shareLink} onClose={() => setShowShare(false)} />
+        )}
       </div>
     </DashboardLayout>
   );
