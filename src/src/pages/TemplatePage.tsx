@@ -1,6 +1,6 @@
 // src/pages/TemplatePage.tsx
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { getMarketplaceItem, purchaseItem } from "@/services/marketplace";
 import { useProject } from "@/context/ProjectContext";
 import toast from "react-hot-toast";
@@ -29,12 +29,16 @@ interface Item {
 export default function TemplatePage() {
   const { id } = useParams();
   const { projectId } = useProject();
+  const navigate = useNavigate();
+
   const [item, setItem] = useState<Item | null>(null);
   const [loading, setLoading] = useState(true);
   const [purchasing, setPurchasing] = useState(false);
   const [favorite, setFavorite] = useState(false);
 
-  // Charger le template
+  /* ===============================
+     Charger le template
+  =============================== */
   useEffect(() => {
     async function fetchItem() {
       try {
@@ -50,21 +54,27 @@ export default function TemplatePage() {
     if (id) fetchItem();
   }, [id]);
 
-  // Achat / Installation
+  /* ===============================
+     Achat / Installation
+  =============================== */
   async function handlePurchase() {
-    if (!projectId) {
-      toast.error("⚠️ Sélectionnez d’abord un projet actif dans la liste.");
+    if (!item) return;
+
+    if (item.priceCents && item.priceCents > 0) {
+      // 🔀 Redirection vers la page paiement
+      navigate(`/payment?plan=${item.id}`);
       return;
     }
+
+    if (!projectId) {
+      toast.error("⚠️ Sélectionnez d’abord un projet actif pour installer.");
+      return;
+    }
+
     try {
       setPurchasing(true);
-      const res = await purchaseItem(id!);
-      toast.success(
-        item?.priceCents
-          ? "✅ Achat réussi ! Template ajouté à votre projet."
-          : "✅ Template installé dans votre projet."
-      );
-      console.log("Résultat achat:", res);
+      await purchaseItem(id!);
+      toast.success("✅ Template installé dans votre projet.");
     } catch (err) {
       console.error("❌ Erreur achat:", err);
       toast.error("Impossible de finaliser l’opération.");
@@ -73,24 +83,37 @@ export default function TemplatePage() {
     }
   }
 
-  // Favoris local (mock)
+  /* ===============================
+     Favoris (mock local)
+  =============================== */
   function toggleFavorite() {
     setFavorite((f) => !f);
-    toast.success(
-      !favorite ? "⭐ Ajouté aux favoris !" : "❌ Retiré des favoris."
-    );
+    toast.success(!favorite ? "⭐ Ajouté aux favoris !" : "❌ Retiré des favoris.");
   }
 
   /* ===============================
      Render
   =============================== */
   if (loading)
-    return <p className="text-gray-500 text-center mt-10">⏳ Chargement...</p>;
+    return (
+      <DashboardLayout>
+        <p
+          className="text-gray-500 text-center mt-10"
+          role="status"
+          aria-busy="true"
+        >
+          ⏳ Chargement...
+        </p>
+      </DashboardLayout>
+    );
+
   if (!item)
     return (
-      <p className="text-red-500 text-center mt-10">
-        ❌ Template introuvable
-      </p>
+      <DashboardLayout>
+        <p className="text-red-500 text-center mt-10">
+          ❌ Template introuvable
+        </p>
+      </DashboardLayout>
     );
 
   return (
@@ -101,7 +124,7 @@ export default function TemplatePage() {
           <h1 className="text-3xl font-bold">{item.title}</h1>
           <button
             onClick={toggleFavorite}
-            className={`flex items-center gap-2 px-4 py-2 rounded ${
+            className={`flex items-center gap-2 px-4 py-2 rounded transition ${
               favorite
                 ? "bg-yellow-400 text-black hover:bg-yellow-500"
                 : "bg-gray-200 dark:bg-slate-700 hover:bg-gray-300 dark:hover:bg-slate-600"
@@ -111,6 +134,7 @@ export default function TemplatePage() {
             {favorite ? "Favori" : "Ajouter aux favoris"}
           </button>
         </div>
+
         <p className="text-gray-600 dark:text-gray-300">
           {item.description || "Aucune description fournie."}
         </p>
@@ -120,7 +144,7 @@ export default function TemplatePage() {
           <div className="rounded-lg overflow-hidden shadow">
             <img
               src={item.previewUrl}
-              alt={item.title}
+              alt={`Preview ${item.title}`}
               className="w-full object-cover"
             />
           </div>
@@ -147,7 +171,7 @@ export default function TemplatePage() {
             </p>
             <p>
               <span className="font-semibold">Créé le :</span>{" "}
-              {new Date(item.createdAt).toLocaleDateString()}
+              {new Date(item.createdAt).toLocaleDateString("fr-FR")}
             </p>
           </CardContent>
         </Card>
