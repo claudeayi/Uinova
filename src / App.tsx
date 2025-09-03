@@ -64,6 +64,7 @@ const LogsAdmin = lazy(() => import("./pages/admin/LogsAdmin"));
 const ReplaysAdmin = lazy(() => import("./pages/admin/ReplaysAdmin"));
 const PaymentsAdmin = lazy(() => import("./pages/admin/PaymentsAdmin"));
 const AdminBilling = lazy(() => import("./pages/admin/AdminBilling"));
+const AdminStatsPage = lazy(() => import("./pages/admin/AdminStats")); // ✅ NEW
 
 /* ============================================================================
  *  APP ROOT
@@ -165,6 +166,14 @@ export default function App() {
                 element={
                   <ProtectedRoute role="admin">
                     <LogsAdmin />
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/admin/stats"
+                element={
+                  <ProtectedRoute role="admin">
+                    <AdminStatsPage />
                   </ProtectedRoute>
                 }
               />
