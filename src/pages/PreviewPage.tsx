@@ -1,32 +1,28 @@
 import { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import axios from "axios";
 import { toast } from "react-hot-toast";
-import { Card, CardContent } from "@/components/ui/card";
+import LiveEditor from "@/components/Editor/LiveEditor";
+import { DroppedComponent } from "@/components/Editor/LiveEditor";
 import { Button } from "@/components/ui/button";
 
-interface PreviewProject {
-  id: string;
-  name: string;
-  pages: { id: string; name: string; content: string }[];
-  updatedAt: string;
-}
-
 export default function PreviewPage() {
-  const { projectId } = useParams<{ projectId: string }>();
-  const [project, setProject] = useState<PreviewProject | null>(null);
+  const { shareId } = useParams<{ shareId: string }>();
+  const [project, setProject] = useState<{ id: string; name: string } | null>(
+    null
+  );
+  const [elements, setElements] = useState<DroppedComponent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [publicUrl, setPublicUrl] = useState<string | null>(null);
-  const navigate = useNavigate();
 
-  async function fetchProject() {
+  async function fetchPreview() {
+    if (!shareId) return;
+    setLoading(true);
     try {
-      setLoading(true);
-      const res = await axios.get(`/api/projects/${projectId}/preview`);
-      setProject(res.data);
-      setPublicUrl(`${window.location.origin}/preview/${projectId}`);
-    } catch (err) {
-      console.error("❌ Erreur chargement preview:", err);
+      const res = await axios.get(`/api/share/${shareId}`);
+      setProject(res.data.project);
+      setElements(res.data.elements || []);
+    } catch (err: any) {
+      console.error("❌ fetchPreview error:", err);
       toast.error("Impossible de charger l’aperçu.");
     } finally {
       setLoading(false);
@@ -34,12 +30,17 @@ export default function PreviewPage() {
   }
 
   useEffect(() => {
-    if (projectId) fetchProject();
-  }, [projectId]);
+    fetchPreview();
+  }, [shareId]);
+
+  function handleCopyLink() {
+    navigator.clipboard.writeText(window.location.href);
+    toast.success("🔗 Lien copié dans le presse-papier !");
+  }
 
   if (loading) {
     return (
-      <div className="flex justify-center items-center py-20 text-indigo-500">
+      <div className="flex justify-center items-center h-screen text-indigo-500">
         <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
         <span className="ml-3">Chargement de l’aperçu...</span>
       </div>
@@ -48,63 +49,91 @@ export default function PreviewPage() {
 
   if (!project) {
     return (
-      <div className="p-6 text-center text-gray-500">
-        ❌ Projet introuvable ou non accessible.
+      <div className="flex justify-center items-center h-screen text-red-500">
+        ❌ Projet introuvable ou lien invalide
       </div>
     );
   }
 
   return (
-    <div className="p-6 space-y-6 max-w-6xl mx-auto">
-      {/* Header */}
-      <div className="flex justify-between items-center">
-        <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-100">
-          👁️ Aperçu : {project.name}
-        </h1>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            onClick={() => navigate(-1)}
-          >
-            ← Retour
-          </Button>
-          {publicUrl && (
-            <Button
-              onClick={() => {
-                navigator.clipboard.writeText(publicUrl);
-                toast.success("🔗 Lien copié !");
-              }}
-            >
-              📋 Copier lien public
-            </Button>
-          )}
+    <div className="h-screen flex flex-col">
+      {/* HEADER PREVIEW */}
+      <header className="p-4 bg-indigo-600 text-white flex justify-between items-center">
+        <h1 className="font-bold">{project.name} — Aperçu public</h1>
+        <Button variant="secondary" size="sm" onClick={handleCopyLink}>
+          📋 Copier le lien
+        </Button>
+      </header>
+
+      {/* LIVE PREVIEW (readonly) */}
+      <main className="flex-1 bg-gray-50 dark:bg-slate-900 overflow-auto">
+        <div className="max-w-5xl mx-auto p-6">
+          <div className="border rounded-lg shadow bg-white dark:bg-slate-800">
+            <LiveEditor
+              previewOverride={null}
+              onSelect={() => {}}
+              ref={null}
+            />
+            {/* ⚠️ On force le rendu en lecture seule */}
+            <div className="p-6">
+              {elements.length === 0 ? (
+                <p className="text-gray-400 text-center">
+                  Aucun contenu disponible pour ce projet.
+                </p>
+              ) : (
+                <div className="relative">
+                  {elements.map((c) => {
+                    const { x, y, width, height, rotate } = c.props || {};
+                    return (
+                      <div
+                        key={c.id}
+                        className="absolute"
+                        style={{
+                          left: x,
+                          top: y,
+                          width,
+                          height,
+                          transform: `rotate(${rotate || 0}deg)`,
+                        }}
+                      >
+                        {c.type === "Bouton" && (
+                          <button className="w-full h-full bg-indigo-600 text-white rounded">
+                            {c.props?.text || "Bouton"}
+                          </button>
+                        )}
+                        {c.type === "Texte" && (
+                          <p className="p-2 text-gray-700 dark:text-gray-200">
+                            {c.props?.text || "Texte"}
+                          </p>
+                        )}
+                        {c.type === "Image" && (
+                          <img
+                            src={c.props?.src || "https://via.placeholder.com/150"}
+                            alt="Aperçu"
+                            className="w-full h-full object-cover rounded"
+                          />
+                        )}
+                        {c.type === "Formulaire" && (
+                          <form className="space-y-2 p-2">
+                            <input
+                              type="text"
+                              placeholder="Nom"
+                              className="w-full px-3 py-2 border rounded dark:bg-slate-700"
+                            />
+                            <button className="px-4 py-2 bg-green-600 text-white rounded w-full">
+                              {c.props?.buttonText || "Envoyer"}
+                            </button>
+                          </form>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
-      </div>
-
-      {/* Info projet */}
-      <p className="text-sm text-gray-500">
-        Dernière mise à jour :{" "}
-        {new Date(project.updatedAt).toLocaleString("fr-FR")}
-      </p>
-
-      {/* Pages en aperçu */}
-      {project.pages.length === 0 ? (
-        <p className="text-gray-400">Aucune page dans ce projet.</p>
-      ) : (
-        project.pages.map((page) => (
-          <Card key={page.id} className="shadow-md rounded-2xl">
-            <CardContent className="p-4 space-y-3">
-              <h2 className="font-semibold">{page.name}</h2>
-              {/* Aperçu live readonly */}
-              <iframe
-                srcDoc={page.content}
-                title={page.name}
-                className="w-full h-96 rounded border dark:border-slate-700 bg-white"
-              />
-            </CardContent>
-          </Card>
-        ))
-      )}
+      </main>
     </div>
   );
 }
