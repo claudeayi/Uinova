@@ -46,6 +46,9 @@ export default function Sidebar() {
   const [toolsOpen, setToolsOpen] = useState(true);
   const [marketplaceOpen, setMarketplaceOpen] = useState(true);
 
+  /* ===============================
+   * Menus
+   * =============================== */
   const navItems = [
     { label: "Dashboard", path: "/", icon: <LayoutDashboard className="w-5 h-5" /> },
     { label: "Projets", path: "/projects", icon: <Boxes className="w-5 h-5" /> },
@@ -78,6 +81,7 @@ export default function Sidebar() {
     { label: "Copilot IA", path: "/ai", icon: <Cpu className="w-5 h-5" /> },
     { label: "Notifications", path: "/notifications", icon: <Bell className="w-5 h-5" /> },
     { label: "Badges", path: "/badges", icon: <Award className="w-5 h-5" /> },
+    { label: "Paramètres", path: "/settings", icon: <Settings className="w-5 h-5" /> }, // ✅ ajouté
   ];
 
   return (
