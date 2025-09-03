@@ -1,12 +1,14 @@
 // src/pages/PricingPage.tsx
 import { useNavigate } from "react-router-dom";
 import DashboardLayout from "@/layouts/DashboardLayout";
+import { motion } from "framer-motion";
 
 export default function PricingPage() {
   const navigate = useNavigate();
 
   const plans = [
     {
+      id: "FREE",
       name: "Freemium",
       price: "0€",
       desc: "Accès de base aux fonctionnalités de l’éditeur.",
@@ -20,6 +22,7 @@ export default function PricingPage() {
       cta: "Commencer gratuitement",
     },
     {
+      id: "PRO",
       name: "Premium",
       price: "9,99€/mois",
       desc: "Accès complet + IA + exports avancés.",
@@ -35,6 +38,7 @@ export default function PricingPage() {
       cta: "Passer au PRO",
     },
     {
+      id: "BUSINESS",
       name: "Business",
       price: "29,99€/mois",
       desc: "Pour les équipes et agences.",
@@ -50,6 +54,7 @@ export default function PricingPage() {
       cta: "Choisir BUSINESS",
     },
     {
+      id: "ENTERPRISE",
       name: "Enterprise",
       price: "Sur devis",
       desc: "Solution complète pour grandes entreprises.",
@@ -70,7 +75,12 @@ export default function PricingPage() {
     <DashboardLayout>
       <div className="py-12 px-6 max-w-7xl mx-auto space-y-12">
         {/* Hero Header */}
-        <div className="text-center bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-xl p-10 shadow">
+        <motion.div
+          initial={{ opacity: 0, y: -15 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+          className="text-center bg-gradient-to-r from-blue-600 to-indigo-700 text-white rounded-xl p-10 shadow"
+        >
           <h1 className="text-4xl font-extrabold mb-4">
             💎 Choisissez le plan qui vous convient
           </h1>
@@ -79,13 +89,17 @@ export default function PricingPage() {
             Que vous soyez étudiant, freelance, agence ou grande entreprise —
             trouvez le plan qui correspond à vos besoins.
           </p>
-        </div>
+        </motion.div>
 
         {/* Cards */}
         <div className="grid md:grid-cols-2 lg:grid-cols-4 gap-8">
           {plans.map((plan) => (
-            <div
+            <motion.div
               key={plan.name}
+              initial={{ opacity: 0, y: 20 }}
+              whileInView={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4 }}
+              viewport={{ once: true }}
               className={`relative border rounded-xl p-6 flex flex-col shadow transition hover:shadow-lg ${
                 plan.highlight
                   ? "border-blue-600 bg-blue-50 dark:bg-slate-800"
@@ -124,7 +138,7 @@ export default function PricingPage() {
               >
                 {plan.cta}
               </button>
-            </div>
+            </motion.div>
           ))}
         </div>
 
