@@ -1,103 +1,126 @@
 import { useEffect, useState } from "react";
-import { Dialog } from "@headlessui/react";
-import { Button } from "@/components/ui/button";
-import { toast } from "react-hot-toast";
 import axios from "axios";
+import { toast } from "react-hot-toast";
+import { Button } from "@/components/ui/button";
 
 interface ShareModalProps {
   projectId: string;
-  open: boolean;
   onClose: () => void;
 }
 
-export default function ShareModal({ projectId, open, onClose }: ShareModalProps) {
-  const [shareUrl, setShareUrl] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [requireToken, setRequireToken] = useState(true);
+export default function ShareModal({ projectId, onClose }: ShareModalProps) {
+  const [shareLink, setShareLink] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  async function generateLink() {
+  async function fetchShare() {
     try {
       setLoading(true);
-      const res = await axios.post(`/api/projects/${projectId}/share`, {
-        requireToken,
-      }, {
-        headers: { Authorization: "Bearer " + localStorage.getItem("token") }
+      const res = await axios.get(`/api/projects/${projectId}/share`, {
+        headers: { Authorization: "Bearer " + localStorage.getItem("token") },
       });
-      setShareUrl(res.data.url);
-      toast.success("✅ Lien de partage généré !");
+      setShareLink(res.data?.url || null);
     } catch (err) {
-      console.error("❌ Erreur création lien partage:", err);
-      toast.error("Impossible de générer le lien.");
+      console.error("❌ fetchShare error:", err);
+      toast.error("Impossible de charger le lien de partage.");
     } finally {
       setLoading(false);
     }
   }
 
-  useEffect(() => {
-    if (!open) {
-      setShareUrl(null);
-      setRequireToken(true);
+  async function generateShare() {
+    try {
+      const res = await axios.post(
+        `/api/projects/${projectId}/share`,
+        {},
+        {
+          headers: { Authorization: "Bearer " + localStorage.getItem("token") },
+        }
+      );
+      setShareLink(res.data?.url);
+      toast.success("✅ Lien de partage généré !");
+    } catch (err) {
+      console.error("❌ generateShare error:", err);
+      toast.error("Impossible de générer le lien.");
     }
-  }, [open]);
+  }
+
+  async function disableShare() {
+    if (!window.confirm("Voulez-vous désactiver ce lien public ?")) return;
+    try {
+      await axios.delete(`/api/projects/${projectId}/share`, {
+        headers: { Authorization: "Bearer " + localStorage.getItem("token") },
+      });
+      setShareLink(null);
+      toast.success("🗑️ Lien de partage désactivé.");
+    } catch (err) {
+      console.error("❌ disableShare error:", err);
+      toast.error("Impossible de désactiver le lien.");
+    }
+  }
+
+  function copyToClipboard() {
+    if (!shareLink) return;
+    navigator.clipboard.writeText(shareLink);
+    toast.success("🔗 Lien copié dans le presse-papier !");
+  }
+
+  useEffect(() => {
+    fetchShare();
+  }, [projectId]);
 
   return (
-    <Dialog open={open} onClose={onClose} className="relative z-50">
-      <div className="fixed inset-0 bg-black/40" aria-hidden="true" />
-      <div className="fixed inset-0 flex items-center justify-center p-4">
-        <Dialog.Panel className="bg-white dark:bg-slate-900 rounded-xl shadow-lg max-w-lg w-full p-6 space-y-6">
-          <Dialog.Title className="text-xl font-bold">
-            🔗 Partager le projet
-          </Dialog.Title>
+    <div className="fixed inset-0 flex items-center justify-center bg-black/50 z-50">
+      <div className="bg-white dark:bg-slate-900 rounded-lg shadow-lg w-full max-w-lg p-6 space-y-6">
+        <h2 className="text-xl font-bold">🔗 Partage du projet</h2>
 
-          {/* Options */}
-          <div className="space-y-3">
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={requireToken}
-                onChange={(e) => setRequireToken(e.target.checked)}
-              />
-              <span className="text-sm text-gray-700 dark:text-gray-300">
-                Protéger par token (accès sécurisé)
-              </span>
-            </label>
-
-            <Button onClick={generateLink} disabled={loading}>
-              {loading ? "⏳ Génération..." : "⚡ Générer le lien"}
-            </Button>
-          </div>
-
-          {/* Résultat */}
-          {shareUrl && (
-            <div className="space-y-2">
-              <p className="text-sm text-gray-600">Lien généré :</p>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={shareUrl}
-                  readOnly
-                  className="flex-1 border rounded px-3 py-2 text-sm dark:bg-slate-800"
-                />
+        {loading ? (
+          <p className="text-gray-500">⏳ Chargement...</p>
+        ) : (
+          <>
+            {shareLink ? (
+              <div className="space-y-4">
+                <p className="text-gray-700 dark:text-gray-300">
+                  Ce projet est <strong>accessible publiquement</strong> via le lien ci-dessous :
+                </p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={shareLink}
+                    readOnly
+                    className="flex-1 px-3 py-2 border rounded dark:bg-slate-800 text-sm"
+                  />
+                  <Button size="sm" onClick={copyToClipboard}>
+                    📋 Copier
+                  </Button>
+                </div>
                 <Button
-                  variant="outline"
-                  onClick={() => {
-                    navigator.clipboard.writeText(shareUrl);
-                    toast.success("📋 Lien copié !");
-                  }}
+                  variant="destructive"
+                  className="w-full"
+                  onClick={disableShare}
                 >
-                  Copier
+                  Désactiver le partage
                 </Button>
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="space-y-4">
+                <p className="text-gray-700 dark:text-gray-300">
+                  Aucun lien de partage n’est actif pour ce projet.
+                </p>
+                <Button className="w-full" onClick={generateShare}>
+                  ➕ Générer un lien public
+                </Button>
+              </div>
+            )}
+          </>
+        )}
 
-          <div className="flex justify-end">
-            <Button variant="outline" onClick={onClose}>
-              Fermer
-            </Button>
-          </div>
-        </Dialog.Panel>
+        {/* Footer */}
+        <div className="text-right">
+          <Button variant="outline" onClick={onClose}>
+            Fermer
+          </Button>
+        </div>
       </div>
-    </Dialog>
+    </div>
   );
 }
