@@ -43,7 +43,7 @@ import {
 import { Button } from "@/components/ui/button";
 
 /* ============================================================================
- *  Sidebar – Navigation UInova v6 ultra-pro
+ *  Sidebar – Navigation UInova v7 ultra-pro
  * ========================================================================== */
 export default function Sidebar() {
   const location = useLocation();
@@ -63,8 +63,8 @@ export default function Sidebar() {
   ];
 
   const marketplaceItems = [
-    { label: "Templates", path: "/marketplace?filter=template", icon: <Layers className="w-5 h-5" /> },
-    { label: "Composants", path: "/marketplace?filter=component", icon: <Puzzle className="w-5 h-5" /> },
+    { label: "Templates", path: "/marketplace/templates", icon: <Layers className="w-5 h-5" /> }, // ✅ MAJ
+    { label: "Composants", path: "/marketplace/components", icon: <Puzzle className="w-5 h-5" /> },
     { label: "Achats", path: "/marketplace/purchases", icon: <Receipt className="w-5 h-5" /> },
   ];
 
@@ -154,7 +154,12 @@ export default function Sidebar() {
         <SectionHeader label="Marketplace" open={marketplaceOpen} toggle={() => setMarketplaceOpen((o) => !o)} />
         {marketplaceOpen &&
           marketplaceItems.map((item) => (
-            <NavItem key={item.path} {...item} active={location.pathname.startsWith(item.path)} className="ml-4" />
+            <NavItem
+              key={item.path}
+              {...item}
+              active={location.pathname.startsWith(item.path)}
+              className="ml-4"
+            />
           ))}
 
         {/* Projet actif */}
@@ -163,7 +168,12 @@ export default function Sidebar() {
             <SectionHeader label="Projet actif" open={projectOpen} toggle={() => setProjectOpen((o) => !o)} />
             {projectOpen &&
               projectItems.map((item) => (
-                <NavItem key={item.path} {...item} active={location.pathname.startsWith(item.path)} className="ml-4" />
+                <NavItem
+                  key={item.path}
+                  {...item}
+                  active={location.pathname.startsWith(item.path)}
+                  className="ml-4"
+                />
               ))}
           </>
         ) : (
@@ -174,7 +184,12 @@ export default function Sidebar() {
         <SectionHeader label="Outils" open={toolsOpen} toggle={() => setToolsOpen((o) => !o)} />
         {toolsOpen &&
           toolsItems.map((item) => (
-            <NavItem key={item.path} {...item} active={location.pathname.startsWith(item.path)} className="ml-4" />
+            <NavItem
+              key={item.path}
+              {...item}
+              active={location.pathname.startsWith(item.path)}
+              className="ml-4"
+            />
           ))}
 
         {/* Admin */}
@@ -183,7 +198,12 @@ export default function Sidebar() {
             <SectionHeader label="Administration" open={adminOpen} toggle={() => setAdminOpen((o) => !o)} />
             {adminOpen &&
               adminItems.map((item) => (
-                <NavItem key={item.path} {...item} active={location.pathname.startsWith(item.path)} className="ml-4" />
+                <NavItem
+                  key={item.path}
+                  {...item}
+                  active={location.pathname.startsWith(item.path)}
+                  className="ml-4"
+                />
               ))}
           </>
         )}
@@ -251,6 +271,7 @@ function NavItem({
     <Link
       to={path}
       aria-label={label}
+      aria-current={active ? "page" : undefined}
       className={cn(
         "flex items-center gap-3 px-3 py-2 rounded-md transition text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500",
         active
