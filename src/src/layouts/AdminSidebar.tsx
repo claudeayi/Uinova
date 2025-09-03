@@ -20,6 +20,9 @@ import {
   Award,
   Cpu,
   BarChart4,
+  Layers,
+  Puzzle,
+  Receipt,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/context/ProjectContext";
@@ -34,11 +37,17 @@ export default function Sidebar() {
   const [adminOpen, setAdminOpen] = useState(true);
   const [projectOpen, setProjectOpen] = useState(true);
   const [toolsOpen, setToolsOpen] = useState(true);
+  const [marketplaceOpen, setMarketplaceOpen] = useState(true);
 
   const navItems = [
     { label: "Dashboard", path: "/", icon: <LayoutDashboard className="w-5 h-5" /> },
     { label: "Projets", path: "/projects", icon: <Boxes className="w-5 h-5" /> },
-    { label: "Marketplace", path: "/marketplace", icon: <ShoppingBag className="w-5 h-5" /> },
+  ];
+
+  const marketplaceItems = [
+    { label: "Templates", path: "/marketplace?filter=template", icon: <Layers className="w-5 h-5" /> },
+    { label: "Composants", path: "/marketplace?filter=component", icon: <Puzzle className="w-5 h-5" /> },
+    { label: "Achats", path: "/marketplace/purchases", icon: <Receipt className="w-5 h-5" /> },
   ];
 
   const adminItems = [
@@ -66,18 +75,32 @@ export default function Sidebar() {
 
   return (
     <aside className="w-64 bg-white dark:bg-slate-900 border-r dark:border-slate-800 flex flex-col">
-      {/* Logo */}
       <div className="px-6 py-4 text-xl font-extrabold text-indigo-600 dark:text-indigo-400 tracking-wide">
         UInova
       </div>
 
-      {/* Navigation principale */}
       <nav className="flex-1 px-2 space-y-1">
         {navItems.map((item) => (
           <NavItem key={item.path} {...item} active={location.pathname === item.path} />
         ))}
 
-        {/* Section Projet actif */}
+        {/* Marketplace */}
+        <SectionHeader
+          label="Marketplace"
+          open={marketplaceOpen}
+          toggle={() => setMarketplaceOpen((o) => !o)}
+        />
+        {marketplaceOpen &&
+          marketplaceItems.map((item) => (
+            <NavItem
+              key={item.path}
+              {...item}
+              active={location.pathname.startsWith(item.path)}
+              className="ml-4"
+            />
+          ))}
+
+        {/* Projet actif */}
         {projectId ? (
           <>
             <SectionHeader
@@ -99,7 +122,7 @@ export default function Sidebar() {
           <p className="mt-6 px-3 text-xs italic text-gray-400">Aucun projet actif</p>
         )}
 
-        {/* Section Outils */}
+        {/* Outils */}
         <SectionHeader
           label="Outils"
           open={toolsOpen}
@@ -115,7 +138,7 @@ export default function Sidebar() {
             />
           ))}
 
-        {/* Section Administration */}
+        {/* Administration */}
         <SectionHeader
           label="Administration"
           open={adminOpen}
@@ -132,7 +155,6 @@ export default function Sidebar() {
           ))}
       </nav>
 
-      {/* Footer */}
       <div className="p-3 border-t dark:border-slate-700 text-xs text-gray-400 text-center">
         © {new Date().getFullYear()} UInova
       </div>
@@ -141,7 +163,7 @@ export default function Sidebar() {
 }
 
 /* ============================================================================
- *  NavItem – lien individuel stylé
+ *  NavItem
  * ========================================================================== */
 function NavItem({
   label,
@@ -174,7 +196,7 @@ function NavItem({
 }
 
 /* ============================================================================
- *  SectionHeader – titre + chevron collapse
+ *  SectionHeader
  * ========================================================================== */
 function SectionHeader({
   label,
