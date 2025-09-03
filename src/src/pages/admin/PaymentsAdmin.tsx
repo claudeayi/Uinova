@@ -10,6 +10,7 @@ export default function PaymentsAdmin() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState<string>("ALL");
+  const [provider, setProvider] = useState<string>("ALL");
   const [page, setPage] = useState(1);
   const pageSize = 20;
 
@@ -30,11 +31,14 @@ export default function PaymentsAdmin() {
     fetchPayments();
   }, []);
 
-  // 🔎 Filtrage par email et statut
+  // 🔎 Filtrage multi-critères
   const filtered = payments.filter(
     (p) =>
-      (p.userId || "").toLowerCase().includes(search.toLowerCase()) &&
-      (status === "ALL" || p.status === status)
+      (p.user?.email || p.userId || "")
+        .toLowerCase()
+        .includes(search.toLowerCase()) &&
+      (status === "ALL" || p.status === status) &&
+      (provider === "ALL" || p.provider === provider)
   );
 
   // Pagination
@@ -71,7 +75,7 @@ export default function PaymentsAdmin() {
           <div className="flex flex-wrap gap-2 items-center">
             <input
               type="text"
-              placeholder="Rechercher par ID utilisateur..."
+              placeholder="🔍 Rechercher par email ou ID utilisateur..."
               value={search}
               onChange={(e) => {
                 setSearch(e.target.value);
@@ -87,10 +91,23 @@ export default function PaymentsAdmin() {
               }}
               className="border rounded px-2 py-2 text-sm dark:bg-slate-900 dark:border-slate-700"
             >
-              <option value="ALL">Tous</option>
-              <option value="SUCCEEDED">Réussis</option>
-              <option value="FAILED">Échoués</option>
-              <option value="PENDING">En attente</option>
+              <option value="ALL">Tous statuts</option>
+              <option value="SUCCEEDED">✅ Réussis</option>
+              <option value="FAILED">❌ Échoués</option>
+              <option value="PENDING">⏳ En attente</option>
+            </select>
+            <select
+              value={provider}
+              onChange={(e) => {
+                setProvider(e.target.value);
+                setPage(1);
+              }}
+              className="border rounded px-2 py-2 text-sm dark:bg-slate-900 dark:border-slate-700"
+            >
+              <option value="ALL">Tous providers</option>
+              <option value="stripe">Stripe</option>
+              <option value="paypal">PayPal</option>
+              <option value="cinetpay">CinetPay</option>
             </select>
             <Button onClick={fetchPayments}>🔄 Rafraîchir</Button>
           </div>
@@ -114,8 +131,10 @@ export default function PaymentsAdmin() {
                     <th className="p-3 border">Utilisateur</th>
                     <th className="p-3 border">Montant</th>
                     <th className="p-3 border">Devise</th>
+                    <th className="p-3 border">Provider</th>
                     <th className="p-3 border">Statut</th>
                     <th className="p-3 border">Date</th>
+                    <th className="p-3 border text-center">Facture</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -124,9 +143,17 @@ export default function PaymentsAdmin() {
                       key={p.id}
                       className="border-b dark:border-slate-700 hover:bg-gray-50 dark:hover:bg-slate-800"
                     >
-                      <td className="p-3 font-mono text-xs">{p.userId}</td>
-                      <td className="p-3 font-semibold">{p.amount}</td>
+                      <td className="p-3 font-mono text-xs">
+                        {p.user?.email || p.userId || "—"}
+                      </td>
+                      <td className="p-3 font-semibold">
+                        {new Intl.NumberFormat("fr-FR", {
+                          style: "currency",
+                          currency: p.currency,
+                        }).format(p.amount)}
+                      </td>
                       <td className="p-3">{p.currency}</td>
+                      <td className="p-3 capitalize">{p.provider}</td>
                       <td className="p-3">
                         <span
                           className={`px-2 py-1 text-xs rounded font-semibold ${getStatusBadge(
@@ -138,6 +165,19 @@ export default function PaymentsAdmin() {
                       </td>
                       <td className="p-3">
                         {new Date(p.createdAt).toLocaleString("fr-FR")}
+                      </td>
+                      <td className="p-3 text-center">
+                        {p.invoiceUrl ? (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => window.open(p.invoiceUrl, "_blank")}
+                          >
+                            📄 Voir
+                          </Button>
+                        ) : (
+                          <span className="text-gray-400">—</span>
+                        )}
                       </td>
                     </tr>
                   ))}
