@@ -1,5 +1,5 @@
 // src/pages/admin/AdminDeployments.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import axios from "axios";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import { Button } from "@/components/ui/button";
@@ -7,11 +7,11 @@ import { toast } from "react-hot-toast";
 import {
   Loader,
   RefreshCw,
-  Rocket,
   RotateCcw,
   Globe,
   Terminal,
   Search,
+  Copy,
 } from "lucide-react";
 
 /* ============================================================================
@@ -25,6 +25,7 @@ export default function AdminDeployments() {
   const [logModal, setLogModal] = useState<{ open: boolean; logs?: string }>({
     open: false,
   });
+  const logsRef = useRef<HTMLPreElement | null>(null);
 
   /* === API fetch === */
   const fetchDeployments = async () => {
@@ -44,6 +45,8 @@ export default function AdminDeployments() {
 
   useEffect(() => {
     fetchDeployments();
+    const interval = setInterval(fetchDeployments, 30000); // 🔄 auto-refresh toutes les 30s
+    return () => clearInterval(interval);
   }, []);
 
   /* === Helpers === */
@@ -74,6 +77,18 @@ export default function AdminDeployments() {
     }
   };
 
+  const copyLogs = (logs?: string) => {
+    if (!logs) return;
+    navigator.clipboard.writeText(logs);
+    toast.success("📋 Logs copiés dans le presse-papiers");
+  };
+
+  useEffect(() => {
+    if (logsRef.current) {
+      logsRef.current.scrollTop = logsRef.current.scrollHeight; // scroll auto en bas
+    }
+  }, [logModal.logs]);
+
   /* === Filtrage === */
   const filtered = deployments.filter((d) => {
     const matchFilter = filter === "ALL" || d.status === filter;
@@ -88,7 +103,7 @@ export default function AdminDeployments() {
     <DashboardLayout>
       <div className="p-6 space-y-6">
         {/* Header */}
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center flex-wrap gap-3">
           <h1 className="text-2xl font-bold">📡 Supervision des déploiements</h1>
           <Button variant="outline" onClick={fetchDeployments}>
             <RefreshCw className="w-4 h-4 mr-1" /> Rafraîchir
@@ -206,10 +221,20 @@ export default function AdminDeployments() {
               <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
                 <Terminal className="w-5 h-5" /> Logs déploiement
               </h2>
-              <pre className="p-3 bg-slate-900 text-green-400 text-xs rounded max-h-96 overflow-y-auto">
+              <pre
+                ref={logsRef}
+                className="p-3 bg-slate-900 text-green-400 text-xs rounded max-h-96 overflow-y-auto"
+              >
                 {logModal.logs}
               </pre>
-              <div className="mt-4 text-right">
+              <div className="mt-4 flex justify-between items-center">
+                <Button
+                  variant="outline"
+                  onClick={() => copyLogs(logModal.logs)}
+                  className="flex items-center gap-2"
+                >
+                  <Copy className="w-4 h-4" /> Copier
+                </Button>
                 <Button onClick={() => setLogModal({ open: false })}>
                   Fermer
                 </Button>
