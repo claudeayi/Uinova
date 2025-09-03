@@ -25,12 +25,14 @@ import {
   Image as ImageIcon,
   Link as LinkIcon,
   RefreshCw,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
-import { saveProject } from "@/services/projects";
+import { saveProject, getProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ============================================================================
- *  EditorPage – UInova v4.4
+ *  EditorPage – UInova v5
  *  ✅ Undo/Redo réels (LiveEditor ref)
  *  ✅ Preview image live
  *  ✅ Persistance cohérente dans useAppStore
@@ -38,7 +40,9 @@ import DashboardLayout from "@/layouts/DashboardLayout";
  *  ✅ Flag unsaved + autosave toutes 30s
  *  ✅ Preview public avec lien partageable
  *  ✅ Collaboration : nb utilisateurs connectés
- *  ✅ Historique IA affiché
+ *  ✅ Historique IA enrichi
+ *  ✅ Hotkeys (Ctrl+S, Ctrl+Z, Ctrl+Y)
+ *  ✅ Confirmation avant quit si unsaved
  * ========================================================================== */
 export default function EditorPage() {
   const {
@@ -64,13 +68,14 @@ export default function EditorPage() {
     useState<DroppedComponent | null>(null);
   const [tempPreviewSrc, setTempPreviewSrc] = useState<string | null>(null);
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
 
   const navigate = useNavigate();
   const project = getCurrentProject();
   const page = getCurrentPage();
 
   /* ===============================
-     Actions
+     Actions principales
   =============================== */
   async function handleSave() {
     if (!currentProjectId || !project) {
@@ -88,6 +93,18 @@ export default function EditorPage() {
       toast.error("Erreur lors de la sauvegarde.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function handleRefresh() {
+    if (!currentProjectId) return;
+    try {
+      const res = await getProject(currentProjectId);
+      toast.success("🔄 Projet rechargé");
+      console.log("Projet rechargé:", res);
+    } catch (err) {
+      console.error("❌ Erreur reload:", err);
+      toast.error("Impossible de recharger.");
     }
   }
 
@@ -119,8 +136,8 @@ export default function EditorPage() {
   function handleAISubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!aiPrompt.trim()) return;
-    toast.success(`🤖 Copilot a généré : ${aiPrompt}`);
     setAiHistory((prev) => [aiPrompt, ...prev].slice(0, 5));
+    toast.success(`🤖 Copilot a généré : ${aiPrompt}`);
     setAiPrompt("");
   }
 
@@ -176,7 +193,7 @@ export default function EditorPage() {
   }
 
   /* ===============================
-     Autosave (toutes les 30s si unsaved)
+     Autosave + Confirmation exit
   =============================== */
   useEffect(() => {
     const interval = setInterval(() => {
@@ -187,6 +204,53 @@ export default function EditorPage() {
     return () => clearInterval(interval);
   }, [unsaved, saving]);
 
+  useEffect(() => {
+    const beforeUnload = (e: BeforeUnloadEvent) => {
+      if (unsaved) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    };
+    window.addEventListener("beforeunload", beforeUnload);
+    return () => window.removeEventListener("beforeunload", beforeUnload);
+  }, [unsaved]);
+
+  /* ===============================
+     Online/Offline listener
+  =============================== */
+  useEffect(() => {
+    const setOnline = () => setIsOnline(true);
+    const setOffline = () => setIsOnline(false);
+    window.addEventListener("online", setOnline);
+    window.addEventListener("offline", setOffline);
+    return () => {
+      window.removeEventListener("online", setOnline);
+      window.removeEventListener("offline", setOffline);
+    };
+  }, []);
+
+  /* ===============================
+     Hotkeys
+  =============================== */
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.ctrlKey && e.key === "s") {
+        e.preventDefault();
+        handleSave();
+      }
+      if (e.ctrlKey && e.key === "z") {
+        e.preventDefault();
+        handleUndo();
+      }
+      if (e.ctrlKey && (e.key === "y" || (e.shiftKey && e.key === "z"))) {
+        e.preventDefault();
+        handleRedo();
+      }
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  });
+
   /* ===============================
      Render
   =============================== */
@@ -194,7 +258,7 @@ export default function EditorPage() {
     <DashboardLayout>
       <div className="flex flex-col h-full">
         {/* ===== Toolbar ===== */}
-        <div className="p-3 flex justify-between items-center border-b bg-white dark:bg-slate-900">
+        <div className="p-3 flex justify-between items-center border-b bg-white dark:bg-slate-900 overflow-x-auto">
           <div className="flex items-center gap-3">
             <h2 className="font-bold text-lg text-blue-600 dark:text-blue-400">
               ✨ UInova Éditeur
@@ -209,7 +273,7 @@ export default function EditorPage() {
               </span>
             ) : null}
           </div>
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-nowrap gap-2">
             <ToolbarButton onClick={handleUndo} icon={<RotateCcw />} label="Undo" />
             <ToolbarButton onClick={handleRedo} icon={<RotateCw />} label="Refaire" />
             <ToolbarButton
@@ -230,6 +294,12 @@ export default function EditorPage() {
               icon={<Share2 />}
               label="Partager"
               className="bg-blue-600 text-white hover:bg-blue-700"
+            />
+            <ToolbarButton
+              onClick={handleRefresh}
+              icon={<RefreshCw />}
+              label="Rafraîchir"
+              className="bg-indigo-100 dark:bg-slate-800 hover:bg-indigo-200 dark:hover:bg-slate-700"
             />
             <a
               href={`/export/${currentProjectId}/${currentPageId}`}
@@ -259,7 +329,19 @@ export default function EditorPage() {
             />
             {/* Collaboration */}
             <div className="flex items-center gap-1 px-3 py-1 text-sm bg-slate-100 dark:bg-slate-800 rounded">
-              <Users className="w-4 h-4 text-indigo-500" /> {onlineUsers} en ligne
+              <Users className="w-4 h-4 text-indigo-500" /> {onlineUsers} en
+              ligne
+            </div>
+            {/* Connexion */}
+            <div
+              className={`flex items-center gap-1 px-3 py-1 text-sm rounded ${
+                isOnline
+                  ? "bg-green-100 text-green-700"
+                  : "bg-red-100 text-red-700"
+              }`}
+            >
+              {isOnline ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
+              {isOnline ? "En ligne" : "Hors ligne"}
             </div>
             {/* Preview public */}
             <a
@@ -307,9 +389,7 @@ export default function EditorPage() {
                   onUpload={handleImageUpload}
                 />
               ) : (
-                <p className="text-gray-400 text-sm">
-                  Sélectionnez un composant
-                </p>
+                <p className="text-gray-400 text-sm">Sélectionnez un composant</p>
               )}
             </div>
           )}
@@ -318,28 +398,30 @@ export default function EditorPage() {
         {/* ===== Copilot IA ===== */}
         <form
           onSubmit={handleAISubmit}
-          className="p-3 border-t bg-white dark:bg-slate-900 flex items-center gap-2"
+          className="p-3 border-t bg-white dark:bg-slate-900 flex flex-col gap-2"
         >
-          <Bot className="w-5 h-5 text-indigo-500" />
-          <input
-            type="text"
-            value={aiPrompt}
-            onChange={(e) => setAiPrompt(e.target.value)}
-            placeholder="Décrivez une interface à générer..."
-            className="flex-1 px-3 py-2 rounded border dark:bg-slate-800 dark:border-slate-700 text-sm"
-          />
-          <button
-            type="submit"
-            className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm"
-          >
-            Générer
-          </button>
+          <div className="flex items-center gap-2">
+            <Bot className="w-5 h-5 text-indigo-500" />
+            <input
+              type="text"
+              value={aiPrompt}
+              onChange={(e) => setAiPrompt(e.target.value)}
+              placeholder="Décrivez une interface à générer..."
+              className="flex-1 px-3 py-2 rounded border dark:bg-slate-800 dark:border-slate-700 text-sm"
+            />
+            <button
+              type="submit"
+              className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700 text-sm"
+            >
+              Générer
+            </button>
+          </div>
           {aiHistory.length > 0 && (
-            <div className="ml-4 text-xs text-gray-500 flex gap-2">
+            <div className="flex flex-wrap gap-2 mt-1">
               {aiHistory.map((h, i) => (
                 <span
                   key={i}
-                  className="px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded"
+                  className="px-2 py-1 bg-slate-100 dark:bg-slate-700 rounded text-xs"
                 >
                   {h}
                 </span>
@@ -399,10 +481,7 @@ function PropertiesPanel({
           type="text"
           defaultValue={component.props.text}
           onBlur={(e) =>
-            onUpdate(component.id, {
-              ...component.props,
-              text: e.target.value,
-            })
+            onUpdate(component.id, { ...component.props, text: e.target.value })
           }
           className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
         />
@@ -412,10 +491,7 @@ function PropertiesPanel({
           type="color"
           defaultValue={component.props.color}
           onChange={(e) =>
-            onUpdate(component.id, {
-              ...component.props,
-              color: e.target.value,
-            })
+            onUpdate(component.id, { ...component.props, color: e.target.value })
           }
           className="w-12 h-8 border rounded"
         />
@@ -441,10 +517,7 @@ function PropertiesPanel({
             type="text"
             defaultValue={component.props.src}
             onBlur={(e) =>
-              onUpdate(component.id, {
-                ...component.props,
-                src: e.target.value,
-              })
+              onUpdate(component.id, { ...component.props, src: e.target.value })
             }
             className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
           />
@@ -460,6 +533,13 @@ function PropertiesPanel({
               }}
             />
           </label>
+          {component.props.src && (
+            <img
+              src={component.props.src}
+              alt="Preview"
+              className="w-full h-32 object-contain border rounded mt-2"
+            />
+          )}
         </div>
       )}
       {"buttonText" in component.props && (
