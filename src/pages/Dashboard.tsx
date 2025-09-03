@@ -1,4 +1,3 @@
-// src/pages/Dashboard.tsx
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
@@ -29,6 +28,8 @@ interface Project {
   name: string;
   status: string;
   updatedAt: string;
+  createdAt?: string;
+  shareId?: string;
 }
 interface Notification {
   id: string;
@@ -202,14 +203,28 @@ export default function Dashboard() {
             ) : (
               <ul className="divide-y divide-gray-200 dark:divide-slate-700">
                 {projects.map((p) => (
-                  <li key={p.id} className="py-2 flex justify-between">
-                    <Link
-                      to={`/editor/${p.id}`}
-                      className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
-                    >
-                      {p.name}
-                    </Link>
-                    <span className="text-sm text-gray-500">{p.status}</span>
+                  <li key={p.id} className="py-2 flex justify-between items-center">
+                    <div>
+                      <Link
+                        to={`/editor/${p.id}`}
+                        className="text-blue-600 dark:text-blue-400 hover:underline font-medium"
+                      >
+                        {p.name}
+                      </Link>
+                      <p className="text-xs text-gray-500">
+                        {p.createdAt && `Créé le ${new Date(p.createdAt).toLocaleDateString("fr-FR")}`}
+                      </p>
+                    </div>
+                    <div className="flex gap-2 items-center">
+                      <span className="text-sm text-gray-500">{p.status}</span>
+                      {p.shareId && (
+                        <Link to={`/preview/${p.shareId}`}>
+                          <button className="px-2 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700">
+                            👁️ Voir en public
+                          </button>
+                        </Link>
+                      )}
+                    </div>
                   </li>
                 ))}
               </ul>
