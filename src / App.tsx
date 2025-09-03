@@ -39,7 +39,8 @@ const AIAssistantPage = lazy(() => import("./pages/AIAssistantPage"));
 const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 const BadgesPage = lazy(() => import("./pages/BadgesPage"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
-const SettingsPage = lazy(() => import("./pages/SettingsPage")); // ✅ NEW
+const SettingsPage = lazy(() => import("./pages/SettingsPage"));
+const ProfilePage = lazy(() => import("./pages/ProfilePage")); // ✅ NEW
 
 // 🔑 Auth
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -65,6 +66,7 @@ const ReplaysAdmin = lazy(() => import("./pages/admin/ReplaysAdmin"));
 const PaymentsAdmin = lazy(() => import("./pages/admin/PaymentsAdmin"));
 const AdminBilling = lazy(() => import("./pages/admin/AdminBilling"));
 const AdminStatsPage = lazy(() => import("./pages/admin/AdminStats"));
+const AdminProfilePage = lazy(() => import("./pages/admin/AdminProfilePage")); // ✅ NEW
 
 /* ============================================================================
  *  APP ROOT
@@ -99,7 +101,8 @@ export default function App() {
               <Route path="/badges" element={<BadgesPage />} />
               <Route path="/onboarding" element={<OnboardingPage />} />
               <Route path="/contact" element={<ContactPage />} />
-              <Route path="/settings" element={<SettingsPage />} /> {/* ✅ NEW */}
+              <Route path="/settings" element={<SettingsPage />} />
+              <Route path="/profile" element={<ProfilePage />} /> {/* ✅ NEW */}
 
               {/* 🔑 Auth */}
               <Route path="/login" element={<LoginPage />} />
@@ -130,6 +133,14 @@ export default function App() {
                   </ProtectedRoute>
                 }
               />
+              <Route
+                path="/admin/users/:id"
+                element={
+                  <ProtectedRoute role="admin">
+                    <AdminProfilePage />
+                  </ProtectedRoute>
+                }
+              /> {/* ✅ Détail utilisateur */}
               <Route
                 path="/admin/projects"
                 element={
@@ -198,10 +209,7 @@ export default function App() {
           position="top-right"
           toastOptions={{
             duration: 4000,
-            style: {
-              background: "#1e293b",
-              color: "#fff",
-            },
+            style: { background: "#1e293b", color: "#fff" },
             success: { style: { background: "#16a34a" } },
             error: { style: { background: "#dc2626" } },
             warning: { style: { background: "#f59e0b" } },
