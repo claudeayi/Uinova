@@ -1,4 +1,3 @@
-// src/components/Editor/LiveEditor.tsx
 import {
   useImperativeHandle,
   forwardRef,
@@ -94,7 +93,7 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
       const newComponent: DroppedComponent = {
         id: crypto.randomUUID(),
         type,
-        props: { ...defaults[type], rotate: 0, zIndex: 1 },
+        props: { ...defaults[type], rotate: 0, zIndex: components.length + 1 },
       };
 
       saveSnapshot();
@@ -103,7 +102,7 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
     }
 
     /* ===============================
-       Sélection / Update
+       Sélection
     =============================== */
     function handleSelect(c: DroppedComponent, multi = false) {
       if (multi) {
@@ -113,9 +112,16 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
       } else {
         setSelectedIds([c.id]);
       }
-      onSelect?.(multi ? components.filter((el) => selectedIds.includes(el.id)) : c);
+      onSelect?.(
+        multi
+          ? components.filter((el) => selectedIds.includes(el.id))
+          : c
+      );
     }
 
+    /* ===============================
+       Update / Delete / Duplicate
+    =============================== */
     function updateComponent(id: string, newProps: Record<string, any>) {
       if (!currentPageId) return;
       const newState = components.map((c) =>
@@ -137,11 +143,25 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
       const clone: DroppedComponent = {
         ...target,
         id: crypto.randomUUID(),
-        props: { ...target.props, x: target.props.x + 20, y: target.props.y + 20 },
+        props: {
+          ...target.props,
+          x: target.props.x + 20,
+          y: target.props.y + 20,
+          zIndex: target.props.zIndex + 1,
+        },
       };
       saveSnapshot();
       updateElements([...components, clone]);
       setSelectedIds([clone.id]);
+    }
+
+    function bringToFront(id: string) {
+      const maxZ = Math.max(...components.map((c) => c.props.zIndex || 1), 1);
+      updateComponent(id, { zIndex: maxZ + 1 });
+    }
+
+    function sendToBack(id: string) {
+      updateComponent(id, { zIndex: 1 });
     }
 
     /* ===============================
@@ -194,7 +214,12 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
     =============================== */
     function startRotate(e: React.MouseEvent, c: DroppedComponent) {
       e.stopPropagation();
-      rotatingRef.current = { id: c.id, startX: e.clientX, startY: e.clientY, startAngle: c.props.rotate || 0 };
+      rotatingRef.current = {
+        id: c.id,
+        startX: e.clientX,
+        startY: e.clientY,
+        startAngle: c.props.rotate || 0,
+      };
       document.addEventListener("mousemove", onRotating);
       document.addEventListener("mouseup", stopRotate);
     }
@@ -203,8 +228,7 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
       if (!rotatingRef.current) return;
       const { id, startX, startY, startAngle } = rotatingRef.current;
       const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      const angle = startAngle + dx * 0.5; // simple calc
+      const angle = startAngle + dx * 0.5;
       updateComponent(id, { rotate: angle });
     }
 
@@ -226,6 +250,12 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
         if (e.ctrlKey && e.key.toLowerCase() === "d") {
           selectedIds.forEach((id) => duplicateComponent(id));
         }
+        if (e.ctrlKey && e.key.toLowerCase() === "z") {
+          undo();
+        }
+        if (e.ctrlKey && e.key.toLowerCase() === "y") {
+          redo();
+        }
       }
       window.addEventListener("keydown", handleKey);
       return () => window.removeEventListener("keydown", handleKey);
@@ -238,7 +268,9 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
       <div
         className={cn(
           "w-full h-full overflow-auto transition border-2 rounded-lg relative",
-          dragOver ? "border-dashed border-indigo-500 bg-indigo-50 dark:bg-slate-800/50" : "border-transparent"
+          dragOver
+            ? "border-dashed border-indigo-500 bg-indigo-50 dark:bg-slate-800/50"
+            : "border-transparent"
         )}
         onDrop={handleDrop}
         onDragOver={(e) => {
@@ -266,19 +298,35 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
                   ? previewOverride
                   : c;
 
-              const { x = 50, y = 50, width = 120, height = 40, rotate = 0 } = display.props || {};
+              const {
+                x = 50,
+                y = 50,
+                width = 120,
+                height = 40,
+                rotate = 0,
+                zIndex = 1,
+              } = display.props || {};
 
               return (
                 <div
                   key={c.id}
                   draggable
                   onDragEnd={(e) => handleDragEnd(e, display)}
-                  onClick={(e) => handleSelect(display, e.ctrlKey)}
+                  onClick={(e) => handleSelect(display, e.shiftKey)}
                   className={cn(
                     "absolute border cursor-move transition group select-none",
-                    isSelected ? "border-blue-500 shadow-lg" : "border-slate-200 dark:border-slate-700 hover:shadow"
+                    isSelected
+                      ? "border-blue-500 shadow-lg"
+                      : "border-slate-200 dark:border-slate-700 hover:shadow"
                   )}
-                  style={{ left: x, top: y, width, height, transform: `rotate(${rotate}deg)` }}
+                  style={{
+                    left: x,
+                    top: y,
+                    width,
+                    height,
+                    transform: `rotate(${rotate}deg)`,
+                    zIndex,
+                  }}
                 >
                   {/* Rendu */}
                   {display.type === "Bouton" && (
@@ -290,7 +338,9 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
                     </button>
                   )}
                   {display.type === "Texte" && (
-                    <p className="p-2 text-gray-700 dark:text-gray-200">{display.props?.text || "Texte"}</p>
+                    <p className="p-2 text-gray-700 dark:text-gray-200">
+                      {display.props?.text || "Texte"}
+                    </p>
                   )}
                   {display.type === "Image" && (
                     <img
@@ -301,7 +351,11 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
                   )}
                   {display.type === "Formulaire" && (
                     <form className="space-y-2 p-2">
-                      <input type="text" placeholder="Nom" className="w-full px-3 py-2 border rounded dark:bg-slate-700" />
+                      <input
+                        type="text"
+                        placeholder="Nom"
+                        className="w-full px-3 py-2 border rounded dark:bg-slate-700"
+                      />
                       <button className="px-4 py-2 bg-green-600 text-white rounded w-full">
                         {display.props?.buttonText || "Envoyer"}
                       </button>
@@ -322,6 +376,30 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
                       onMouseDown={(e) => startRotate(e, display)}
                       className="absolute w-3 h-3 bg-red-500 -top-4 right-2 cursor-crosshair rounded-full"
                     />
+                  )}
+
+                  {/* Boutons avant/arrière */}
+                  {isSelected && (
+                    <div className="absolute -top-6 left-0 flex gap-1">
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          bringToFront(display.id);
+                        }}
+                        className="px-2 py-1 bg-white border rounded text-xs"
+                      >
+                        ⬆️ Avant
+                      </button>
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          sendToBack(display.id);
+                        }}
+                        className="px-2 py-1 bg-white border rounded text-xs"
+                      >
+                        ⬇️ Arrière
+                      </button>
+                    </div>
                   )}
                 </div>
               );
