@@ -24,19 +24,22 @@ import {
   Upload,
   Image as ImageIcon,
   Link as LinkIcon,
+  RefreshCw,
 } from "lucide-react";
 import { saveProject } from "@/services/projects";
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ============================================================================
- * EditorPage – UInova v4.3
- * ✅ Undo/Redo réels (LiveEditor ref)
- * ✅ Preview image live
- * ✅ Persistance cohérente dans useAppStore
- * ✅ Gestion des propriétés dynamiques
- * ✅ Flag unsaved + autosave toutes 30s
- * ✅ Preview public avec lien partageable
- * ========================================================================= */
+ *  EditorPage – UInova v4.4
+ *  ✅ Undo/Redo réels (LiveEditor ref)
+ *  ✅ Preview image live
+ *  ✅ Persistance cohérente dans useAppStore
+ *  ✅ Gestion des propriétés dynamiques
+ *  ✅ Flag unsaved + autosave toutes 30s
+ *  ✅ Preview public avec lien partageable
+ *  ✅ Collaboration : nb utilisateurs connectés
+ *  ✅ Historique IA affiché
+ * ========================================================================== */
 export default function EditorPage() {
   const {
     currentProjectId,
@@ -207,64 +210,53 @@ export default function EditorPage() {
             ) : null}
           </div>
           <div className="flex flex-wrap gap-2">
-            <button
-              onClick={handleUndo}
-              className="flex items-center gap-1 px-3 py-1 bg-gray-200 dark:bg-slate-700 rounded hover:bg-gray-300"
-            >
-              <RotateCcw className="w-4 h-4" /> Undo
-            </button>
-            <button
-              onClick={handleRedo}
-              className="flex items-center gap-1 px-3 py-1 bg-gray-200 dark:bg-slate-700 rounded hover:bg-gray-300"
-            >
-              <RotateCw className="w-4 h-4" /> Refaire
-            </button>
-            <button
+            <ToolbarButton onClick={handleUndo} icon={<RotateCcw />} label="Undo" />
+            <ToolbarButton onClick={handleRedo} icon={<RotateCw />} label="Refaire" />
+            <ToolbarButton
               onClick={handleSave}
+              icon={<Save />}
+              label={saving ? "..." : "Sauvegarder"}
+              className="bg-purple-600 text-white hover:bg-purple-700"
               disabled={saving}
-              className="flex items-center gap-1 px-4 py-1 bg-purple-600 text-white rounded hover:bg-purple-700 disabled:opacity-50"
-            >
-              <Save className="w-4 h-4" />
-              {saving ? "..." : "Sauvegarder"}
-            </button>
-            <button
+            />
+            <ToolbarButton
               onClick={togglePreview}
-              className="flex items-center gap-1 px-4 py-1 bg-gray-600 text-white rounded hover:bg-gray-700"
-            >
-              <Eye className="w-4 h-4" /> {showPreview ? "Cacher" : "Preview"}
-            </button>
-            <button
+              icon={<Eye />}
+              label={showPreview ? "Cacher" : "Preview"}
+              className="bg-gray-600 text-white hover:bg-gray-700"
+            />
+            <ToolbarButton
               onClick={() => setShowShare(true)}
-              className="flex items-center gap-1 px-4 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-            >
-              <Share2 className="w-4 h-4" /> Partager
-            </button>
+              icon={<Share2 />}
+              label="Partager"
+              className="bg-blue-600 text-white hover:bg-blue-700"
+            />
             <a
               href={`/export/${currentProjectId}/${currentPageId}`}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1 px-4 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+              className="flex items-center gap-1 px-4 py-1 bg-green-600 text-white rounded hover:bg-green-700 text-sm"
             >
               <Download className="w-4 h-4" /> Exporter
             </a>
-            <button
+            <ToolbarButton
               onClick={handleReplay}
-              className="flex items-center gap-1 px-4 py-1 bg-orange-600 text-white rounded hover:bg-orange-700"
-            >
-              <Activity className="w-4 h-4" /> Replays
-            </button>
-            <button
+              icon={<Activity />}
+              label="Replays"
+              className="bg-orange-600 text-white hover:bg-orange-700"
+            />
+            <ToolbarButton
               onClick={handleDeploy}
-              className="flex items-center gap-1 px-4 py-1 bg-indigo-600 text-white rounded hover:bg-indigo-700"
-            >
-              <Play className="w-4 h-4" /> Déployer
-            </button>
-            <button
+              icon={<Play />}
+              label="Déployer"
+              className="bg-indigo-600 text-white hover:bg-indigo-700"
+            />
+            <ToolbarButton
               onClick={() => setShowAssets((prev) => !prev)}
-              className="flex items-center gap-1 px-3 py-1 bg-indigo-100 dark:bg-slate-800 rounded hover:bg-indigo-200 dark:hover:bg-slate-700"
-            >
-              <ImageIcon className="w-4 h-4 text-indigo-600" /> Assets
-            </button>
+              icon={<ImageIcon className="text-indigo-600" />}
+              label="Assets"
+              className="bg-indigo-100 dark:bg-slate-800 hover:bg-indigo-200 dark:hover:bg-slate-700"
+            />
             {/* Collaboration */}
             <div className="flex items-center gap-1 px-3 py-1 text-sm bg-slate-100 dark:bg-slate-800 rounded">
               <Users className="w-4 h-4 text-indigo-500" /> {onlineUsers} en ligne
@@ -274,7 +266,7 @@ export default function EditorPage() {
               href={`/preview/${currentProjectId}`}
               target="_blank"
               rel="noreferrer"
-              className="flex items-center gap-1 px-3 py-1 bg-pink-600 text-white rounded hover:bg-pink-700"
+              className="flex items-center gap-1 px-3 py-1 bg-pink-600 text-white rounded hover:bg-pink-700 text-sm"
             >
               <LinkIcon className="w-4 h-4" /> Lien public
             </a>
@@ -301,96 +293,23 @@ export default function EditorPage() {
 
           {/* Sidebar droite */}
           {showAssets ? (
-            <AssetLibrary onSelect={handleSelectAsset} onHover={handleHoverAsset} />
+            <AssetLibrary
+              onSelect={handleSelectAsset}
+              onHover={handleHoverAsset}
+            />
           ) : (
             <div className="w-80 border-l dark:border-slate-700 bg-white dark:bg-slate-900 p-4">
               <h3 className="font-semibold mb-3">⚙️ Propriétés</h3>
               {selectedComponent ? (
-                <div className="space-y-3 text-sm">
-                  {"text" in selectedComponent.props && (
-                    <input
-                      type="text"
-                      defaultValue={selectedComponent.props.text}
-                      onBlur={(e) =>
-                        handleUpdateComponent(selectedComponent.id, {
-                          ...selectedComponent.props,
-                          text: e.target.value,
-                        })
-                      }
-                      className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
-                    />
-                  )}
-                  {"color" in selectedComponent.props && (
-                    <input
-                      type="color"
-                      defaultValue={selectedComponent.props.color}
-                      onChange={(e) =>
-                        handleUpdateComponent(selectedComponent.id, {
-                          ...selectedComponent.props,
-                          color: e.target.value,
-                        })
-                      }
-                      className="w-12 h-8 border rounded"
-                    />
-                  )}
-                  {"width" in selectedComponent.props && (
-                    <input
-                      type="range"
-                      min={10}
-                      max={100}
-                      defaultValue={selectedComponent.props.width}
-                      onChange={(e) =>
-                        handleUpdateComponent(selectedComponent.id, {
-                          ...selectedComponent.props,
-                          width: Number(e.target.value),
-                        })
-                      }
-                      className="w-full"
-                    />
-                  )}
-                  {"src" in selectedComponent.props && (
-                    <div className="space-y-2">
-                      <input
-                        type="text"
-                        defaultValue={selectedComponent.props.src}
-                        onBlur={(e) =>
-                          handleUpdateComponent(selectedComponent.id, {
-                            ...selectedComponent.props,
-                            src: e.target.value,
-                          })
-                        }
-                        className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
-                      />
-                      <label className="flex items-center gap-2 text-xs cursor-pointer text-blue-600 hover:underline">
-                        <Upload className="w-4 h-4" /> Importer une image
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handleImageUpload(file);
-                          }}
-                        />
-                      </label>
-                    </div>
-                  )}
-                  {"buttonText" in selectedComponent.props && (
-                    <input
-                      type="text"
-                      defaultValue={selectedComponent.props.buttonText}
-                      onBlur={(e) =>
-                        handleUpdateComponent(selectedComponent.id, {
-                          ...selectedComponent.props,
-                          buttonText: e.target.value,
-                        })
-                      }
-                      className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
-                    />
-                  )}
-                </div>
+                <PropertiesPanel
+                  component={selectedComponent}
+                  onUpdate={handleUpdateComponent}
+                  onUpload={handleImageUpload}
+                />
               ) : (
-                <p className="text-gray-400 text-sm">Sélectionnez un composant</p>
+                <p className="text-gray-400 text-sm">
+                  Sélectionnez un composant
+                </p>
               )}
             </div>
           )}
@@ -432,5 +351,130 @@ export default function EditorPage() {
         {showShare && <ShareModal onClose={() => setShowShare(false)} />}
       </div>
     </DashboardLayout>
+  );
+}
+
+/* ============================================================================
+ * Components utilitaires
+ * ========================================================================== */
+function ToolbarButton({
+  onClick,
+  icon,
+  label,
+  className,
+  disabled,
+}: {
+  onClick?: () => void;
+  icon: JSX.Element;
+  label: string;
+  className?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex items-center gap-1 px-3 py-1 rounded text-sm ${className} ${
+        disabled ? "opacity-50 cursor-not-allowed" : ""
+      }`}
+    >
+      {icon} {label}
+    </button>
+  );
+}
+
+function PropertiesPanel({
+  component,
+  onUpdate,
+  onUpload,
+}: {
+  component: DroppedComponent;
+  onUpdate: (id: string, props: Record<string, any>) => void;
+  onUpload: (file: File) => void;
+}) {
+  return (
+    <div className="space-y-3 text-sm">
+      {"text" in component.props && (
+        <input
+          type="text"
+          defaultValue={component.props.text}
+          onBlur={(e) =>
+            onUpdate(component.id, {
+              ...component.props,
+              text: e.target.value,
+            })
+          }
+          className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+        />
+      )}
+      {"color" in component.props && (
+        <input
+          type="color"
+          defaultValue={component.props.color}
+          onChange={(e) =>
+            onUpdate(component.id, {
+              ...component.props,
+              color: e.target.value,
+            })
+          }
+          className="w-12 h-8 border rounded"
+        />
+      )}
+      {"width" in component.props && (
+        <input
+          type="range"
+          min={10}
+          max={100}
+          defaultValue={component.props.width}
+          onChange={(e) =>
+            onUpdate(component.id, {
+              ...component.props,
+              width: Number(e.target.value),
+            })
+          }
+          className="w-full"
+        />
+      )}
+      {"src" in component.props && (
+        <div className="space-y-2">
+          <input
+            type="text"
+            defaultValue={component.props.src}
+            onBlur={(e) =>
+              onUpdate(component.id, {
+                ...component.props,
+                src: e.target.value,
+              })
+            }
+            className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+          />
+          <label className="flex items-center gap-2 text-xs cursor-pointer text-blue-600 hover:underline">
+            <Upload className="w-4 h-4" /> Importer une image
+            <input
+              type="file"
+              accept="image/*"
+              className="hidden"
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (file) onUpload(file);
+              }}
+            />
+          </label>
+        </div>
+      )}
+      {"buttonText" in component.props && (
+        <input
+          type="text"
+          defaultValue={component.props.buttonText}
+          onBlur={(e) =>
+            onUpdate(component.id, {
+              ...component.props,
+              buttonText: e.target.value,
+            })
+          }
+          className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+        />
+      )}
+    </div>
   );
 }
