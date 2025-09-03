@@ -99,19 +99,26 @@ export default function PaymentPage() {
 
   return (
     <DashboardLayout>
-      <div className="py-10 px-6 max-w-4xl mx-auto space-y-8">
+      <div className="py-10 px-6 max-w-4xl mx-auto space-y-10">
         {/* Header */}
-        <h1 className="text-3xl font-bold text-center">💳 Paiement sécurisé</h1>
-        <p className="text-center text-gray-600 dark:text-gray-400">
-          Vous avez choisi le plan{" "}
-          <span className="font-semibold text-blue-600 dark:text-blue-400">
-            {prices.label}
-          </span>
-          . Sélectionnez un moyen de paiement pour continuer.
-        </p>
+        <div className="text-center">
+          <h1 className="text-3xl font-bold">💳 Paiement sécurisé</h1>
+          <p className="mt-2 text-gray-600 dark:text-gray-400">
+            Vous avez choisi le plan{" "}
+            <span className="font-semibold text-blue-600 dark:text-blue-400">
+              {prices.label}
+            </span>
+            . Sélectionnez un moyen de paiement pour continuer.
+          </p>
+        </div>
 
         {/* Récap Plan */}
-        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow space-y-2">
+        <div className="bg-white dark:bg-slate-800 p-6 rounded-xl shadow space-y-3 relative">
+          {plan === "PRO" && (
+            <span className="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 text-xs rounded-full bg-blue-600 text-white font-semibold shadow">
+              ⭐ Populaire
+            </span>
+          )}
           <h2 className="text-xl font-semibold">📦 {prices.label}</h2>
           <p className="text-2xl font-bold">
             {plan === "ENTERPRISE"
@@ -133,10 +140,16 @@ export default function PaymentPage() {
             disabled={loading === "stripe"}
             className="p-6 rounded-xl bg-purple-600 text-white font-semibold shadow hover:bg-purple-700 disabled:opacity-50 flex flex-col items-center"
           >
-            {loading === "stripe" ? "⏳ Stripe..." : "💳 Payer avec Stripe"}
-            <span className="text-xs mt-2">
-              {(prices.stripe / 100).toFixed(2)} €
-            </span>
+            {loading === "stripe" ? (
+              <span className="animate-pulse">⏳ Stripe...</span>
+            ) : (
+              <>
+                💳 Payer avec Stripe
+                <span className="text-xs mt-2">
+                  {(prices.stripe / 100).toFixed(2)} €
+                </span>
+              </>
+            )}
           </button>
 
           {/* PayPal */}
@@ -145,10 +158,16 @@ export default function PaymentPage() {
             disabled={loading === "paypal"}
             className="p-6 rounded-xl bg-yellow-500 text-white font-semibold shadow hover:bg-yellow-600 disabled:opacity-50 flex flex-col items-center"
           >
-            {loading === "paypal" ? "⏳ PayPal..." : "🅿️ Payer avec PayPal"}
-            <span className="text-xs mt-2">
-              {prices.paypal.toFixed(2)} €
-            </span>
+            {loading === "paypal" ? (
+              <span className="animate-pulse">⏳ PayPal...</span>
+            ) : (
+              <>
+                🅿️ Payer avec PayPal
+                <span className="text-xs mt-2">
+                  {prices.paypal.toFixed(2)} €
+                </span>
+              </>
+            )}
           </button>
 
           {/* CinetPay */}
@@ -157,12 +176,16 @@ export default function PaymentPage() {
             disabled={loading === "cinetpay"}
             className="p-6 rounded-xl bg-orange-600 text-white font-semibold shadow hover:bg-orange-700 disabled:opacity-50 flex flex-col items-center"
           >
-            {loading === "cinetpay"
-              ? "⏳ Mobile Money..."
-              : "📱 Orange / MTN Money"}
-            <span className="text-xs mt-2">
-              {prices.cinetpay.toFixed(2)} XAF
-            </span>
+            {loading === "cinetpay" ? (
+              <span className="animate-pulse">⏳ Mobile Money...</span>
+            ) : (
+              <>
+                📱 Orange / MTN Money
+                <span className="text-xs mt-2">
+                  {prices.cinetpay.toFixed(2)} XAF
+                </span>
+              </>
+            )}
           </button>
         </div>
 
