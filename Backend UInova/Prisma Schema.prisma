@@ -71,6 +71,11 @@ enum DeploymentStatus {
   ERROR
 }
 
+enum MarketplaceType {
+  TEMPLATE
+  COMPONENT
+}
+
 /* ============================================================================
  * CORE MODELS
  * ========================================================================== */
@@ -94,10 +99,12 @@ model User {
   auditLogs     AuditLog[]
   collabs       CollabHistory[]
   purchases     Purchase[]
+  favorites     Favorite[]       // ⭐ Favoris utilisateur
   items         MarketplaceItem[]
   replays       ReplaySession[]
   emailLogs     EmailLog[]
   usageRecords  UsageRecord[]
+  usageHistory  UsageHistory[]   // ⭐ Historique consommation (agrégé)
 
   // ⚡ Monitoring & sécurité
   sessions      UserSession[]
@@ -109,148 +116,63 @@ model User {
 }
 
 /* ============================================================================
- * ORGANIZATIONS (Multi-tenant)
+ * FAVORIS
  * ========================================================================== */
-model Organization {
-  id          String        @id @default(cuid())
-  name        String
-  ownerId     String
-  owner       User          @relation(fields: [ownerId], references: [id])
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-
-  memberships Membership[]
-  projects    Project[]
-  invites     OrgInvite[]   @relation("OrgInvites")
-
-  @@index([ownerId])
-}
-
-model Membership {
-  id          String        @id @default(cuid())
-  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+model Favorite {
+  id          String           @id @default(cuid())
+  user        User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId      String
-  org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  orgId       String
-  role        OrgRole       @default(MEMBER)
-  createdAt   DateTime      @default(now())
+  project     Project?         @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  projectId   String?
+  item        MarketplaceItem? @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemId      String?
+  createdAt   DateTime         @default(now())
 
-  @@unique([userId, orgId])
-  @@index([orgId])
-}
-
-model OrgInvite {
-  id          String        @id @default(cuid())
-  org         Organization  @relation("OrgInvites", fields: [orgId], references: [id], onDelete: Cascade)
-  orgId       String
-  email       String
-  invitedBy   User          @relation("Invitee", fields: [invitedById], references: [id], onDelete: Cascade)
-  invitedById String
-  role        OrgRole       @default(MEMBER)
-  accepted    Boolean       @default(false)
-  createdAt   DateTime      @default(now())
+  @@index([userId])
+  @@index([projectId])
+  @@index([itemId])
 }
 
 /* ============================================================================
- * PROJECTS
+ * MARKETPLACE
  * ========================================================================== */
-model Project {
-  id           String         @id @default(cuid())
-  name         String
-  description  String?
-  status       ProjectStatus  @default(PLANIFIE)
-  owner        User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId      String
-  org          Organization?  @relation(fields: [orgId], references: [id], onDelete: SetNull)
-  orgId        String?
-  pages        Page[]
-  exports      ExportJob[]
-  shareLinks   ShareLink[]
-  collabs      CollabHistory[]
-  deployments  Deployment[]
-  replays      ReplaySession[]
-  usageRecords UsageRecord[]
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+model MarketplaceItem {
+  id          String           @id @default(cuid())
+  type        MarketplaceType  @default(TEMPLATE)
+  title       String
+  description String?
+  priceCents  Int              @default(0)
+  currency    String           @default("EUR")
+  published   Boolean          @default(true)
+  owner       User             @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  ownerId     String
+  shareId     String?          @unique // 🔑 pour preview public
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
 
-  @@index([ownerId])
-  @@index([orgId])
-  @@index([status])
+  purchases   Purchase[]
+  favorites   Favorite[]
 }
 
-model Page {
-  id          String    @id @default(cuid())
-  name        String
-  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId   String
-  schemaJSON  Json
-  editors     User[]    @relation("PageEditors")
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+model Purchase {
+  id          String           @id @default(cuid())
+  item        MarketplaceItem  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  itemId      String
+  buyer       User             @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  buyerId     String
+  status      PaymentStatus    @default(CREATED) // ⭐ alignement front
+  amountCents Int              @default(0)
+  currency    String           @default("EUR")
+  createdAt   DateTime         @default(now())
 
-  @@index([projectId])
-}
-
-model ExportJob {
-  id          String        @id @default(cuid())
-  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId   String
-  target      ExportTarget
-  status      String        @default("PENDING")
-  resultUrl   String?
-  error       String?
-  createdAt   DateTime      @default(now())
-  updatedAt   DateTime      @updatedAt
-
-  @@index([projectId])
-  @@index([target])
+  @@index([buyerId])
+  @@index([itemId])
   @@index([status])
 }
 
 /* ============================================================================
- * BILLING / SUBSCRIPTION
+ * BILLING
  * ========================================================================== */
-model Subscription {
-  id               String             @id @default(cuid())
-  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId           String
-  plan             SubscriptionPlan   @default(FREE)
-  status           SubscriptionStatus @default(TRIAL)
-  currentPeriodEnd DateTime?
-  usageLimitJson   Json?
-  createdAt        DateTime           @default(now())
-  updatedAt        DateTime           @updatedAt
-
-  payments         Payment[]
-  usageRecords     UsageRecord[]
-
-  @@index([userId])
-  @@index([plan, status])
-}
-
-model Payment {
-  id             String           @id @default(cuid())
-  provider       PaymentProvider
-  providerRef    String?
-  amountCents    Int
-  currency       String           @default("EUR")
-  status         PaymentStatus    @default(CREATED)
-  rawPayload     Json?
-  createdAt      DateTime         @default(now())
-
-  user           User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
-  userId         String?
-  subscription   Subscription?    @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
-  subscriptionId String?
-  project        Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  projectId      String?
-
-  @@index([provider, status])
-  @@index([userId])
-  @@index([subscriptionId])
-  @@index([projectId])
-}
-
 model UsageRecord {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -266,185 +188,15 @@ model UsageRecord {
   @@index([projectId])
 }
 
-/* ============================================================================
- * COMMUNICATION
- * ========================================================================== */
-model Notification {
+model UsageHistory {
   id        String   @id @default(cuid())
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
-  type      String   @default("info")
-  title     String
-  body      String?
-  actionUrl String?
-  meta      Json?
-  read      Boolean  @default(false)
-  createdAt DateTime @default(now())
+  date      DateTime @default(now())
+  apiCalls  Int      @default(0)
+  storageMB Float    @default(0)
+  projects  Int      @default(0)
 
-  @@index([userId, read])
-  @@index([type])
-}
-
-model EmailTemplate {
-  id        String   @id @default(cuid())
-  code      String   @unique
-  name      String
-  subject   String
-  bodyHtml  String
-  bodyText  String?
-  lang      String   @default("fr")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  logs      EmailLog[]
-}
-
-model EmailLog {
-  id          String         @id @default(cuid())
-  template    EmailTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
-  templateId  String?
-  user        User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
-  userId      String?
-  to          String
-  subject     String
-  body        String
-  status      String         // SUCCESS | FAILED
-  error       String?
-  createdAt   DateTime @default(now())
-
-  @@index([userId])
-  @@index([status])
-}
-
-/* ============================================================================
- * MARKETPLACE
- * ========================================================================== */
-model Badge {
-  id        String      @id @default(cuid())
-  code      String      @unique
-  label     String
-  icon      String?
-  createdAt DateTime    @default(now())
-
-  users     UserBadge[]
-}
-
-model UserBadge {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId    String
-  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
-  badgeId   String
-  earnedAt  DateTime @default(now())
-  meta      Json?
-
-  @@unique([userId, badgeId])
-  @@index([userId])
-  @@index([badgeId])
-}
-
-model MarketplaceItem {
-  id          String   @id @default(cuid())
-  title       String
-  description String?
-  priceCents  Int      @default(0)
-  currency    String   @default("EUR")
-  published   Boolean  @default(true)
-  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  ownerId     String
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
-
-  purchases   Purchase[]
-}
-
-model Purchase {
-  id          String           @id @default(cuid())
-  item        MarketplaceItem  @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  itemId      String
-  buyer       User             @relation(fields: [buyerId], references: [id], onDelete: Cascade)
-  buyerId     String
-  createdAt   DateTime         @default(now())
-}
-
-/* ============================================================================
- * DEPLOYMENTS & REPLAYS
- * ========================================================================== */
-model Deployment {
-  id          String           @id @default(cuid())
-  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId   String
-  status      DeploymentStatus @default(PENDING)
-  logs        String?
-  targetUrl   String?
-  createdAt   DateTime         @default(now())
-  updatedAt   DateTime         @updatedAt
-}
-
-model ReplaySession {
-  id              String   @id @default(cuid())
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId       String
-  user            User     @relation(fields: [userId], references: [id])
-  userId          String
-  dataUrl         String
-  snapshot        Json?
-  stepsCompressed Bytes?
-  meta            Json?
-  startedAt       DateTime @default(now())
-  endedAt         DateTime?
-
-  @@index([projectId])
-  @@index([userId])
-  @@index([startedAt])
-}
-
-/* ============================================================================
- * LOGS / SECURITY
- * ========================================================================== */
-model AuditLog {
-  id        String   @id @default(cuid())
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id])
-  action    String
-  metadata  Json?
-  createdAt DateTime @default(now())
-}
-
-model ShareLink {
-  id        String   @id @default(cuid())
-  projectId String
-  project   Project  @relation(fields: [projectId], references: [id])
-  token     String   @unique
-  isPublic  Boolean  @default(false)
-  createdAt DateTime @default(now())
-}
-
-model CollabHistory {
-  id        String   @id @default(cuid())
-  projectId String
-  project   Project  @relation(fields: [projectId], references: [id])
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  changes   Json
-  createdAt DateTime @default(now())
-}
-
-model UserSession {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId    String
-  ip        String?
-  userAgent String?
-  createdAt DateTime @default(now())
-  expiredAt DateTime?
-}
-
-model ApiKey {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId    String
-  key       String   @unique
-  active    Boolean  @default(true)
-  createdAt DateTime @default(now())
+  @@unique([userId, date])
+  @@index([date])
 }
