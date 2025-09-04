@@ -32,14 +32,14 @@ import deployRoutes from "./routes/deploy";
 import replayRoutes from "./routes/replay";
 import monitoringRoutes from "./routes/monitoring";
 
-// 🚀 Nouvelles routes alignées frontend
+// 🚀 Alignement frontend
 import arRoutes from "./routes/ar";
 import assistantRoutes from "./routes/assistant";
 import templateRoutes from "./routes/templates";
 import favoritesRoutes from "./routes/favorites";   // ✅ NEW
 import purchasesRoutes from "./routes/purchases";   // ✅ NEW
 
-// 🚀 Nouvelles routes backend
+// 🚀 Backend avancé
 import collabRoutes from "./routes/collab";
 import webhookRoutes from "./routes/webhooks";
 import billingRoutes from "./routes/billing";
@@ -69,7 +69,7 @@ const useJsonLogs = process.env.JSON_LOGS === "true";
  * ========================================================================== */
 app.set("trust proxy", 1);
 
-// ID + correlation ID + lang + multi-tenant
+// Request IDs + multi-tenant
 app.use((req: Request, res: Response, next: NextFunction) => {
   req.id = (req.headers["x-request-id"] as string) || nanoid(12);
   req.correlationId = (req.headers["x-correlation-id"] as string) || req.id;
@@ -83,7 +83,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
-// Mode maintenance
+// Mode maintenance global
 app.use((req, res, next) => {
   if (process.env.MAINTENANCE_MODE === "1") {
     emitEvent("system.maintenance", { path: req.path, ts: Date.now() });
@@ -143,7 +143,7 @@ app.options("*", cors());
 app.use(express.json({ limit: process.env.JSON_LIMIT || "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: process.env.URLENC_LIMIT || "10mb" }));
 
-// Logger HTTP (support JSON logs)
+// Logger HTTP
 if (useJsonLogs) {
   app.use(
     morgan((tokens, req, res) =>
@@ -302,7 +302,7 @@ app.use("/api", (_req: Request, res: Response) => {
   });
 });
 
-// JSON invalide
+// JSON invalide ou payload trop lourd
 app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
   if (err instanceof SyntaxError && "body" in err) {
     return res.status(400).json({
