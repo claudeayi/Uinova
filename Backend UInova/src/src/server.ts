@@ -12,6 +12,8 @@ import { collectDeploymentMetrics } from "./services/deploymentMetrics";
 import { exportWorker } from "./workers/exportWorker";
 import { deployWorker } from "./workers/deployWorker";
 import { aiWorker } from "./workers/aiWorker";
+import { emailWorker } from "./workers/emailWorker"; // ✅ ajout email
+import { billingWorker } from "./workers/billingWorker"; // ✅ ajout billing
 
 // ======================
 // CONFIG
@@ -48,14 +50,14 @@ server.listen(PORT as number, HOST, () => {
     process.env.API_BASE_URL ||
     `http://${HOST === "0.0.0.0" ? "localhost" : HOST}:${PORT}`;
   console.log(`\x1b[32m✅ UInova API prête sur ${base}\x1b[0m`);
-  console.log(`📚 Docs: ${base.replace(/\/+$/, "")}/api-docs`);
+  console.log(`📚 Docs Swagger: ${base.replace(/\/+$/, "")}/api-docs`);
 
   // Scheduler (auto-scaling, retry, rollback…)
   initScheduler();
 
   // Workers jobs (BullMQ)
-  console.log("⚙️  Workers démarrés : export, deploy, ai");
-  [exportWorker, deployWorker, aiWorker];
+  console.log("⚙️  Workers démarrés : export, deploy, ai, email, billing");
+  [exportWorker, deployWorker, aiWorker, emailWorker, billingWorker];
 });
 
 // ======================
@@ -164,3 +166,5 @@ setInterval(async () => {
     console.error("❌ Erreur collecte métriques:", err);
   }
 }, 30_000);
+
+export default server;
