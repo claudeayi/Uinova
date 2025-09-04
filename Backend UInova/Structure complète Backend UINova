@@ -17,15 +17,21 @@ backend/
 │  │  ├─ deployController.ts
 │  │  ├─ replayController.ts
 │  │  ├─ monitoringController.ts
-│  │  ├─ organizationController.ts    # ⚡ Orgs & membres (invites, roles, etc.)
-│  │  ├─ emailTemplateController.ts   # ⚡ CRUD templates d’email (Cockpit)
+│  │  ├─ organizationController.ts
+│  │  ├─ emailTemplateController.ts
+│  │  ├─ favoritesController.ts       # ✅ NEW – gestion favoris
+│  │  ├─ purchasesController.ts       # ✅ NEW – gestion achats marketplace
+│  │  ├─ billingController.ts         # ✅ NEW – rapport & historique usage
+│  │  ├─ templatesController.ts       # ✅ NEW – templates IA + modèles
+│  │  ├─ assistantController.ts       # ✅ NEW – assistant IA conversationnel
 │  │  │
-│  │  └─ admin/                # ⚡ Spécifique admin (séparé pour clarté)
+│  │  └─ admin/                       # ⚡ Spécifique admin
 │  │     ├─ usersAdminController.ts
 │  │     ├─ projectsAdminController.ts
 │  │     ├─ marketplaceAdminController.ts
 │  │     ├─ replaysAdminController.ts
-│  │     └─ billingAdminController.ts
+│  │     ├─ billingAdminController.ts
+│  │     └─ systemAdminController.ts  # ✅ NEW – supervision système (logs, quotas)
 │  │
 │  ├─ routes/                  # Définition des routes Express
 │  │  ├─ auth.ts
@@ -41,71 +47,84 @@ backend/
 │  │  ├─ deploy.ts
 │  │  ├─ replay.ts
 │  │  ├─ monitoring.ts
-│  │  ├─ organizations.ts       # API Orgs/membres
-│  │  ├─ emailTemplates.ts      # API Email Templates (admin)
-│  │  ├─ webhooks.ts            # API Webhooks (event bus externe)
-│  │  ├─ billing.ts             # API Billing & Usage
-│  │  └─ admin.ts               # Regroupe toutes les routes admin
+│  │  ├─ organizations.ts
+│  │  ├─ emailTemplates.ts
+│  │  ├─ webhooks.ts
+│  │  ├─ billing.ts             # ✅ enrichi – usage + historique
+│  │  ├─ favorites.ts           # ✅ NEW – routes favoris
+│  │  ├─ purchases.ts           # ✅ NEW – routes achats
+│  │  ├─ templates.ts           # ✅ NEW – routes templates IA
+│  │  ├─ assistant.ts           # ✅ NEW – routes assistant IA
+│  │  └─ admin.ts
 │  │
 │  ├─ middlewares/
-│  │  ├─ security.ts            # authenticate, authorize, authLimiter
-│  │  ├─ validator.ts           # validateBody, validateQuery, validateParams
-│  │  ├─ validate.ts            # express-validator/zod utils
-│  │  ├─ upload.ts              # config Multer
-│  │  ├─ rateLimit.ts           # rate limiter global
-│  │  └─ errorHandler.ts        # handler global erreurs
+│  │  ├─ security.ts
+│  │  ├─ validator.ts
+│  │  ├─ validate.ts
+│  │  ├─ upload.ts
+│  │  ├─ rateLimit.ts
+│  │  └─ errorHandler.ts
 │  │
-│  ├─ validators/               # Schemas Zod centralisés
+│  ├─ validators/               # Schemas Zod
 │  │  ├─ marketplace.schema.ts
 │  │  ├─ deploy.schema.ts
 │  │  ├─ billing.schema.ts
 │  │  ├─ organization.schema.ts
-│  │  └─ emailTemplate.schema.ts
+│  │  ├─ emailTemplate.schema.ts
+│  │  ├─ favorites.schema.ts     # ✅ NEW
+│  │  ├─ purchases.schema.ts     # ✅ NEW
+│  │  └─ templates.schema.ts     # ✅ NEW
 │  │
-│  ├─ services/                 # Services (intégrations & logique avancée)
-│  │  ├─ collab.ts              # Socket.io collab temps réel
-│  │  ├─ paymentServices.ts     # Stripe / PayPal / CinetPay
-│  │  ├─ exportService.ts       # Génération HTML/Flutter/JSON
-│  │  ├─ aiService.ts           # IA générative (DeepSeek, OpenAI…)
-│  │  ├─ aiModeration.ts        # IA modération prompts
-│  │  ├─ deployService.ts       # Déploiement (mock Netlify/Vercel/S3)
-│  │  ├─ billingService.ts      # Tracking quotas & usage
-│  │  ├─ emailService.ts        # Envoi basé sur templates DB
-│  │  ├─ cloud.ts               # stockage fichiers / CDN (LOCAL/S3/Cloudinary)
-│  │  └─ eventBus.ts            # EventEmitter + webhooks
+│  ├─ services/
+│  │  ├─ collab.ts
+│  │  ├─ paymentServices.ts
+│  │  ├─ exportService.ts
+│  │  ├─ aiService.ts
+│  │  ├─ aiModeration.ts
+│  │  ├─ deployService.ts
+│  │  ├─ billingService.ts
+│  │  ├─ emailService.ts
+│  │  ├─ cloud.ts
+│  │  ├─ eventBus.ts
+│  │  ├─ businessMetrics.ts      # ✅ NEW – KPIs business
+│  │  └─ deploymentMetrics.ts    # ✅ NEW – KPIs déploiement
 │  │
 │  ├─ utils/
-│  │  ├─ prisma.ts              # client Prisma
-│  │  ├─ jwt.ts                 # génération/validation JWT
-│  │  ├─ hash.ts                # hash mot de passe (bcrypt)
-│  │  ├─ mailer.ts              # envoi mails (Nodemailer, SMTP)
-│  │  ├─ logger.ts              # logger (Pino/Winston)
-│  │  └─ swagger.ts             # config Swagger + Redoc
+│  │  ├─ prisma.ts
+│  │  ├─ jwt.ts
+│  │  ├─ hash.ts
+│  │  ├─ mailer.ts
+│  │  ├─ logger.ts
+│  │  ├─ swagger.ts
+│  │  └─ scheduler.ts            # ✅ NEW – cron jobs (cleanup, quotas)
 │  │
-│  ├─ __tests__/                # Tests unitaires et intégration
+│  ├─ __tests__/
 │  │  ├─ auth.test.ts
 │  │  ├─ projects.test.ts
 │  │  ├─ marketplace.test.ts
 │  │  ├─ deploy.test.ts
-│  │  └─ billing.test.ts
+│  │  ├─ billing.test.ts
+│  │  ├─ favorites.test.ts       # ✅ NEW – tests favoris
+│  │  ├─ purchases.test.ts       # ✅ NEW – tests achats
+│  │  └─ assistant.test.ts       # ✅ NEW – tests assistant IA
 │  │
 │  └─ types/
-│     └─ express.d.ts           # Typage Express étendu (req.user, req.id…)
+│     └─ express.d.ts
 │
 ├─ prisma/
-│  ├─ schema.prisma             # ✅ enrichi (Users, Orgs, Usage, EmailTemplates…)
-│  └─ seed.ts                   # Seed users, orgs, badges, templates…
+│  ├─ schema.prisma             # ✅ enrichi (Favorites, Purchases, UsageHistory…)
+│  └─ seed.ts                   # ✅ seed users, orgs, badges, templates, purchases…
 │
-├─ uploads/                     # Dossier fichiers uploadés
+├─ uploads/
 │
-├─ swagger.yaml                 # Doc OpenAPI (auth, projects, marketplace, deploy, replay, orgs…)
+├─ swagger.yaml                 # ✅ enrichi (favorites, purchases, billing, templates, assistant)
 │
 ├─ package.json
 ├─ tsconfig.json
 ├─ Dockerfile
-├─ docker-compose.yml           # ⚡ backend + MySQL + Prometheus + Grafana
+├─ docker-compose.yml
 ├─ .dockerignore
-├─ .env.example                 # Clés test (Stripe, PayPal, CinetPay, OpenAI…)
+├─ .env.example                 # ✅ clés test (Stripe, PayPal, CinetPay, OpenAI…)
 └─ .github/
    └─ workflows/
-      └─ ci.yml                 # CI/CD GitHub Actions (lint, tests, migrations, swagger)
+      └─ ci.yml
