@@ -6,6 +6,9 @@ servers:
   - url: http://localhost:5000
 
 paths:
+  # ========================
+  # AUTH
+  # ========================
   /api/auth/login:
     post:
       summary: Login utilisateur
@@ -52,13 +55,18 @@ paths:
       responses:
         "200": { description: OK }
 
+  # ========================
+  # PROJECTS
+  # ========================
   /api/projects:
     get:
       summary: Liste des projets
       security: [ { bearerAuth: [] } ]
       responses: { "200": { description: OK } }
 
-  # ⚡ Marketplace
+  # ========================
+  # MARKETPLACE
+  # ========================
   /api/marketplace/items:
     get:
       summary: Liste des templates marketplace
@@ -104,7 +112,65 @@ paths:
                 itemId: { type: string }
       responses: { "200": { description: OK } }
 
-  # ⚡ Deploy
+  # ========================
+  # FAVORITES
+  # ========================
+  /api/favorites:
+    get:
+      summary: Liste des favoris utilisateur
+      security: [ { bearerAuth: [] } ]
+      responses: { "200": { description: OK } }
+    post:
+      summary: Ajouter un favori
+      security: [ { bearerAuth: [] } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                itemId: { type: string }
+      responses: { "201": { description: Favori ajouté } }
+
+  /api/favorites/{id}:
+    delete:
+      summary: Supprimer un favori
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - in: path
+          name: id
+          required: true
+          schema: { type: string }
+      responses: { "204": { description: Supprimé } }
+
+  # ========================
+  # PURCHASES
+  # ========================
+  /api/purchases:
+    get:
+      summary: Historique des achats utilisateur
+      security: [ { bearerAuth: [] } ]
+      responses: { "200": { description: OK } }
+
+  # ========================
+  # BILLING & USAGE
+  # ========================
+  /api/billing/report:
+    get:
+      summary: Rapport d’usage actuel (API, stockage, projets)
+      security: [ { bearerAuth: [] } ]
+      responses: { "200": { description: OK } }
+
+  /api/billing/history:
+    get:
+      summary: Historique d’usage (API calls, AI tokens, stockage)
+      security: [ { bearerAuth: [] } ]
+      responses: { "200": { description: OK } }
+
+  # ========================
+  # DEPLOY
+  # ========================
   /api/deploy/{projectId}:
     post:
       summary: Lancer un déploiement cloud
@@ -138,7 +204,9 @@ paths:
           schema: { type: string }
       responses: { "200": { description: OK } }
 
-  # ⚡ Replay
+  # ========================
+  # REPLAY
+  # ========================
   /api/replay/{projectId}/start:
     post:
       summary: Démarrer un replay collaboratif
@@ -196,7 +264,9 @@ paths:
           schema: { type: string }
       responses: { "200": { description: OK } }
 
-  # ⚡ Monitoring
+  # ========================
+  # MONITORING
+  # ========================
   /api/monitoring/metrics:
     get:
       summary: Récupérer métriques système (JSON)
@@ -218,7 +288,12 @@ paths:
   /api/monitoring/prometheus:
     get:
       summary: Métriques format Prometheus (Grafana)
-      responses: { "200": { description: OK, content: { "text/plain": { schema: { type: string } } } } }
+      responses:
+        "200":
+          description: OK
+          content:
+            text/plain:
+              schema: { type: string }
 
 components:
   securitySchemes:
