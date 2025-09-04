@@ -6,6 +6,8 @@ import { prisma } from "../utils/prisma";
 // (optionnels) services — garde les stubs si non branchés
 import * as policy from "../services/policy";          // policy.canAccessProject(userId, projectId, "EDIT"|"VIEW")
 import * as cloud from "../services/cloud";            // cloud.putObjectFromBase64(key, base64) -> url
+import { emitEvent } from "../services/eventBus";      // ✅ events bus centralisé
+
 let exportQueue: any = null;
 try {
   // @ts-ignore: optional import if you have BullMQ
@@ -96,203 +98,213 @@ async function ensureCanEditProject(req: Request, projectId: string | number) {
 
 // ==========================
 // POST /api/exports/:projectId (ou /:projectId/:pageId)
-// Body: { type, content?, strategy?, meta? }
-// - strategy=direct : on enregistre directement (upload S3 si base64/zip) → status=ready
-// - strategy=enqueue : on crée un Export pending + job BullMQ (si dispo) → status=pending
-// Réponse: Export DTO
 // ==========================
 export const saveExport = async (req: Request, res: Response) => {
-  const projectId = toId(req.params.projectId);
-  const pageId = req.params.pageId ? toId(req.params.pageId) : undefined;
-  if (!projectId) return res.status(400).json({ error: "projectId manquant" });
+  try {
+    const projectId = toId(req.params.projectId);
+    const pageId = req.params.pageId ? toId(req.params.pageId) : undefined;
+    if (!projectId) return res.status(400).json({ error: "projectId manquant" });
 
-  await ensureCanEditProject(req, projectId);
+    await ensureCanEditProject(req, projectId);
 
-  const parsed = SaveExportSchema.safeParse(req.body);
-  if (!parsed.success) {
-    return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
-  }
-  const { type, content, strategy, meta } = parsed.data;
+    const parsed = SaveExportSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+    }
+    const { type, content, strategy, meta } = parsed.data;
 
-  // Mode enqueue (préférable pour React/Flutter lourds)
-  if (strategy === "enqueue") {
-    // Crée un export pending
+    // Mode enqueue
+    if (strategy === "enqueue") {
+      const rec = await prisma.export.create({
+        data: {
+          type,
+          status: "pending",
+          projectId: projectId as any,
+          pageId: pageId as any,
+          meta: meta ?? {},
+        },
+        select: exportSelect,
+      });
+
+      if (exportQueue?.add) {
+        await exportQueue.add("export-project", {
+          exportId: rec.id,
+          projectId,
+          pageId: pageId ?? null,
+          type,
+          userId: (req as any)?.user?.sub || null,
+        });
+      }
+
+      emitEvent("export.enqueued", { exportId: rec.id, projectId, type });
+      return res.status(202).json(dto(rec));
+    }
+
+    // Mode direct
+    if (!content) {
+      return res.status(400).json({ error: "Content requis en mode 'direct'." });
+    }
+
+    const bytesApprox = Buffer.byteLength(content, "utf8");
+    if (bytesApprox > MAX_CONTENT_BYTES) {
+      return res.status(413).json({ error: "Contenu trop volumineux." });
+    }
+
+    let bundleUrl: string | null = null;
+    const isDataUrl = /^data:.*;base64,/.test(content);
+    if (isDataUrl && cloud?.putObjectFromBase64) {
+      const base64 = content.split(",")[1] || "";
+      const key = `exports/${projectId}/${Date.now()}_${type}.zip`;
+      bundleUrl = await cloud.putObjectFromBase64(key, base64);
+    } else if (cloud?.putObjectFromBase64 && type !== "html") {
+      const base64 = Buffer.from(content, "utf8").toString("base64");
+      const key = `exports/${projectId}/${Date.now()}_${type}.bin`;
+      bundleUrl = await cloud.putObjectFromBase64(key, base64);
+    }
+
     const rec = await prisma.export.create({
       data: {
         type,
-        status: "pending",
+        status: "ready",
         projectId: projectId as any,
         pageId: pageId as any,
-        meta: meta ?? {},
+        bundleUrl: bundleUrl,
+        meta: {
+          ...(meta ?? {}),
+          inline: bundleUrl ? false : true,
+          content: bundleUrl ? undefined : content,
+        },
       },
       select: exportSelect,
     });
 
-    // enqueue si dispo
-    if (exportQueue?.add) {
-      await exportQueue.add("export-project", {
-        exportId: rec.id,
-        projectId,
-        pageId: pageId ?? null,
-        type,
-        userId: (req as any)?.user?.sub || null,
-      });
-    }
-
-    return res.status(202).json(dto(rec));
+    emitEvent("export.saved", { exportId: rec.id, projectId, type });
+    return res.status(201).json(dto(rec));
+  } catch (e: any) {
+    console.error("❌ saveExport error:", e);
+    return res.status(500).json({ error: "Internal server error" });
   }
-
-  // Mode direct (content requis)
-  if (!content) {
-    return res.status(400).json({ error: "Content requis en mode 'direct'." });
-  }
-
-  // Contrôle taille (approx base64)
-  const bytesApprox = Buffer.byteLength(content, "utf8");
-  if (bytesApprox > MAX_CONTENT_BYTES) {
-    return res.status(413).json({ error: "Contenu trop volumineux." });
-  }
-
-  // Si content ressemble à du base64 (ex: data:application/zip;base64,...)
-  let bundleUrl: string | null = null;
-  const isDataUrl = /^data:.*;base64,/.test(content);
-  if (isDataUrl && cloud?.putObjectFromBase64) {
-    const base64 = content.split(",")[1] || "";
-    const key = `exports/${projectId}/${Date.now()}_${type}.zip`;
-    bundleUrl = await cloud.putObjectFromBase64(key, base64);
-  } else if (cloud?.putObjectFromBase64 && type !== "html") {
-    // si pas de dataURL mais on attend un binaire → on pousse quand même, sinon on peut stocker en BLOB/texte
-    const base64 = Buffer.from(content, "utf8").toString("base64");
-    const key = `exports/${projectId}/${Date.now()}_${type}.bin`;
-    bundleUrl = await cloud.putObjectFromBase64(key, base64);
-  }
-
-  // Enregistre en base
-  const rec = await prisma.export.create({
-    data: {
-      type,
-      status: "ready",
-      projectId: projectId as any,
-      pageId: pageId as any,
-      // Si bundleUrl non dispo (pas de cloud), on peut conserver inline (optionnel)
-      bundleUrl: bundleUrl,
-      meta: {
-        ...(meta ?? {}),
-        inline: bundleUrl ? false : true,
-        content: bundleUrl ? undefined : content, // WARNING: OK pour HTML/Text — évite pour ZIP lourds
-      },
-    },
-    select: exportSelect,
-  });
-
-  return res.status(201).json(dto(rec));
 };
 
 // ==========================
 // GET /api/exports
-// Query: projectId?|pageId?|type?|status?|page=1&pageSize=20&sort=createdAt:desc
-// Réponse paginée { items, page, pageSize, total, totalPages }
 // ==========================
 export const list = async (req: Request, res: Response) => {
-  const q = ListQuerySchema.safeParse(req.query);
-  if (!q.success) {
-    return res.status(400).json({ error: "Invalid query", details: q.error.flatten() });
-  }
-  const { projectId, pageId, type, status, page, pageSize, sort } = q.data;
-
-  if (!projectId && !pageId) {
-    return res.status(400).json({ error: "projectId ou pageId requis" });
-  }
-
-  // contrôle d’accès basique (VIEW)
-  const pid = toId(projectId || req.params.projectId);
-  if (pid) {
-    const userId = (req as any)?.user?.sub || (req as any)?.user?.id;
-    if (!userId) return res.status(401).json({ error: "Unauthorized" });
-    if (policy?.canAccessProject) {
-      const ok = await policy.canAccessProject(userId, pid, "VIEW");
-      if (!ok) return res.status(403).json({ error: "Forbidden" });
+  try {
+    const q = ListQuerySchema.safeParse(req.query);
+    if (!q.success) {
+      return res.status(400).json({ error: "Invalid query", details: q.error.flatten() });
     }
+    const { projectId, pageId, type, status, page, pageSize, sort } = q.data;
+
+    if (!projectId && !pageId) {
+      return res.status(400).json({ error: "projectId ou pageId requis" });
+    }
+
+    const pid = toId(projectId || req.params.projectId);
+    if (pid) {
+      const userId = (req as any)?.user?.sub || (req as any)?.user?.id;
+      if (!userId) return res.status(401).json({ error: "Unauthorized" });
+      if (policy?.canAccessProject) {
+        const ok = await policy.canAccessProject(userId, pid, "VIEW");
+        if (!ok) return res.status(403).json({ error: "Forbidden" });
+      }
+    }
+
+    const where: any = {};
+    if (projectId) where.projectId = toId(projectId) as any;
+    if (pageId) where.pageId = toId(pageId) as any;
+    if (type) where.type = type;
+    if (status) where.status = status;
+
+    const [sortField, sortDir] = sort.split(":") as ["createdAt", "asc" | "desc"];
+    const orderBy: any = { [sortField]: sortDir };
+
+    const [total, items] = await Promise.all([
+      prisma.export.count({ where }),
+      prisma.export.findMany({
+        where,
+        orderBy,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+        select: exportSelect,
+      }),
+    ]);
+
+    res.json({
+      items: items.map(dto),
+      page,
+      pageSize,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / pageSize)),
+    });
+  } catch (e: any) {
+    console.error("❌ listExports error:", e);
+    res.status(500).json({ error: "Internal server error" });
   }
-
-  const where: any = {};
-  if (projectId) where.projectId = toId(projectId) as any;
-  if (pageId) where.pageId = toId(pageId) as any;
-  if (type) where.type = type;
-  if (status) where.status = status;
-
-  const [sortField, sortDir] = sort.split(":") as ["createdAt", "asc" | "desc"];
-  const orderBy: any = { [sortField]: sortDir };
-
-  const [total, items] = await Promise.all([
-    prisma.export.count({ where }),
-    prisma.export.findMany({
-      where,
-      orderBy,
-      skip: (page - 1) * pageSize,
-      take: pageSize,
-      select: exportSelect,
-    }),
-  ]);
-
-  res.json({
-    items: items.map(dto),
-    page,
-    pageSize,
-    total,
-    totalPages: Math.max(1, Math.ceil(total / pageSize)),
-  });
 };
 
 // ==========================
 // GET /api/exports/:id
-// Récupère un export particulier (pour polling côté front)
 // ==========================
 export const getOne = async (req: Request, res: Response) => {
-  const id = toId(req.params.id);
-  const rec = await prisma.export.findUnique({ where: { id } as any, select: exportSelect });
-  if (!rec) return res.status(404).json({ error: "Not found" });
+  try {
+    const id = toId(req.params.id);
+    const rec = await prisma.export.findUnique({ where: { id } as any, select: exportSelect });
+    if (!rec) return res.status(404).json({ error: "Not found" });
 
-  // contrôle d’accès basique (VIEW)
-  const userId = (req as any)?.user?.sub || (req as any)?.user?.id;
-  if (!userId) return res.status(401).json({ error: "Unauthorized" });
-  if (policy?.canAccessProject) {
-    const ok = await policy.canAccessProject(userId, rec.projectId, "VIEW");
-    if (!ok) return res.status(403).json({ error: "Forbidden" });
+    const userId = (req as any)?.user?.sub || (req as any)?.user?.id;
+    if (!userId) return res.status(401).json({ error: "Unauthorized" });
+    if (policy?.canAccessProject) {
+      const ok = await policy.canAccessProject(userId, rec.projectId, "VIEW");
+      if (!ok) return res.status(403).json({ error: "Forbidden" });
+    }
+
+    res.json(dto(rec));
+  } catch (e: any) {
+    console.error("❌ getOneExport error:", e);
+    res.status(500).json({ error: "Internal server error" });
   }
-
-  return res.json(dto(rec));
 };
 
 // ==========================
-// (optionnel) POST /api/exports/:id/mark-failed
-// Pour que le worker marque un export en échec
+// POST /api/exports/:id/mark-failed
 // ==========================
 export const markFailed = async (req: Request, res: Response) => {
-  const id = toId(req.params.id);
-  const { error } = (req.body || {}) as { error?: string };
-  const rec = await prisma.export.update({
-    where: { id } as any,
-    data: { status: "failed", meta: { ...(error ? { error } : {}) } },
-    select: exportSelect,
-  });
-  res.json(dto(rec));
+  try {
+    const id = toId(req.params.id);
+    const { error } = (req.body || {}) as { error?: string };
+    const rec = await prisma.export.update({
+      where: { id } as any,
+      data: { status: "failed", meta: { ...(error ? { error } : {}) } },
+      select: exportSelect,
+    });
+    emitEvent("export.failed", { exportId: rec.id, error });
+    res.json(dto(rec));
+  } catch (e: any) {
+    console.error("❌ markFailed error:", e);
+    res.status(500).json({ error: "Internal server error" });
+  }
 };
 
 // ==========================
-// (optionnel) POST /api/exports/:id/mark-ready
-// Pour que le worker renseigne l’URL quand le bundle est uploadé
-// Body: { bundleUrl, meta? }
+// POST /api/exports/:id/mark-ready
 // ==========================
 export const markReady = async (req: Request, res: Response) => {
-  const id = toId(req.params.id);
-  const { bundleUrl, meta } = (req.body || {}) as { bundleUrl?: string; meta?: any };
-  if (!bundleUrl) return res.status(400).json({ error: "bundleUrl requis" });
+  try {
+    const id = toId(req.params.id);
+    const { bundleUrl, meta } = (req.body || {}) as { bundleUrl?: string; meta?: any };
+    if (!bundleUrl) return res.status(400).json({ error: "bundleUrl requis" });
 
-  const rec = await prisma.export.update({
-    where: { id } as any,
-    data: { status: "ready", bundleUrl, meta: meta ?? {} },
-    select: exportSelect,
-  });
-  res.json(dto(rec));
+    const rec = await prisma.export.update({
+      where: { id } as any,
+      data: { status: "ready", bundleUrl, meta: meta ?? {} },
+      select: exportSelect,
+    });
+    emitEvent("export.ready", { exportId: rec.id, bundleUrl });
+    res.json(dto(rec));
+  } catch (e: any) {
+    console.error("❌ markReady error:", e);
+    res.status(500).json({ error: "Internal server error" });
+  }
 };
