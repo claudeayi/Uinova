@@ -41,7 +41,7 @@ const BadgesPage = lazy(() => import("./pages/BadgesPage"));
 const OnboardingPage = lazy(() => import("./pages/OnboardingPage"));
 const SettingsPage = lazy(() => import("./pages/SettingsPage"));
 const ProfilePage = lazy(() => import("./pages/ProfilePage"));
-const FavoritesPage = lazy(() => import("./pages/FavoritesPage")); // ✅ NEW
+const FavoritesPage = lazy(() => import("./pages/FavoritesPage"));
 
 // 🔑 Auth
 const LoginPage = lazy(() => import("./pages/LoginPage"));
@@ -50,7 +50,8 @@ const RegisterPage = lazy(() => import("./pages/RegisterPage"));
 // 🛒 Marketplace & Paiements
 const MarketplacePage = lazy(() => import("./pages/MarketplacePage"));
 const TemplateExplorer = lazy(() => import("./pages/TemplateExplorer"));
-const TemplateDetail = lazy(() => import("./pages/TemplateDetail")); // ✅ Renommé pour cohérence
+const TemplateDetail = lazy(() => import("./pages/TemplateDetail"));
+const PurchasesPage = lazy(() => import("./pages/PurchasesPage")); // ✅ NEW
 const PricingPage = lazy(() => import("./pages/PricingPage"));
 const PaymentPage = lazy(() => import("./pages/PaymentPage"));
 const PaymentSuccessPage = lazy(() => import("./pages/PaymentSuccessPage"));
@@ -106,7 +107,7 @@ export default function App() {
               <Route path="/contact" element={<ContactPage />} />
               <Route path="/settings" element={<SettingsPage />} />
               <Route path="/profile" element={<ProfilePage />} />
-              <Route path="/favorites" element={<FavoritesPage />} /> {/* ✅ NEW */}
+              <Route path="/favorites" element={<FavoritesPage />} />
 
               {/* 🔑 Auth */}
               <Route path="/login" element={<LoginPage />} />
@@ -116,6 +117,7 @@ export default function App() {
               <Route path="/marketplace" element={<MarketplacePage />} />
               <Route path="/marketplace/templates" element={<TemplateExplorer />} />
               <Route path="/marketplace/:id" element={<TemplateDetail />} />
+              <Route path="/marketplace/purchases" element={<PurchasesPage />} /> {/* ✅ NEW */}
               <Route path="/pricing" element={<PricingPage />} />
               <Route path="/payment" element={<PaymentPage />} />
               <Route path="/payment/success" element={<PaymentSuccessPage />} />
