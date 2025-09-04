@@ -12,11 +12,10 @@ const prisma = new PrismaClient();
 
 /* ============================================================================
  * Helper pour steps compressés (mock JSON compressé → Buffer)
- * ============================================================================
- */
+ * ========================================================================== */
 function mockStepsCompressed(steps: any[]): Buffer {
   const json = JSON.stringify(steps);
-  return Buffer.from(json, "utf-8"); // en prod → compresser avec gzip
+  return Buffer.from(json, "utf-8"); // en prod → compresser avec gzip/gzipSync
 }
 
 async function main() {
@@ -38,6 +37,7 @@ async function main() {
     },
   });
 
+  // Nettoyage projets existants
   await prisma.project.deleteMany({ where: { ownerId: user.id } });
 
   const [alpha] = await prisma.$transaction([
@@ -54,7 +54,9 @@ async function main() {
     }),
   ]);
 
-  // ✅ Subscription & Payment
+  /* ============================================================================
+   * SUBSCRIPTION + PAYMENT
+   * ========================================================================== */
   const subscription = await prisma.subscription.create({
     data: {
       userId: user.id,
@@ -77,7 +79,18 @@ async function main() {
     },
   });
 
-  // ✅ Notifications enrichies
+  // ➕ Historique d’usage
+  await prisma.usageRecord.createMany({
+    data: [
+      { userId: user.id, projectId: alpha.id, type: "api_call", amount: 120 },
+      { userId: user.id, projectId: alpha.id, type: "ai_tokens", amount: 2500 },
+      { userId: user.id, projectId: alpha.id, type: "storage", amount: 35 },
+    ],
+  });
+
+  /* ============================================================================
+   * NOTIFICATIONS
+   * ========================================================================== */
   await prisma.notification.createMany({
     data: [
       {
@@ -98,7 +111,9 @@ async function main() {
     ],
   });
 
-  // ✅ Badge
+  /* ============================================================================
+   * BADGE
+   * ========================================================================== */
   const badge = await prisma.badge.upsert({
     where: { code: "EARLY_ADOPTER" },
     update: {},
@@ -111,7 +126,9 @@ async function main() {
     create: { userId: user.id, badgeId: badge.id, meta: { reason: "First wave" } },
   });
 
-  // ✅ Marketplace
+  /* ============================================================================
+   * MARKETPLACE + FAVORITES
+   * ========================================================================== */
   const template = await prisma.marketplaceItem.create({
     data: {
       title: "Template Portfolio",
@@ -121,11 +138,19 @@ async function main() {
     },
   });
 
+  // Achat
   await prisma.purchase.create({
     data: { itemId: template.id, buyerId: user.id },
   });
 
-  // ✅ Deployment
+  // Favori
+  await prisma.favorite.create({
+    data: { userId: user.id, itemId: template.id },
+  });
+
+  /* ============================================================================
+   * DEPLOYMENT
+   * ========================================================================== */
   await prisma.deployment.create({
     data: {
       projectId: alpha.id,
@@ -136,7 +161,7 @@ async function main() {
   });
 
   /* ============================================================================
-   * MOCK REPLAYS – Projet Alpha
+   * MOCK REPLAYS
    * ========================================================================== */
   const steps = [
     { userId: user.id, at: new Date(), changes: { add: "Button" }, snapshot: { elements: ["Button"] } },
