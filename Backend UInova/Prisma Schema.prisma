@@ -283,6 +283,8 @@ model UsageHistory {
   api       Int      @default(0)
   storageMB Float    @default(0)
   projects  Int      @default(0)
+
+  @@unique([userId, date])
 }
 
 /* ============================================================================
@@ -392,14 +394,14 @@ model Purchase {
 }
 
 model Favorite {
-  id        String          @id @default(cuid())
-  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  id        String           @id @default(cuid())
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
-  project   Project?        @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  project   Project?         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId String?
   template  MarketplaceItem? @relation(fields: [templateId], references: [id], onDelete: Cascade)
   templateId String?
-  createdAt DateTime        @default(now())
+  createdAt DateTime         @default(now())
 
   @@unique([userId, projectId, templateId])
 }
