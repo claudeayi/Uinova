@@ -1,4 +1,3 @@
-// src/pages/BillingPage.tsx
 import { useEffect, useState } from "react";
 import { getUsageReport, getUsageHistory } from "@/services/billing";
 import { Card } from "@/components/advanced/Card";
@@ -14,23 +13,29 @@ import {
   Tooltip,
   Legend,
 } from "recharts";
+import { Button } from "@/components/ui/button";
+import { Select, SelectTrigger, SelectContent, SelectItem } from "@/components/ui/select";
 
+/* ============================================================================
+ *  BillingPage – UInova v2 ultra-pro
+ * ========================================================================== */
 export default function BillingPage() {
   const [report, setReport] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [period, setPeriod] = useState<"7d" | "30d" | "90d">("30d");
   const toast = useToast();
 
   useEffect(() => {
     loadReport();
-  }, []);
+  }, [period]);
 
   async function loadReport() {
     setLoading(true);
     try {
       const [reportData, historyData] = await Promise.all([
         getUsageReport(),
-        getUsageHistory?.() || Promise.resolve([]),
+        getUsageHistory?.(period) || Promise.resolve([]),
       ]);
       setReport(reportData);
       setHistory(historyData);
@@ -46,17 +51,41 @@ export default function BillingPage() {
     <DashboardLayout>
       <div className="p-6 space-y-6 max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold text-gray-800">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+          <h1 className="text-2xl font-bold text-gray-800 dark:text-gray-200">
             💳 Facturation & Usage
           </h1>
-          <button
-            onClick={loadReport}
-            className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            🔄 Rafraîchir
-          </button>
+          <div className="flex items-center gap-3">
+            <Select value={period} onValueChange={(v) => setPeriod(v as any)}>
+              <SelectTrigger className="w-32">
+                {period === "7d" ? "7 jours" : period === "30d" ? "30 jours" : "90 jours"}
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="7d">7 jours</SelectItem>
+                <SelectItem value="30d">30 jours</SelectItem>
+                <SelectItem value="90d">90 jours</SelectItem>
+              </SelectContent>
+            </Select>
+            <Button onClick={loadReport} variant="secondary">
+              🔄 Rafraîchir
+            </Button>
+          </div>
         </div>
+
+        {/* Plan actuel */}
+        {report?.plan && (
+          <Card title="📌 Plan actuel" className="bg-slate-50 dark:bg-slate-800">
+            <div className="flex justify-between items-center">
+              <span className="text-lg font-semibold">{report.plan}</span>
+              <Button
+                className="bg-indigo-600 text-white hover:bg-indigo-700"
+                onClick={() => toast.info("🚀 Redirection vers la page Pricing")}
+              >
+                Gérer mon plan
+              </Button>
+            </div>
+          </Card>
+        )}
 
         {/* Chargement */}
         {loading && (
@@ -76,9 +105,7 @@ export default function BillingPage() {
               <p className="text-2xl font-bold">{report.projects}</p>
             </Card>
             <Card title="💾 Stockage">
-              <p className="text-2xl font-bold">
-                {report.storageMB.toFixed(2)} MB
-              </p>
+              <p className="text-2xl font-bold">{report.storageMB.toFixed(2)} MB</p>
             </Card>
           </div>
         )}
@@ -98,6 +125,13 @@ export default function BillingPage() {
               </LineChart>
             </ResponsiveContainer>
           </Card>
+        )}
+
+        {/* Pas de données */}
+        {!loading && !report && (
+          <p className="text-gray-400 text-center italic">
+            Aucun rapport disponible pour le moment.
+          </p>
         )}
       </div>
     </DashboardLayout>
