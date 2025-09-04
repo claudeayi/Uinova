@@ -36,12 +36,14 @@ import monitoringRoutes from "./routes/monitoring";
 import arRoutes from "./routes/ar";
 import assistantRoutes from "./routes/assistant";
 import templateRoutes from "./routes/templates";
+import favoritesRoutes from "./routes/favorites";   // ✅ NEW
+import purchasesRoutes from "./routes/purchases";   // ✅ NEW
 
 // 🚀 Nouvelles routes backend
 import collabRoutes from "./routes/collab";
 import webhookRoutes from "./routes/webhooks";
 import billingRoutes from "./routes/billing";
-import emailTemplateRoutes from "./routes/emailTemplates"; // ⚡ gestion templates email
+import emailTemplateRoutes from "./routes/emailTemplates";
 
 // ---- Typage Express.Request
 declare global {
@@ -51,6 +53,8 @@ declare global {
       startAt?: number;
       correlationId?: string;
       lang?: string;
+      orgId?: string;
+      workspaceId?: string;
       user?: { id: string; role: string };
     }
   }
@@ -65,12 +69,15 @@ const useJsonLogs = process.env.JSON_LOGS === "true";
  * ========================================================================== */
 app.set("trust proxy", 1);
 
-// ID + correlation ID + lang
+// ID + correlation ID + lang + multi-tenant
 app.use((req: Request, res: Response, next: NextFunction) => {
   req.id = (req.headers["x-request-id"] as string) || nanoid(12);
   req.correlationId = (req.headers["x-correlation-id"] as string) || req.id;
   req.startAt = Date.now();
   req.lang = (req.headers["accept-language"] as string)?.split(",")[0] || "fr";
+  req.orgId = (req.headers["x-org-id"] as string) || undefined;
+  req.workspaceId = (req.headers["x-workspace-id"] as string) || undefined;
+
   res.setHeader("x-request-id", req.id);
   res.setHeader("x-correlation-id", req.correlationId);
   next();
@@ -105,12 +112,17 @@ app.use(securityHeaders);
 // Compression
 app.use(compression());
 
-// CORS
+// CORS dynamique
 const corsEnv = process.env.CORS_ORIGINS || process.env.CORS_ORIGIN || "*";
 const allowedOrigins = corsEnv.split(",").map((s) => s.trim()).filter(Boolean);
 app.use(
   cors({
-    origin: allowedOrigins.length === 1 && allowedOrigins[0] === "*" ? "*" : allowedOrigins,
+    origin: (origin, callback) => {
+      if (!origin || allowedOrigins.includes("*") || allowedOrigins.includes(origin)) {
+        return callback(null, origin || "*");
+      }
+      return callback(new Error("Not allowed by CORS"), origin);
+    },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: [
@@ -119,6 +131,8 @@ app.use(
       "X-Requested-With",
       "x-request-id",
       "x-correlation-id",
+      "x-org-id",
+      "x-workspace-id",
     ],
     maxAge: 86400,
   })
@@ -139,6 +153,8 @@ if (useJsonLogs) {
         status: tokens.status(req, res),
         responseTime: tokens["response-time"](req, res),
         requestId: (req as Request).id,
+        orgId: (req as Request).orgId,
+        workspaceId: (req as Request).workspaceId,
       })
     )
   );
@@ -149,8 +165,11 @@ if (useJsonLogs) {
 // Limite globale API
 app.use("/api", apiLimiter);
 
-// Statics
-app.use("/uploads", express.static("uploads", { fallthrough: true, maxAge: "7d", etag: true }));
+// Statics sécurisés
+app.use(
+  "/uploads",
+  express.static("uploads", { fallthrough: true, maxAge: "7d", etag: true, dotfiles: "ignore" })
+);
 
 /* ============================================================================
  *  PROMETHEUS METRICS
@@ -209,13 +228,17 @@ app.use("/api/deploy", deployRoutes);
 app.use("/api/replay", replayRoutes);
 app.use("/api/monitoring", monitoringRoutes);
 
+// Alignement frontend
 app.use("/api/ar", arRoutes);
 app.use("/api/assistant", assistantRoutes);
 app.use("/api/templates", templateRoutes);
+app.use("/api/favorites", favoritesRoutes);   // ✅ NEW
+app.use("/api/purchases", purchasesRoutes);   // ✅ NEW
+app.use("/api/billing", billingRoutes);
 
+// Backend avancé
 app.use("/api/collab", collabRoutes);
 app.use("/api/webhooks", webhookRoutes);
-app.use("/api/billing", billingRoutes);
 
 // Admin-only
 app.use("/api/admin/email-templates", emailTemplateRoutes);
@@ -245,6 +268,8 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
               ip: req.ip,
               ua: req.headers["user-agent"] || null,
               lang: req.lang,
+              orgId: req.orgId,
+              workspaceId: req.workspaceId,
             },
           },
         });
@@ -255,10 +280,12 @@ app.use(async (req: Request, res: Response, next: NextFunction) => {
           status: res.statusCode,
           userId: req.user?.id || null,
           correlationId: req.correlationId,
+          orgId: req.orgId,
+          workspaceId: req.workspaceId,
         });
       }
     } catch (e) {
-      emitEvent("api.error", { error: e.message, path: req.path });
+      emitEvent("api.error", { error: (e as Error).message, path: req.path });
       console.error("❌ AuditLog insert failed:", e);
     }
   });
@@ -275,11 +302,18 @@ app.use("/api", (_req: Request, res: Response) => {
   });
 });
 
+// JSON invalide
 app.use((err: any, _req: Request, res: Response, next: NextFunction) => {
   if (err instanceof SyntaxError && "body" in err) {
     return res.status(400).json({
       error: "BAD_REQUEST",
       message: _req.lang === "fr" ? "JSON invalide" : "Invalid JSON",
+    });
+  }
+  if (err.type === "entity.too.large") {
+    return res.status(413).json({
+      error: "PAYLOAD_TOO_LARGE",
+      message: _req.lang === "fr" ? "Payload trop volumineux" : "Payload too large",
     });
   }
   return next(err);
