@@ -1,10 +1,9 @@
-// src/middlewares/validate.ts
 import { Request, Response, NextFunction } from "express";
 import { checkSchema, validationResult, ParamSchema, Schema } from "express-validator";
 
-/* ============================
- * Helpers & format d'erreur
- * ============================ */
+/* ============================================================================
+ * HELPERS & FORMAT D’ERREUR
+ * ========================================================================== */
 export function handleValidationErrors(req: Request, res: Response, next: NextFunction) {
   const result = validationResult(req);
   if (result.isEmpty()) return next();
@@ -50,13 +49,25 @@ const optString: ParamSchema = {
 };
 
 export const paginationQuery: Schema = {
-  page: { in: ["query"], optional: true, toInt: true, isInt: { options: { min: 1 }, errorMessage: "page doit être ≥ 1" }, default: 1 },
-  pageSize: { in: ["query"], optional: true, toInt: true, isInt: { options: { min: 1, max: 100 }, errorMessage: "pageSize doit être 1..100" }, default: 20 },
+  page: {
+    in: ["query"],
+    optional: true,
+    toInt: true,
+    isInt: { options: { min: 1 }, errorMessage: "page doit être ≥ 1" },
+    default: 1,
+  },
+  pageSize: {
+    in: ["query"],
+    optional: true,
+    toInt: true,
+    isInt: { options: { min: 1, max: 100 }, errorMessage: "pageSize doit être 1..100" },
+    default: 20,
+  },
 };
 
-/* ============================
+/* ============================================================================
  * AUTH
- * ============================ */
+ * ========================================================================== */
 export const validateRegister = checkSchema(
   {
     email: { in: ["body"], isEmail: { errorMessage: "Email invalide" }, normalizeEmail: true },
@@ -74,15 +85,25 @@ export const validateLogin = checkSchema(
   ["body"]
 );
 
-/* ============================
+/* ============================================================================
  * PROJECTS
- * ============================ */
+ * ========================================================================== */
 export const validateListProjectsQuery = checkSchema(
   {
     ...paginationQuery,
-    status: { in: ["query"], optional: true, isIn: { options: [["EN_COURS", "TERMINE", "PLANIFIE"]], errorMessage: "status invalide" } },
+    status: {
+      in: ["query"],
+      optional: true,
+      isIn: { options: [["EN_COURS", "TERMINE", "PLANIFIE"]] },
+      errorMessage: "status invalide",
+    },
     q: { in: ["query"], optional: true, trim: true, isLength: { options: { min: 1, max: 120 }, errorMessage: "q invalide" } },
-    sort: { in: ["query"], optional: true, isIn: { options: [["updatedAt:desc","updatedAt:asc","name:asc","name:desc"]] }, default: "updatedAt:desc" },
+    sort: {
+      in: ["query"],
+      optional: true,
+      isIn: { options: [["updatedAt:desc","updatedAt:asc","name:asc","name:desc"]] },
+      default: "updatedAt:desc",
+    },
   },
   ["query"]
 );
@@ -109,9 +130,9 @@ export const validateProjectUpdate = checkSchema(
   ["body"]
 );
 
-/* ============================
+/* ============================================================================
  * PAGES
- * ============================ */
+ * ========================================================================== */
 export const validateProjectIdParam = checkSchema({ projectId: { in: ["params"], custom: isId } }, ["params"]);
 export const validatePageIdParam = checkSchema({ id: { in: ["params"], custom: isId } }, ["params"]);
 
@@ -142,9 +163,9 @@ export const validatePagesReorder = checkSchema(
   ["body"]
 );
 
-/* ============================
+/* ============================================================================
  * EXPORTS
- * ============================ */
+ * ========================================================================== */
 export const validateExportSave = checkSchema(
   {
     type: { in: ["body"], isIn: { options: [["react", "html", "flutter", "pwa"]] }, errorMessage: "type export invalide" },
@@ -167,9 +188,9 @@ export const validateExportListQuery = checkSchema(
   ["query"]
 );
 
-/* ============================
- * PAYMENTS (Stripe)
- * ============================ */
+/* ============================================================================
+ * PAYMENTS (Stripe, PayPal, CinetPay…)
+ * ========================================================================== */
 export const validateStripeIntent = checkSchema(
   {
     priceId: { in: ["body"], optional: true, isString: true, trim: true },
@@ -184,9 +205,17 @@ export const validateStripeIntent = checkSchema(
   ["body"]
 );
 
-/* ============================
+/* ============================================================================
  * BADGES
- * ============================ */
+ * ========================================================================== */
 export const validateBadgeGive = checkSchema(
   {
-    type: { in: ["body"], isIn: { options: [["EARLY_ADOPTER","PRO_USER","COMMUNITY_HELPER","TOP_CREAT]()]()
+    type: {
+      in: ["body"],
+      isIn: { options: [["EARLY_ADOPTER","PRO_USER","COMMUNITY_HELPER","TOP_CREATOR"]] },
+      errorMessage: "Type de badge invalide",
+    },
+    userId: { in: ["body"], custom: isId },
+  },
+  ["body"]
+);
