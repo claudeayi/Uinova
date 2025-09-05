@@ -1,14 +1,32 @@
 import { z } from "zod";
 
-export const CreateOrganizationSchema = z.object({
-  name: z.string().min(3),
+/* ============================================================================
+ * ORGANIZATION
+ * ========================================================================== */
+export const OrganizationCreateSchema = z.object({
+  name: z.string().min(2).max(120),
 });
 
-export const InviteMemberSchema = z.object({
+export const OrganizationUpdateSchema = z.object({
+  name: z.string().min(2).max(120).optional(),
+});
+
+/* ============================================================================
+ * MEMBERSHIP
+ * ========================================================================== */
+export const MembershipCreateSchema = z.object({
+  userId: z.string().cuid(),
+  role: z.enum(["OWNER","ADMIN","MEMBER"]).default("MEMBER"),
+});
+
+export const MembershipUpdateSchema = z.object({
+  role: z.enum(["OWNER","ADMIN","MEMBER"]).optional(),
+});
+
+/* ============================================================================
+ * INVITE
+ * ========================================================================== */
+export const OrgInviteSchema = z.object({
   email: z.string().email(),
-  role: z.enum(["OWNER", "ADMIN", "MEMBER"]).default("MEMBER"),
-});
-
-export const UpdateMembershipSchema = z.object({
-  role: z.enum(["OWNER", "ADMIN", "MEMBER"]),
+  role: z.enum(["ADMIN","MEMBER"]).default("MEMBER"),
 });
