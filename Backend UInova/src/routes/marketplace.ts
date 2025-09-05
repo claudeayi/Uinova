@@ -1,4 +1,3 @@
-// src/routes/marketplace.ts
 import { Router } from "express";
 import {
   listItems,
@@ -9,12 +8,15 @@ import {
   deleteItem,
   listUserItems,
   adminValidateItem,
+  adminListItems,
+  adminDeleteItem,
 } from "../controllers/marketplaceController";
 import { authenticate, authorize } from "../middlewares/security";
-import { validateBody } from "../middlewares/validator";
+import { validateBody, validateQuery } from "../middlewares/validator";
 import {
   publishItemSchema,
   purchaseSchema,
+  listItemsQuerySchema,
 } from "../validators/marketplace.schema";
 
 const router = Router();
@@ -24,7 +26,7 @@ const router = Router();
  * ========================================================================== */
 
 // ✅ Liste paginée des items (query: page, pageSize, search?, category?)
-router.get("/items", listItems);
+router.get("/items", validateQuery(listItemsQuerySchema), listItems);
 
 // ✅ Détail d’un item par ID
 router.get("/items/:id", getItem);
@@ -53,7 +55,13 @@ router.post("/purchase", validateBody(purchaseSchema), purchaseItem);
  *  ROUTES ADMIN – nécessite rôle administrateur
  * ========================================================================== */
 
+// ✅ Liste complète des items (filtrage + modération)
+router.get("/admin/items", authorize(["ADMIN"]), adminListItems);
+
 // ✅ Valider / rejeter un item soumis
-router.post("/admin/items/:id/validate", authorize(["admin"]), adminValidateItem);
+router.post("/admin/items/:id/validate", authorize(["ADMIN"]), adminValidateItem);
+
+// ✅ Supprimer un item (modération)
+router.delete("/admin/items/:id", authorize(["ADMIN"]), adminDeleteItem);
 
 export default router;
