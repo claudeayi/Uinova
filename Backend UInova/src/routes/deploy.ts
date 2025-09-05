@@ -1,5 +1,5 @@
-// src/routes/deploy.ts
 import { Router } from "express";
+import { param } from "express-validator";
 import {
   startDeployment,
   getDeploymentStatus,
@@ -12,6 +12,7 @@ import {
 } from "../controllers/deployController";
 import { authenticate, authorize } from "../middlewares/security";
 import { validateBody } from "../middlewares/validator";
+import { handleValidationErrors } from "../middlewares/validate";
 import { deploySchema } from "../validators/deploy.schema";
 
 const router = Router();
@@ -21,30 +22,97 @@ const router = Router();
  * ========================================================================== */
 router.use(authenticate);
 
-// 🚀 Lancer un déploiement (user sur son projet, admin sur tout projet)
-router.post("/:projectId", validateBody(deploySchema), startDeployment);
+/**
+ * POST /api/deploy/:projectId
+ * 🚀 Lancer un déploiement
+ */
+router.post(
+  "/:projectId",
+  param("projectId").isString().isLength({ min: 8 }),
+  handleValidationErrors,
+  validateBody(deploySchema),
+  startDeployment
+);
 
-// 📊 Statut actuel du dernier déploiement
-router.get("/:projectId/status", getDeploymentStatus);
+/**
+ * GET /api/deploy/:projectId/status
+ * 📊 Statut du dernier déploiement
+ */
+router.get(
+  "/:projectId/status",
+  param("projectId").isString(),
+  handleValidationErrors,
+  getDeploymentStatus
+);
 
-// 🕒 Historique complet des déploiements d’un projet
-router.get("/:projectId/history", getDeploymentHistory);
+/**
+ * GET /api/deploy/:projectId/history
+ * 🕒 Historique complet des déploiements d’un projet
+ */
+router.get(
+  "/:projectId/history",
+  param("projectId").isString(),
+  handleValidationErrors,
+  getDeploymentHistory
+);
 
-// ↩️ Rollback vers une version précédente
-router.post("/:projectId/:deployId/rollback", rollbackDeployment);
+/**
+ * POST /api/deploy/:projectId/:deployId/rollback
+ * ↩️ Rollback vers une version précédente
+ */
+router.post(
+  "/:projectId/:deployId/rollback",
+  param("projectId").isString(),
+  param("deployId").isString(),
+  handleValidationErrors,
+  rollbackDeployment
+);
 
-// 📜 Logs d’un déploiement précis (texte brut)
-router.get("/:projectId/:deployId/logs", getDeploymentLogs);
+/**
+ * GET /api/deploy/:projectId/:deployId/logs
+ * 📜 Logs détaillés d’un déploiement
+ */
+router.get(
+  "/:projectId/:deployId/logs",
+  param("projectId").isString(),
+  param("deployId").isString(),
+  handleValidationErrors,
+  getDeploymentLogs
+);
 
-// ❌ Annuler un déploiement en cours (mock)
-router.delete("/:projectId/cancel", cancelDeployment);
+/**
+ * DELETE /api/deploy/:projectId/cancel
+ * ❌ Annuler un déploiement en cours
+ */
+router.delete(
+  "/:projectId/cancel",
+  param("projectId").isString(),
+  handleValidationErrors,
+  cancelDeployment
+);
 
-// 🔄 Relancer le dernier déploiement échoué (mock)
-router.post("/:projectId/restart", restartDeployment);
+/**
+ * POST /api/deploy/:projectId/restart
+ * 🔄 Relancer le dernier déploiement échoué
+ */
+router.post(
+  "/:projectId/restart",
+  param("projectId").isString(),
+  handleValidationErrors,
+  restartDeployment
+);
 
 /* ============================================================================
- *  ADMIN ROUTES – accessibles uniquement aux administrateurs
+ *  ADMIN ROUTES – uniquement administrateurs
  * ========================================================================== */
-router.get("/admin/deployments", authorize(["ADMIN"]), listAllDeployments);
+/**
+ * GET /api/deploy/admin/deployments
+ * 🔐 Lister tous les déploiements
+ */
+router.get(
+  "/admin/deployments",
+  authorize(["ADMIN"]),
+  listAllDeployments
+);
 
 export default router;
