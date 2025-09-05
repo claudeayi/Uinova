@@ -28,7 +28,12 @@ router.get("/", listTemplates);
  * GET /api/admin/email-templates/:id
  * Détail d’un template
  */
-router.get("/:id", param("id").isString(), handleValidationErrors, getTemplate);
+router.get(
+  "/:id",
+  param("id").isString().isLength({ min: 10 }).withMessage("ID invalide"),
+  handleValidationErrors,
+  getTemplate
+);
 
 /**
  * POST /api/admin/email-templates
@@ -36,10 +41,22 @@ router.get("/:id", param("id").isString(), handleValidationErrors, getTemplate);
  */
 router.post(
   "/",
-  body("code").isString().isLength({ min: 3, max: 50 }),
-  body("name").isString().isLength({ min: 3, max: 100 }),
-  body("subject").isString().isLength({ min: 3, max: 200 }),
+  body("code")
+    .isString()
+    .isLength({ min: 3, max: 50 })
+    .matches(/^[a-zA-Z0-9_-]+$/)
+    .withMessage("Code invalide (caractères autorisés: lettres, chiffres, _ et -)")
+    .trim(),
+  body("name").isString().isLength({ min: 3, max: 100 }).trim(),
+  body("subject").isString().isLength({ min: 3, max: 200 }).trim(),
   body("bodyHtml").isString().isLength({ min: 3 }),
+  body("bodyText").optional().isString(),
+  body("lang")
+    .optional()
+    .isString()
+    .isLength({ min: 2, max: 5 })
+    .withMessage("Lang invalide (ex: fr, en, es)")
+    .trim(),
   handleValidationErrors,
   createTemplate
 );
@@ -50,11 +67,17 @@ router.post(
  */
 router.put(
   "/:id",
-  param("id").isString(),
-  body("name").optional().isString(),
-  body("subject").optional().isString(),
-  body("bodyHtml").optional().isString(),
+  param("id").isString().isLength({ min: 10 }),
+  body("name").optional().isString().isLength({ min: 3, max: 100 }).trim(),
+  body("subject").optional().isString().isLength({ min: 3, max: 200 }).trim(),
+  body("bodyHtml").optional().isString().isLength({ min: 3 }),
   body("bodyText").optional().isString(),
+  body("lang")
+    .optional()
+    .isString()
+    .isLength({ min: 2, max: 5 })
+    .withMessage("Lang invalide (ex: fr, en, es)")
+    .trim(),
   handleValidationErrors,
   updateTemplate
 );
@@ -63,7 +86,12 @@ router.put(
  * DELETE /api/admin/email-templates/:id
  * Supprimer un template
  */
-router.delete("/:id", param("id").isString(), handleValidationErrors, deleteTemplate);
+router.delete(
+  "/:id",
+  param("id").isString().isLength({ min: 10 }),
+  handleValidationErrors,
+  deleteTemplate
+);
 
 /**
  * POST /api/admin/email-templates/:id/preview
@@ -71,8 +99,8 @@ router.delete("/:id", param("id").isString(), handleValidationErrors, deleteTemp
  */
 router.post(
   "/:id/preview",
-  param("id").isString(),
-  body("variables").isObject().optional(),
+  param("id").isString().isLength({ min: 10 }),
+  body("variables").optional().isObject().default({}),
   handleValidationErrors,
   previewTemplate
 );
