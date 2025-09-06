@@ -1,0 +1,24 @@
+UInova/
+├─ frontend/                  # React + TS + Tailwind + Vite
+│  ├─ src/
+│  │  ├─ components/          # UI et éditeur drag & drop
+│  │  ├─ pages/               # Dashboard, Editor, Marketplace...
+│  │  ├─ services/            # API calls vers backend
+│  │  ├─ context/             # Contexte global (auth, projet)
+│  │  └─ hooks/               # useAuth, useTheme, useToast
+│  ├─ public/                 # favicon, manifest
+│  └─ vite.config.ts
+│
+├─ backend/                   # Node.js + Express + Prisma
+│  ├─ src/
+│  │  ├─ controllers/         # Logique métier (REST)
+│  │  ├─ routes/              # Définition routes API
+│  │  ├─ services/            # AI, billing, payments, deploy
+│  │  ├─ middlewares/         # sécurité, validation, errors
+│  │  └─ utils/               # prisma, jwt, mailer, logger
+│  ├─ prisma/schema.prisma     # Modèle DB
+│  └─ swagger.yaml             # Doc OpenAPI
+│
+├─ docker-compose.yml          # MySQL + API + Grafana
+├─ package.json
+└─ README.md
