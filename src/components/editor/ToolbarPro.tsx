@@ -1,4 +1,18 @@
+// src/components/editor/ToolbarPro.tsx
 import React from "react";
+import {
+  Undo2,
+  Redo2,
+  Copy,
+  Trash2,
+  Eye,
+  FileDown,
+  Package,
+  Globe,
+  RefreshCw,
+  Loader2,
+} from "lucide-react";
+import { cn } from "@/utils/cn";
 
 type Props = {
   canUndo?: boolean;
@@ -15,11 +29,9 @@ type Props = {
 
   onOpenImportExport?: () => void;
 
-  // Export ZIP (page courante)
   onExportZip?: () => void;
   zipLoading?: boolean;
 
-  // ✅ Nouveau : Export Site (multi-pages)
   onExportSite?: () => void;
   siteLoading?: boolean;
 };
@@ -40,146 +52,143 @@ export default function ToolbarPro({
   onExportSite,
   siteLoading = false,
 }: Props) {
-  const wrapStyle: React.CSSProperties = {
-    display: "flex",
-    alignItems: "center",
-    gap: 8,
-    flexWrap: "wrap",
-    padding: 8,
-    marginBottom: 16,
-    borderRadius: 8,
-    border: "1px solid var(--border, #e5e7eb)",
-    background: "var(--bg, #f3f4f6)",
-  };
-
-  const btnStyle: React.CSSProperties = {
-    padding: "6px 10px",
-    fontSize: 14,
-    borderRadius: 6,
-    background: "var(--btn-bg, #fff)",
-    color: "var(--btn-fg, #111827)",
-    border: "1px solid var(--btn-border, #d1d5db)",
-    cursor: "pointer",
-  };
-
-  const btnDisabled: React.CSSProperties = {
-    opacity: 0.5,
-    cursor: "not-allowed",
-  };
-
-  const sepStyle: React.CSSProperties = {
-    width: 1,
-    height: 24,
-    background: "var(--sep, #d1d5db)",
-    marginInline: 4,
-  };
+  const baseBtn =
+    "inline-flex items-center gap-1 px-3 py-1.5 rounded-md text-sm font-medium transition border shadow-sm";
+  const activeStyle =
+    "bg-white dark:bg-slate-800 border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200";
+  const disabledStyle = "opacity-50 cursor-not-allowed";
+  const sepStyle = "w-px h-6 bg-slate-300 dark:bg-slate-700 mx-1";
 
   return (
-    <div style={wrapStyle} role="toolbar" aria-label="Barre d'outils UInova">
+    <div
+      className="flex flex-wrap items-center gap-2 p-2 mb-4 border rounded-md bg-slate-50 dark:bg-slate-900 border-slate-200 dark:border-slate-700"
+      role="toolbar"
+      aria-label="Barre d'outils UInova"
+    >
       {/* Undo / Redo */}
       <button
-        style={{ ...btnStyle, ...(canUndo ? {} : btnDisabled) }}
         onClick={onUndo}
         disabled={!canUndo}
-        title="Annuler (Ctrl/Cmd + Z)"
+        aria-disabled={!canUndo}
         aria-label="Annuler"
+        className={cn(baseBtn, activeStyle, !canUndo && disabledStyle)}
+        title="Annuler (Ctrl/Cmd + Z)"
       >
-        ↩️ Undo
+        <Undo2 className="w-4 h-4" /> Undo
       </button>
       <button
-        style={{ ...btnStyle, ...(canRedo ? {} : btnDisabled) }}
         onClick={onRedo}
         disabled={!canRedo}
-        title="Rétablir (Ctrl/Cmd + Y / Shift+Z)"
+        aria-disabled={!canRedo}
         aria-label="Rétablir"
+        className={cn(baseBtn, activeStyle, !canRedo && disabledStyle)}
+        title="Rétablir (Ctrl/Cmd + Y)"
       >
-        ↪️ Redo
+        <Redo2 className="w-4 h-4" /> Redo
       </button>
 
-      <span style={sepStyle} />
+      <div className={sepStyle} />
 
       {/* Dupliquer / Supprimer */}
       <button
-        style={{ ...btnStyle, ...(hasSelection ? {} : btnDisabled) }}
         onClick={onDuplicate}
         disabled={!hasSelection}
-        title="Dupliquer (Ctrl/Cmd + D)"
+        className={cn(baseBtn, activeStyle, !hasSelection && disabledStyle)}
         aria-label="Dupliquer"
+        title="Dupliquer (Ctrl/Cmd + D)"
       >
-        📄 Dupliquer
+        <Copy className="w-4 h-4" /> Dupliquer
       </button>
       <button
-        style={{ ...btnStyle, ...(hasSelection ? {} : btnDisabled) }}
         onClick={onDelete}
         disabled={!hasSelection}
-        title="Supprimer (Del)"
+        className={cn(baseBtn, activeStyle, !hasSelection && disabledStyle)}
         aria-label="Supprimer"
+        title="Supprimer (Del)"
       >
-        🗑️ Supprimer
+        <Trash2 className="w-4 h-4" /> Supprimer
       </button>
 
-      <span style={sepStyle} />
+      <div className={sepStyle} />
 
-      {/* Aperçu / Export HTML */}
+      {/* Aperçu */}
       <button
-        style={btnStyle}
         onClick={onPreview}
-        title="Aperçu live"
+        className={cn(baseBtn, activeStyle)}
         aria-label="Aperçu"
+        title="Aperçu live"
       >
-        👁️ Aperçu
-      </button>
-      <button
-        style={btnStyle}
-        onClick={onExportHTML}
-        title="Exporter en HTML (avec données CMS)"
-        aria-label="Exporter HTML"
-      >
-        ⬇️ Export HTML
+        <Eye className="w-4 h-4" /> Aperçu
       </button>
 
-      {/* Export ZIP (page courante) */}
+      {/* Export HTML */}
+      <button
+        onClick={onExportHTML}
+        className={cn(baseBtn, activeStyle)}
+        aria-label="Exporter HTML"
+        title="Exporter en HTML (avec CMS)"
+      >
+        <FileDown className="w-4 h-4" /> Export HTML
+      </button>
+
+      {/* Export ZIP */}
       {onExportZip && (
         <button
-          style={{ ...btnStyle, ...(zipLoading ? btnDisabled : {}) }}
           onClick={onExportZip}
           disabled={zipLoading}
-          title="ZIP (HTML + React + Vue + Flutter + JSON)"
+          aria-busy={zipLoading}
+          className={cn(baseBtn, activeStyle, zipLoading && disabledStyle)}
           aria-label="Exporter ZIP"
+          title="ZIP (multi-format)"
         >
-          {zipLoading ? "⏳ ZIP…" : "📦 Export ZIP"}
+          {zipLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" /> ZIP…
+            </>
+          ) : (
+            <>
+              <Package className="w-4 h-4" /> Export ZIP
+            </>
+          )}
         </button>
       )}
 
-      {/* ✅ Export Site (multi-pages) */}
+      {/* Export Site */}
       {onExportSite && (
         <button
-          style={{ ...btnStyle, ...(siteLoading ? btnDisabled : {}) }}
           onClick={onExportSite}
           disabled={siteLoading}
-          title="Exporter le site (toutes les pages)"
+          aria-busy={siteLoading}
+          className={cn(baseBtn, activeStyle, siteLoading && disabledStyle)}
           aria-label="Exporter Site"
+          title="Exporter le site (multi-pages)"
         >
-          {siteLoading ? "⏳ Site…" : "🌐 Export Site"}
+          {siteLoading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" /> Site…
+            </>
+          ) : (
+            <>
+              <Globe className="w-4 h-4" /> Export Site
+            </>
+          )}
         </button>
       )}
 
-      {/* Import/Export JSON (modal) */}
+      {/* Import/Export JSON */}
       {onOpenImportExport && (
         <>
-          <span style={sepStyle} />
+          <div className={sepStyle} />
           <button
-            style={btnStyle}
             onClick={onOpenImportExport}
-            title="Importer / Exporter (JSON, ZIP...)"
+            className={cn(baseBtn, activeStyle)}
             aria-label="Importer / Exporter"
+            title="Importer / Exporter (JSON, ZIP)"
           >
-            🔁 Import/Export
+            <RefreshCw className="w-4 h-4" /> Import/Export
           </button>
         </>
       )}
-
-      <div style={{ flex: 1 }} />
     </div>
   );
 }
