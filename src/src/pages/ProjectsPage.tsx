@@ -5,6 +5,7 @@ import {
   getProjects,
   createProject,
   deleteProject,
+  updateProject,
 } from "@/services/projects";
 import { useProject } from "@/context/ProjectContext";
 import { useWorkspace } from "@/context/WorkspaceContext";
@@ -18,6 +19,8 @@ import {
   Eye,
   Pencil,
   Loader2,
+  Edit,
+  Archive,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -30,6 +33,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Select } from "@/components/ui/select";
 
 /* ============================================================================
  *  Interfaces
@@ -54,6 +58,11 @@ export default function ProjectsPage() {
   const [page, setPage] = useState(1);
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
+  const [sort, setSort] = useState<"name" | "date">("date");
+
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editStatus, setEditStatus] = useState<Project["status"]>("draft");
 
   const limit = 6;
 
@@ -118,15 +127,47 @@ export default function ProjectsPage() {
     toast.success("📂 Projet dupliqué");
   }
 
+  // Ouvrir modal édition
+  function handleEdit(project: Project) {
+    setEditingProject(project);
+    setEditName(project.name);
+    setEditStatus(project.status || "draft");
+  }
+
+  // Sauvegarder modification projet
+  async function handleSaveEdit() {
+    if (!editingProject) return;
+    try {
+      const updated = await updateProject(editingProject.id, {
+        name: editName,
+        status: editStatus,
+      });
+      setProjects((prev) =>
+        prev.map((p) => (p.id === editingProject.id ? { ...p, ...updated } : p))
+      );
+      toast.success("✏️ Projet mis à jour");
+      setEditingProject(null);
+    } catch (err) {
+      console.error("❌ Erreur mise à jour projet:", err);
+      toast.error("Impossible de mettre à jour le projet.");
+    }
+  }
+
   /* ============================================================================
-   *  Filtrage + Pagination
+   *  Filtrage + Tri + Pagination
    * ========================================================================== */
   const filtered = projects.filter((p) =>
     p.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  const sorted = filtered.sort((a, b) => {
+    if (sort === "name") return a.name.localeCompare(b.name);
+    return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+  });
+
   const start = (page - 1) * limit;
-  const paginated = filtered.slice(start, start + limit);
-  const totalPages = Math.ceil(filtered.length / limit);
+  const paginated = sorted.slice(start, start + limit);
+  const totalPages = Math.ceil(sorted.length / limit);
 
   /* ============================================================================
    *  Render
@@ -138,7 +179,7 @@ export default function ProjectsPage() {
         <h1 className="text-2xl font-bold flex items-center gap-2">
           <FolderOpen className="w-6 h-6 text-blue-600" /> Mes projets
         </h1>
-        <div className="flex gap-3">
+        <div className="flex gap-3 flex-wrap">
           <Input
             type="text"
             placeholder="🔍 Rechercher..."
@@ -149,6 +190,10 @@ export default function ProjectsPage() {
             }}
             className="w-56"
           />
+          <Select value={sort} onValueChange={(v: any) => setSort(v)}>
+            <option value="date">📅 Plus récents</option>
+            <option value="name">🔤 Alphabétique</option>
+          </Select>
           <Dialog>
             <DialogTrigger asChild>
               <Button className="bg-indigo-600 text-white">
@@ -190,6 +235,10 @@ export default function ProjectsPage() {
             label={`Brouillons : ${projects.filter((p) => !p.status || p.status === "draft").length}`}
             color="yellow"
           />
+          <Badge
+            label={`Archivés : ${projects.filter((p) => p.status === "archived").length}`}
+            color="gray"
+          />
         </div>
       )}
 
@@ -216,7 +265,7 @@ export default function ProjectsPage() {
                 <div>
                   <h2 className="text-lg font-semibold">{p.name}</h2>
                   <p className="text-xs text-gray-500 dark:text-gray-400">
-                    {p.status || "draft"} • Dernière maj :{" "}
+                    <StatusBadge status={p.status} /> • Dernière maj :{" "}
                     {new Date(p.updatedAt).toLocaleDateString("fr-FR")}
                   </p>
                 </div>
@@ -238,6 +287,9 @@ export default function ProjectsPage() {
                   </Button>
                   <Button size="sm" variant="outline" onClick={() => handleDuplicate(p)}>
                     <Copy className="w-4 h-4" /> Dupliquer
+                  </Button>
+                  <Button size="sm" variant="secondary" onClick={() => handleEdit(p)}>
+                    <Edit className="w-4 h-4" /> Modifier
                   </Button>
                   <Button size="sm" variant="destructive" onClick={() => handleDelete(p.id)}>
                     <Trash2 className="w-4 h-4" /> Supprimer
@@ -271,22 +323,65 @@ export default function ProjectsPage() {
           </Button>
         </div>
       )}
+
+      {/* Modal édition */}
+      {editingProject && (
+        <Dialog open={true} onOpenChange={() => setEditingProject(null)}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Modifier projet</DialogTitle>
+            </DialogHeader>
+            <Input
+              placeholder="Nom du projet"
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+            />
+            <select
+              value={editStatus}
+              onChange={(e) => setEditStatus(e.target.value as Project["status"])}
+              className="border rounded px-2 py-1"
+            >
+              <option value="draft">📝 Brouillon</option>
+              <option value="published">✅ Publié</option>
+              <option value="archived">📦 Archivé</option>
+            </select>
+            <DialogFooter>
+              <Button onClick={handleSaveEdit}>Enregistrer</Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </DashboardLayout>
   );
 }
 
 /* ============================================================================
- *  Badge utilitaire
+ *  Badge utilitaires
  * ========================================================================== */
-function Badge({ label, color }: { label: string; color: "blue" | "green" | "yellow" }) {
+function Badge({
+  label,
+  color,
+}: {
+  label: string;
+  color: "blue" | "green" | "yellow" | "gray";
+}) {
   const colors = {
     blue: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200",
     green: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200",
     yellow: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200",
+    gray: "bg-gray-200 text-gray-700 dark:bg-gray-800 dark:text-gray-300",
   };
   return (
     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[color]}`}>
       {label}
     </span>
   );
+}
+
+function StatusBadge({ status }: { status?: Project["status"] }) {
+  if (status === "published")
+    return <span className="text-green-600 font-medium">✅ Publié</span>;
+  if (status === "archived")
+    return <span className="text-gray-500 font-medium">📦 Archivé</span>;
+  return <span className="text-yellow-600 font-medium">📝 Brouillon</span>;
 }
