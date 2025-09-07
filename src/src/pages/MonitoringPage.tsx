@@ -1,3 +1,4 @@
+// src/pages/MonitoringPage.tsx
 import { useEffect, useState } from "react";
 import axios from "axios";
 import toast from "react-hot-toast";
@@ -11,6 +12,13 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
+import {
+  RefreshCw,
+  Download,
+  Activity,
+  AlertTriangle,
+  CheckCircle,
+} from "lucide-react";
 
 interface Metrics {
   uptime: number;
@@ -41,6 +49,8 @@ export default function MonitoringPage() {
   const [loading, setLoading] = useState(true);
   const [cpuHistory, setCpuHistory] = useState<any[]>([]);
   const [memHistory, setMemHistory] = useState<any[]>([]);
+  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [search, setSearch] = useState("");
 
   const fetchMetrics = async () => {
     try {
@@ -50,7 +60,6 @@ export default function MonitoringPage() {
       const data = res.data.data || res.data;
       setMetrics(data);
 
-      // Historique CPU / mémoire (dernier 20 points)
       setCpuHistory((prev) => [
         ...prev.slice(-19),
         { time: new Date().toLocaleTimeString(), value: data.cpu.loadAvg[0] },
@@ -62,6 +71,12 @@ export default function MonitoringPage() {
           value: parseFloat(data.memory.usagePercent.replace("%", "")),
         },
       ]);
+
+      // Alertes
+      const cpuPct = (data.cpu.loadAvg[0] / data.cpu.cores) * 100;
+      const memPct = parseFloat(data.memory.usagePercent.replace("%", ""));
+      if (cpuPct > 80) toast.error("⚠️ CPU en surcharge !");
+      if (memPct > 80) toast.error("⚠️ Mémoire saturée !");
     } catch (err) {
       toast.error("Impossible de charger les métriques");
     } finally {
@@ -76,21 +91,59 @@ export default function MonitoringPage() {
       });
       setLogs(res.data.data || []);
     } catch {
-      /* ignorer si pas admin */
+      /* pas admin */
     }
+  };
+
+  const exportData = (type: "json" | "csv") => {
+    const blob =
+      type === "json"
+        ? new Blob([JSON.stringify({ metrics, logs }, null, 2)], {
+            type: "application/json",
+          })
+        : new Blob(
+            [
+              "id,createdAt,action,metadata\n",
+              logs
+                .map(
+                  (l) =>
+                    `${l.id},"${l.createdAt}",${l.action},"${JSON.stringify(
+                      l.metadata
+                    )}"`
+                )
+                .join("\n"),
+            ],
+            { type: "text/csv" }
+          );
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `monitoring-${Date.now()}.${type}`;
+    a.click();
   };
 
   useEffect(() => {
     fetchMetrics();
     fetchLogs();
-    const interval = setInterval(fetchMetrics, 30_000); // refresh auto
+    const interval = setInterval(() => {
+      if (autoRefresh) fetchMetrics();
+    }, 30_000);
     return () => clearInterval(interval);
+  }, [autoRefresh]);
+
+  // Hotkeys
+  useEffect(() => {
+    function handleKey(e: KeyboardEvent) {
+      if (e.key === "r") fetchMetrics();
+      if (e.key === "f") setAutoRefresh((a) => !a);
+    }
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
   }, []);
 
   if (loading)
     return <p className="text-center">⏳ Chargement des métriques...</p>;
 
-  // CPU color dynamique
   const cpuPercent = metrics
     ? Math.min(100, (metrics.cpu.loadAvg[0] / metrics.cpu.cores) * 100)
     : 0;
@@ -101,127 +154,201 @@ export default function MonitoringPage() {
       ? "bg-yellow-500"
       : "bg-red-500";
 
+  const memPercent = metrics
+    ? parseFloat(metrics.memory.usagePercent.replace("%", ""))
+    : 0;
+
+  const systemStatus =
+    cpuPercent > 80 || memPercent > 80
+      ? "critical"
+      : cpuPercent > 60 || memPercent > 60
+      ? "warning"
+      : "healthy";
+
   return (
     <DashboardLayout>
       <div className="space-y-8 p-6">
+        {/* Header */}
         <div className="flex justify-between items-center">
-          <h1 className="text-2xl font-bold">📊 Monitoring</h1>
-          <button
-            onClick={() => {
-              setLoading(true);
-              fetchMetrics();
-              fetchLogs();
-            }}
-            className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-          >
-            🔄 Rafraîchir
-          </button>
+          <h1 className="text-2xl font-bold flex items-center gap-2">
+            <Activity className="w-5 h-5 text-indigo-500" /> Monitoring
+          </h1>
+          <div className="flex gap-2">
+            <button
+              onClick={() => {
+                setLoading(true);
+                fetchMetrics();
+                fetchLogs();
+              }}
+              className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700 flex items-center gap-1"
+            >
+              <RefreshCw className="w-4 h-4" /> Rafraîchir
+            </button>
+            <button
+              onClick={() => exportData("json")}
+              className="px-3 py-1 bg-slate-200 rounded hover:bg-slate-300"
+            >
+              <Download className="w-4 h-4 inline" /> JSON
+            </button>
+            <button
+              onClick={() => exportData("csv")}
+              className="px-3 py-1 bg-slate-200 rounded hover:bg-slate-300"
+            >
+              <Download className="w-4 h-4 inline" /> CSV
+            </button>
+          </div>
         </div>
 
+        {/* System status */}
+        <div
+          className={`p-4 rounded flex items-center gap-2 ${
+            systemStatus === "healthy"
+              ? "bg-green-100 text-green-700"
+              : systemStatus === "warning"
+              ? "bg-yellow-100 text-yellow-700"
+              : "bg-red-100 text-red-700"
+          }`}
+        >
+          {systemStatus === "healthy" && <CheckCircle className="w-5 h-5" />}
+          {systemStatus === "warning" && <AlertTriangle className="w-5 h-5" />}
+          {systemStatus === "critical" && <AlertTriangle className="w-5 h-5" />}
+          Système {systemStatus.toUpperCase()}
+        </div>
+
+        {/* Metrics */}
         {metrics && (
           <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
-            {/* Uptime */}
-            <div className="p-4 bg-white dark:bg-slate-800 rounded shadow">
-              <h2 className="font-semibold mb-1">⏱️ Uptime</h2>
-              <p>{formatDuration(metrics.uptime)}</p>
-            </div>
-
-            {/* Mémoire */}
-            <div className="p-4 bg-white dark:bg-slate-800 rounded shadow">
-              <h2 className="font-semibold mb-1">💾 Mémoire</h2>
-              <p>{metrics.memory.usagePercent}</p>
-              <div className="w-full bg-gray-200 dark:bg-slate-700 rounded h-2 mt-1">
-                <div
-                  className="bg-green-500 h-2 rounded transition-all duration-500"
-                  style={{
-                    width: metrics.memory.usagePercent,
-                  }}
-                />
-              </div>
-            </div>
-
-            {/* CPU */}
-            <div className="p-4 bg-white dark:bg-slate-800 rounded shadow">
-              <h2 className="font-semibold mb-1">🖥️ CPU</h2>
-              <p>
-                {metrics.cpu.loadAvg.join(", ")} (cores: {metrics.cpu.cores})
-              </p>
-              <div className="w-full bg-gray-200 dark:bg-slate-700 rounded h-2 mt-1">
-                <div
-                  className={`${cpuColor} h-2 rounded transition-all duration-500`}
-                  style={{ width: cpuPercent.toFixed(0) + "%" }}
-                />
-              </div>
-            </div>
-
-            {/* DB */}
-            <div className="p-4 bg-white dark:bg-slate-800 rounded shadow md:col-span-2">
-              <h2 className="font-semibold mb-1">🗄️ Base de données</h2>
-              <p>
-                👥 {metrics.db.usersCount} utilisateurs | 📁{" "}
-                {metrics.db.projectsCount} projets
-              </p>
-            </div>
-
-            {/* Platform */}
-            <div className="p-4 bg-white dark:bg-slate-800 rounded shadow">
-              <h2 className="font-semibold mb-1">⚙️ Environnement</h2>
-              <p>
-                {metrics.platform} • {metrics.arch}
-              </p>
-            </div>
+            <MetricCard label="⏱️ Uptime" value={formatDuration(metrics.uptime)} />
+            <MetricCard
+              label="💾 Mémoire"
+              value={`${metrics.memory.usagePercent}`}
+              bar
+              percent={memPercent}
+              color="bg-green-500"
+            />
+            <MetricCard
+              label="🖥️ CPU"
+              value={`${cpuPercent.toFixed(1)}%`}
+              bar
+              percent={cpuPercent}
+              color={cpuColor}
+            />
+            <MetricCard
+              label="🗄️ Base de données"
+              value={`${metrics.db.usersCount} users • ${metrics.db.projectsCount} projets`}
+            />
+            <MetricCard
+              label="⚙️ Environnement"
+              value={`${metrics.platform} • ${metrics.arch}`}
+            />
           </div>
         )}
 
         {/* Charts */}
         <div className="grid md:grid-cols-2 gap-6">
-          <div className="bg-white dark:bg-slate-800 p-4 rounded shadow">
-            <h2 className="font-semibold mb-3">📈 Charge CPU</h2>
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={cpuHistory}>
-                <Line type="monotone" dataKey="value" stroke="#6366f1" />
-                <CartesianGrid stroke="#ccc" />
-                <XAxis dataKey="time" hide />
-                <YAxis />
-                <Tooltip />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-
-          <div className="bg-white dark:bg-slate-800 p-4 rounded shadow">
-            <h2 className="font-semibold mb-3">📈 Utilisation Mémoire</h2>
-            <ResponsiveContainer width="100%" height={200}>
-              <LineChart data={memHistory}>
-                <Line type="monotone" dataKey="value" stroke="#22c55e" />
-                <CartesianGrid stroke="#ccc" />
-                <XAxis dataKey="time" hide />
-                <YAxis />
-                <Tooltip />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
+          <ChartBox title="📈 Charge CPU" data={cpuHistory} stroke="#6366f1" />
+          <ChartBox
+            title="📈 Utilisation Mémoire"
+            data={memHistory}
+            stroke="#22c55e"
+          />
         </div>
 
         {/* Logs */}
         {logs.length > 0 && (
-          <div className="p-4 bg-black text-green-400 rounded shadow font-mono text-xs">
+          <div className="bg-black text-green-400 rounded shadow font-mono text-xs p-4">
             <h2 className="font-semibold mb-3 text-white">📝 Derniers logs</h2>
-            <ul className="max-h-64 overflow-y-auto space-y-2">
-              {logs.map((l) => (
-                <li key={l.id} className="whitespace-pre-wrap">
-                  <span className="text-gray-400">
-                    [{new Date(l.createdAt).toLocaleTimeString()}]
-                  </span>{" "}
-                  <span className="text-cyan-400">{l.action}</span> →{" "}
-                  <pre className="inline text-green-400">
-                    {JSON.stringify(l.metadata, null, 2)}
-                  </pre>
-                </li>
-              ))}
+            <input
+              type="text"
+              placeholder="🔍 Rechercher un log..."
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="mb-3 px-2 py-1 rounded bg-slate-900 text-white w-full"
+            />
+            <ul className="max-h-64 overflow-y-auto space-y-3">
+              {logs
+                .filter(
+                  (l) =>
+                    l.action.toLowerCase().includes(search.toLowerCase()) ||
+                    JSON.stringify(l.metadata)
+                      .toLowerCase()
+                      .includes(search.toLowerCase())
+                )
+                .map((l) => (
+                  <li
+                    key={l.id}
+                    className="border-l-2 border-green-400 pl-2 space-y-1"
+                  >
+                    <span className="text-gray-400">
+                      [{new Date(l.createdAt).toLocaleTimeString()}]
+                    </span>{" "}
+                    <span className="text-cyan-400">{l.action}</span>
+                    <pre className="text-green-400 whitespace-pre-wrap">
+                      {JSON.stringify(l.metadata, null, 2)}
+                    </pre>
+                  </li>
+                ))}
             </ul>
           </div>
         )}
       </div>
     </DashboardLayout>
+  );
+}
+
+/* ============================================================================
+ * Components utils
+ * ========================================================================== */
+function MetricCard({
+  label,
+  value,
+  bar,
+  percent,
+  color,
+}: {
+  label: string;
+  value: string;
+  bar?: boolean;
+  percent?: number;
+  color?: string;
+}) {
+  return (
+    <div className="p-4 bg-white dark:bg-slate-800 rounded shadow space-y-2">
+      <h2 className="font-semibold">{label}</h2>
+      <p>{value}</p>
+      {bar && percent !== undefined && (
+        <div className="w-full bg-gray-200 dark:bg-slate-700 rounded h-2">
+          <div
+            className={`${color} h-2 rounded`}
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ChartBox({
+  title,
+  data,
+  stroke,
+}: {
+  title: string;
+  data: any[];
+  stroke: string;
+}) {
+  return (
+    <div className="bg-white dark:bg-slate-800 p-4 rounded shadow">
+      <h2 className="font-semibold mb-3">{title}</h2>
+      <ResponsiveContainer width="100%" height={200}>
+        <LineChart data={data}>
+          <Line type="monotone" dataKey="value" stroke={stroke} />
+          <CartesianGrid stroke="#ccc" />
+          <XAxis dataKey="time" hide />
+          <YAxis />
+          <Tooltip />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
