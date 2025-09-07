@@ -4,6 +4,7 @@ import { useState } from "react";
 import axios from "axios";
 import toast from "react-hot-toast";
 import DashboardLayout from "@/layouts/DashboardLayout";
+import { Loader2, ShieldCheck, CreditCard, Smartphone, Wallet, Ticket } from "lucide-react";
 
 /* ===============================
    Plans Pricing
@@ -57,8 +58,39 @@ export default function PaymentPage() {
   const [searchParams] = useSearchParams();
   const plan = searchParams.get("plan")?.toUpperCase() || "PRO";
   const [loading, setLoading] = useState<string | null>(null);
+  const [coupon, setCoupon] = useState("");
+  const [discount, setDiscount] = useState<number>(0);
+  const [couponStatus, setCouponStatus] = useState<"idle" | "valid" | "invalid">("idle");
 
   const prices = PLAN_PRICES[plan] || PLAN_PRICES.PRO;
+
+  const finalStripe = Math.max(0, prices.stripe - discount);
+  const finalPaypal = Math.max(0, prices.paypal - discount / 100);
+  const finalCinetpay = Math.max(0, prices.cinetpay - discount / 100);
+
+  async function handleValidateCoupon() {
+    if (!coupon.trim()) return;
+    try {
+      const res = await axios.post("/api/payments/validate-coupon", {
+        code: coupon.trim(),
+        plan,
+      });
+      if (res.data?.valid) {
+        const value = res.data.amountOff ?? res.data.percentOff * prices.stripe / 100;
+        setDiscount(value);
+        setCouponStatus("valid");
+        toast.success(`🎟️ Coupon appliqué : -${value / 100} €`);
+      } else {
+        setCouponStatus("invalid");
+        setDiscount(0);
+        toast.error("❌ Coupon invalide ou expiré.");
+      }
+    } catch (err) {
+      console.error("❌ Coupon error:", err);
+      setCouponStatus("invalid");
+      toast.error("Erreur lors de la validation du coupon.");
+    }
+  }
 
   async function handlePayment(provider: "stripe" | "paypal" | "cinetpay") {
     try {
@@ -67,18 +99,21 @@ export default function PaymentPage() {
 
       if (provider === "stripe") {
         const res = await axios.post("/api/payments/stripe", {
-          amount: prices.stripe,
+          amount: finalStripe,
+          coupon,
         });
         url = res.data?.checkoutUrl || "";
       } else if (provider === "paypal") {
         const res = await axios.post("/api/payments/paypal/create", {
-          amount: prices.paypal,
+          amount: finalPaypal,
+          coupon,
         });
         url = res.data?.approveUrl || "";
       } else if (provider === "cinetpay") {
         const res = await axios.post("/api/payments/cinetpay/init", {
-          amount: prices.cinetpay,
+          amount: finalCinetpay,
           currency: "XAF",
+          coupon,
         });
         url = res.data?.paymentUrl || "";
       }
@@ -101,7 +136,7 @@ export default function PaymentPage() {
     <DashboardLayout>
       <div className="py-10 px-6 max-w-4xl mx-auto space-y-10">
         {/* Header */}
-        <div className="text-center">
+        <div className="text-center space-y-2">
           <h1 className="text-3xl font-bold">💳 Paiement sécurisé</h1>
           <p className="mt-2 text-gray-600 dark:text-gray-400">
             Vous avez choisi le plan{" "}
@@ -123,87 +158,135 @@ export default function PaymentPage() {
           <p className="text-2xl font-bold">
             {plan === "ENTERPRISE"
               ? "Sur devis"
-              : `${(prices.stripe / 100).toFixed(2)} € / mois`}
+              : `${(finalStripe / 100).toFixed(2)} € / mois`}
           </p>
           <ul className="text-sm space-y-1 mt-2">
             {prices.features.map((f, i) => (
               <li key={i}>{f}</li>
             ))}
           </ul>
+
+          {/* Coupon */}
+          <div className="mt-4 flex items-center gap-2">
+            <Ticket className="w-5 h-5 text-indigo-500" />
+            <input
+              type="text"
+              value={coupon}
+              onChange={(e) => setCoupon(e.target.value)}
+              placeholder="Code promo"
+              className="flex-1 px-3 py-2 border rounded dark:bg-slate-900 dark:border-slate-700"
+            />
+            <button
+              onClick={handleValidateCoupon}
+              className="px-4 py-2 bg-indigo-600 text-white rounded hover:bg-indigo-700"
+            >
+              Appliquer
+            </button>
+          </div>
+          {couponStatus === "valid" && (
+            <p className="text-green-600 text-sm">✅ Coupon appliqué</p>
+          )}
+          {couponStatus === "invalid" && (
+            <p className="text-red-600 text-sm">❌ Coupon invalide</p>
+          )}
         </div>
 
         {/* Choix Paiement */}
         <div className="grid md:grid-cols-3 gap-6">
-          {/* Stripe */}
-          <button
+          <PaymentButton
+            provider="stripe"
+            label="Payer avec Stripe"
+            sub={`${(finalStripe / 100).toFixed(2)} €`}
+            icon={<CreditCard className="w-5 h-5" />}
+            color="bg-purple-600 hover:bg-purple-700"
+            loading={loading}
             onClick={() => handlePayment("stripe")}
-            disabled={loading === "stripe"}
-            className="p-6 rounded-xl bg-purple-600 text-white font-semibold shadow hover:bg-purple-700 disabled:opacity-50 flex flex-col items-center"
-          >
-            {loading === "stripe" ? (
-              <span className="animate-pulse">⏳ Stripe...</span>
-            ) : (
-              <>
-                💳 Payer avec Stripe
-                <span className="text-xs mt-2">
-                  {(prices.stripe / 100).toFixed(2)} €
-                </span>
-              </>
-            )}
-          </button>
+          />
 
-          {/* PayPal */}
-          <button
+          <PaymentButton
+            provider="paypal"
+            label="Payer avec PayPal"
+            sub={`${finalPaypal.toFixed(2)} €`}
+            icon={<Wallet className="w-5 h-5" />}
+            color="bg-yellow-500 hover:bg-yellow-600"
+            loading={loading}
             onClick={() => handlePayment("paypal")}
-            disabled={loading === "paypal"}
-            className="p-6 rounded-xl bg-yellow-500 text-white font-semibold shadow hover:bg-yellow-600 disabled:opacity-50 flex flex-col items-center"
-          >
-            {loading === "paypal" ? (
-              <span className="animate-pulse">⏳ PayPal...</span>
-            ) : (
-              <>
-                🅿️ Payer avec PayPal
-                <span className="text-xs mt-2">
-                  {prices.paypal.toFixed(2)} €
-                </span>
-              </>
-            )}
-          </button>
+          />
 
-          {/* CinetPay */}
-          <button
+          <PaymentButton
+            provider="cinetpay"
+            label="Orange / MTN Money"
+            sub={`${finalCinetpay.toFixed(2)} XAF`}
+            icon={<Smartphone className="w-5 h-5" />}
+            color="bg-orange-600 hover:bg-orange-700"
+            loading={loading}
             onClick={() => handlePayment("cinetpay")}
-            disabled={loading === "cinetpay"}
-            className="p-6 rounded-xl bg-orange-600 text-white font-semibold shadow hover:bg-orange-700 disabled:opacity-50 flex flex-col items-center"
-          >
-            {loading === "cinetpay" ? (
-              <span className="animate-pulse">⏳ Mobile Money...</span>
-            ) : (
-              <>
-                📱 Orange / MTN Money
-                <span className="text-xs mt-2">
-                  {prices.cinetpay.toFixed(2)} XAF
-                </span>
-              </>
-            )}
-          </button>
+          />
         </div>
 
         {/* Disclaimer */}
-        <p className="mt-6 text-center text-xs text-gray-400">
-          🔒 Tous les paiements sont sécurisés via <strong>Stripe</strong>,{" "}
-          <strong>PayPal</strong> et <strong>CinetPay</strong>. <br />
-          En validant, vous acceptez nos{" "}
-          <a href="/terms" className="underline">
-            conditions d’utilisation
-          </a>{" "}
-          et notre{" "}
-          <a href="/privacy" className="underline">
-            politique de confidentialité
-          </a>
-          .
-        </p>
+        <div className="text-center text-xs text-gray-400 space-y-2">
+          <p className="flex justify-center items-center gap-1">
+            <ShieldCheck className="w-4 h-4" /> Tous les paiements sont sécurisés
+            via <strong>Stripe</strong>, <strong>PayPal</strong> et{" "}
+            <strong>CinetPay</strong>.
+          </p>
+          <p>
+            En validant, vous acceptez nos{" "}
+            <a href="/terms" className="underline">
+              conditions d’utilisation
+            </a>{" "}
+            et notre{" "}
+            <a href="/privacy" className="underline">
+              politique de confidentialité
+            </a>
+            .
+          </p>
+        </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+/* ============================================================================
+ * PaymentButton – Bouton réutilisable
+ * ========================================================================== */
+function PaymentButton({
+  provider,
+  label,
+  sub,
+  icon,
+  color,
+  loading,
+  onClick,
+}: {
+  provider: string;
+  label: string;
+  sub: string;
+  icon: JSX.Element;
+  color: string;
+  loading: string | null;
+  onClick: () => void;
+}) {
+  const isLoading = loading === provider;
+  return (
+    <button
+      onClick={onClick}
+      disabled={isLoading}
+      aria-label={label}
+      className={`p-6 rounded-xl text-white font-semibold shadow flex flex-col items-center transition disabled:opacity-50 ${color}`}
+    >
+      {isLoading ? (
+        <span className="flex items-center gap-2 animate-pulse">
+          <Loader2 className="w-5 h-5 animate-spin" /> Traitement...
+        </span>
+      ) : (
+        <>
+          {icon}
+          <span className="mt-1">{label}</span>
+          <span className="text-xs mt-2">{sub}</span>
+        </>
+      )}
+    </button>
   );
 }
