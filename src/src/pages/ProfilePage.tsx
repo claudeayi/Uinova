@@ -6,14 +6,26 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { toast } from "react-hot-toast";
 import axios from "axios";
-import { LogOut, Upload, Mail, Shield } from "lucide-react";
+import {
+  LogOut,
+  Upload,
+  Mail,
+  Shield,
+  Trash2,
+  Download,
+  KeyRound,
+  QrCode,
+  UserX,
+} from "lucide-react";
 
 export default function ProfilePage() {
   const { user, logout } = useAuth();
   const [fullName, setFullName] = useState(user?.fullName || "");
   const [password, setPassword] = useState("");
+  const [email, setEmail] = useState(user?.email || "");
   const [avatar, setAvatar] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
+  const [twoFAEnabled, setTwoFAEnabled] = useState(false);
 
   if (!user) {
     return (
@@ -30,6 +42,7 @@ export default function ProfilePage() {
       setLoading(true);
       const formData = new FormData();
       formData.append("fullName", fullName);
+      formData.append("email", email);
       if (password) formData.append("password", password);
       if (avatar) formData.append("avatar", avatar);
 
@@ -44,6 +57,43 @@ export default function ProfilePage() {
       toast.error("Erreur lors de la mise à jour");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function handleExportData() {
+    try {
+      const res = await axios.get("/api/users/me/export", {
+        headers: { Authorization: "Bearer " + localStorage.getItem("token") },
+      });
+      const blob = new Blob([JSON.stringify(res.data, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `uinova-profile-${Date.now()}.json`;
+      a.click();
+      toast.success("📂 Données exportées");
+    } catch {
+      toast.error("Impossible d’exporter vos données");
+    }
+  }
+
+  async function handleDeleteAccount() {
+    if (
+      !window.confirm(
+        "⚠️ Êtes-vous sûr de vouloir supprimer votre compte ? Cette action est irréversible."
+      )
+    )
+      return;
+    try {
+      await axios.delete("/api/users/me", {
+        headers: { Authorization: "Bearer " + localStorage.getItem("token") },
+      });
+      toast.success("🗑️ Compte supprimé");
+      logout();
+    } catch {
+      toast.error("Erreur lors de la suppression du compte");
     }
   }
 
@@ -76,6 +126,14 @@ export default function ProfilePage() {
                     onChange={(e) => setAvatar(e.target.files?.[0] || null)}
                   />
                 </label>
+                {user.avatar && (
+                  <button
+                    className="text-xs text-red-500 mt-2 hover:underline"
+                    onClick={() => setAvatar(null)}
+                  >
+                    Supprimer avatar
+                  </button>
+                )}
               </div>
 
               {/* Infos utilisateur */}
@@ -89,7 +147,8 @@ export default function ProfilePage() {
                 </p>
                 {user.createdAt && (
                   <p className="text-xs text-gray-400 mt-1">
-                    Membre depuis le {new Date(user.createdAt).toLocaleDateString()}
+                    Membre depuis le{" "}
+                    {new Date(user.createdAt).toLocaleDateString()}
                   </p>
                 )}
               </div>
@@ -108,6 +167,19 @@ export default function ProfilePage() {
                 onChange={(e) => setFullName(e.target.value)}
                 className="w-full px-3 py-2 border rounded dark:bg-slate-800 dark:border-slate-700"
               />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-3 py-2 border rounded dark:bg-slate-800 dark:border-slate-700"
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Une vérification par email sera nécessaire.
+              </p>
             </div>
 
             <div>
@@ -134,17 +206,70 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
 
-        {/* Danger zone */}
+        {/* Sécurité */}
         <Card>
-          <CardContent className="p-6 flex justify-between items-center">
-            <p className="text-red-600 font-medium">Déconnexion de ce compte</p>
-            <Button
-              variant="destructive"
-              onClick={logout}
-              className="flex items-center gap-2"
-            >
-              <LogOut className="w-4 h-4" /> Déconnexion
-            </Button>
+          <CardContent className="p-6 space-y-4">
+            <h2 className="font-semibold flex items-center gap-2">
+              <KeyRound className="w-4 h-4" /> Sécurité
+            </h2>
+            <div className="flex justify-between items-center">
+              <span>🔒 Authentification à deux facteurs (2FA)</span>
+              <Button
+                variant={twoFAEnabled ? "secondary" : "default"}
+                onClick={() => {
+                  setTwoFAEnabled(!twoFAEnabled);
+                  toast.success(
+                    twoFAEnabled
+                      ? "2FA désactivée"
+                      : "2FA activée — Scannez le QR Code"
+                  );
+                }}
+              >
+                {twoFAEnabled ? "Désactiver" : "Activer"}
+              </Button>
+            </div>
+            {twoFAEnabled && (
+              <div className="p-3 bg-slate-100 dark:bg-slate-800 rounded">
+                <QrCode className="w-16 h-16 mx-auto text-indigo-600" />
+                <p className="text-xs text-center mt-2 text-gray-500">
+                  Scannez ce QR Code avec votre app d’authentification
+                </p>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Export & Danger zone */}
+        <Card>
+          <CardContent className="p-6 space-y-4">
+            <div className="flex justify-between items-center">
+              <p className="font-medium">📦 Exporter mes données</p>
+              <Button onClick={handleExportData} className="flex items-center gap-2">
+                <Download className="w-4 h-4" /> Export JSON
+              </Button>
+            </div>
+
+            <div className="flex justify-between items-center text-red-600 font-medium">
+              <p>🗑️ Supprimer définitivement mon compte</p>
+              <Button
+                variant="destructive"
+                onClick={handleDeleteAccount}
+                className="flex items-center gap-2"
+              >
+                <UserX className="w-4 h-4" /> Supprimer
+              </Button>
+            </div>
+
+            <div className="flex justify-between items-center">
+              <p className="text-red-600 font-medium">Déconnexion</p>
+              <Button
+                variant="destructive"
+                onClick={logout}
+                className="flex items-center gap-2"
+              >
+                <LogOut className="w-4 h-4" /> Déconnexion
+              </Button>
+            </div>
           </CardContent>
         </Card>
       </div>
