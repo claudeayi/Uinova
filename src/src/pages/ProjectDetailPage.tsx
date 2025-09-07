@@ -1,7 +1,11 @@
 // src/pages/ProjectDetailPage.tsx
 import { useEffect, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { getProject, deleteProject } from "@/services/projects";
+import {
+  getProject,
+  deleteProject,
+  updateProject,
+} from "@/services/projects";
 import { useProject } from "@/context/ProjectContext";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,6 +19,9 @@ import {
   Rocket,
   Layers,
   Calendar,
+  Copy,
+  Archive,
+  Undo2,
 } from "lucide-react";
 
 /* ============================================================================
@@ -72,10 +79,49 @@ export default function ProjectDetailPage() {
     }
   }
 
+  // Archiver/Désarchiver
+  async function toggleArchive() {
+    if (!project) return;
+    try {
+      const newStatus = project.status === "archived" ? "draft" : "archived";
+      await updateProject(project.id, { status: newStatus });
+      setProject({ ...project, status: newStatus });
+      toast.success(
+        newStatus === "archived"
+          ? "📦 Projet archivé"
+          : "📂 Projet restauré"
+      );
+    } catch (err) {
+      console.error("❌ Archive error:", err);
+      toast.error("Impossible de mettre à jour le statut.");
+    }
+  }
+
+  // Dupliquer localement
+  function handleDuplicate() {
+    if (!project) return;
+    const copy = {
+      ...project,
+      id: crypto.randomUUID(),
+      name: project.name + " (copie)",
+      updatedAt: new Date().toISOString(),
+    };
+    toast.success("📑 Copie locale du projet créée");
+    console.log("Projet dupliqué:", copy);
+  }
+
+  // Déploiement (mock)
+  function handleDeploy() {
+    toast.success("🚀 Déploiement lancé !");
+  }
+
   if (loading) {
     return (
       <DashboardLayout>
-        <div className="p-6 text-center text-gray-500">⏳ Chargement...</div>
+        <div className="flex justify-center items-center py-20 text-indigo-500">
+          <div className="animate-spin h-8 w-8 border-4 border-indigo-500 border-t-transparent rounded-full"></div>
+          <span className="ml-3">Chargement du projet...</span>
+        </div>
       </DashboardLayout>
     );
   }
@@ -94,7 +140,7 @@ export default function ProjectDetailPage() {
     <DashboardLayout>
       <div className="max-w-5xl mx-auto p-6 space-y-6">
         {/* Header */}
-        <div className="flex justify-between items-center">
+        <div className="flex justify-between items-center flex-wrap gap-3">
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Layers className="w-6 h-6 text-indigo-600" /> {project.name}
           </h1>
@@ -105,7 +151,7 @@ export default function ProjectDetailPage() {
 
         {/* Infos principales */}
         <Card>
-          <CardContent className="p-6 space-y-3">
+          <CardContent className="p-6 space-y-4">
             <p className="text-gray-600 dark:text-gray-300">
               {project.description || "Aucune description fournie."}
             </p>
@@ -118,26 +164,17 @@ export default function ProjectDetailPage() {
                 🔄 Dernière maj :{" "}
                 {new Date(project.updatedAt).toLocaleDateString("fr-FR")}
               </span>
-              <span
-                className={`px-2 py-0.5 rounded-full text-xs font-medium ${
-                  project.status === "published"
-                    ? "bg-green-100 text-green-700"
-                    : project.status === "archived"
-                    ? "bg-gray-300 text-gray-700"
-                    : "bg-yellow-100 text-yellow-700"
-                }`}
-              >
-                {project.status || "draft"}
-              </span>
+              <StatusBadge status={project.status} />
+              <span>📑 {project.pages?.length || 0} pages</span>
             </div>
           </CardContent>
         </Card>
 
         {/* Pages */}
-        {project.pages && project.pages.length > 0 && (
-          <Card>
-            <CardContent className="p-6 space-y-2">
-              <h2 className="font-semibold text-lg mb-2">📑 Pages</h2>
+        <Card>
+          <CardContent className="p-6 space-y-2">
+            <h2 className="font-semibold text-lg mb-2">📑 Pages</h2>
+            {project.pages && project.pages.length > 0 ? (
               <ul className="space-y-1 text-sm">
                 {project.pages.map((pg) => (
                   <li
@@ -154,9 +191,11 @@ export default function ProjectDetailPage() {
                   </li>
                 ))}
               </ul>
-            </CardContent>
-          </Card>
-        )}
+            ) : (
+              <p className="text-gray-400 text-sm">Aucune page définie.</p>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Actions */}
         <div className="flex flex-wrap gap-3">
@@ -181,6 +220,30 @@ export default function ProjectDetailPage() {
             🎯 Activer
           </Button>
           <Button
+            size="sm"
+            variant="secondary"
+            onClick={handleDuplicate}
+            className="flex items-center gap-2"
+          >
+            <Copy className="w-4 h-4" /> Dupliquer
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={toggleArchive}
+            className="flex items-center gap-2"
+          >
+            {project.status === "archived" ? (
+              <>
+                <Undo2 className="w-4 h-4" /> Restaurer
+              </>
+            ) : (
+              <>
+                <Archive className="w-4 h-4" /> Archiver
+              </>
+            )}
+          </Button>
+          <Button
             onClick={handleDelete}
             variant="destructive"
             className="flex items-center gap-2"
@@ -188,6 +251,7 @@ export default function ProjectDetailPage() {
             <Trash2 className="w-4 h-4" /> Supprimer
           </Button>
           <Button
+            onClick={handleDeploy}
             variant="default"
             className="flex items-center gap-2 bg-purple-600 hover:bg-purple-700"
           >
@@ -196,5 +260,28 @@ export default function ProjectDetailPage() {
         </div>
       </div>
     </DashboardLayout>
+  );
+}
+
+/* ============================================================================
+ *  Badge utilitaire
+ * ========================================================================== */
+function StatusBadge({ status }: { status?: Project["status"] }) {
+  if (status === "published")
+    return (
+      <span className="px-2 py-0.5 rounded-full bg-green-100 text-green-700 text-xs font-medium">
+        ✅ Publié
+      </span>
+    );
+  if (status === "archived")
+    return (
+      <span className="px-2 py-0.5 rounded-full bg-gray-200 text-gray-700 text-xs font-medium">
+        📦 Archivé
+      </span>
+    );
+  return (
+    <span className="px-2 py-0.5 rounded-full bg-yellow-100 text-yellow-700 text-xs font-medium">
+      📝 Brouillon
+    </span>
   );
 }
