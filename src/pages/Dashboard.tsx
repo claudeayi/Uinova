@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { toast } from "react-hot-toast";
 import axios from "axios";
-import io from "socket.io-client";
+import io, { Socket } from "socket.io-client";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import {
   LineChart,
@@ -20,9 +20,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { PlusCircle, ShoppingBag, Cpu, Bot } from "lucide-react";
 import { motion } from "framer-motion";
 
-/* ===============================
-   Interfaces
-=============================== */
+/* ============================================================================
+ * Types
+ * ========================================================================== */
 interface Project {
   id: string;
   name: string;
@@ -63,9 +63,9 @@ interface Payment {
   createdAt: string;
 }
 
-/* ===============================
-   Dashboard – Cockpit Central
-=============================== */
+/* ============================================================================
+ * Dashboard – Cockpit Central UInova v3 ultra-pro
+ * ========================================================================== */
 export default function Dashboard() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -78,21 +78,25 @@ export default function Dashboard() {
   const [cpuHistory, setCpuHistory] = useState<any[]>([]);
   const navigate = useNavigate();
 
+  /* ============================================================================
+   * Load initial data
+   * ========================================================================== */
   useEffect(() => {
     loadData();
     loadMonitoring();
     loadMarketplace();
     loadPayments();
 
-    // ⚡ Socket temps réel
-    const socket = io("http://localhost:5000", {
+    // ⚡ WebSocket temps réel
+    const socket: Socket = io(import.meta.env.VITE_API_URL || "http://localhost:5000", {
       auth: { token: localStorage.getItem("token") },
+      reconnection: true,
     });
 
     socket.on("metrics:update", (data: Metrics) => {
       setMetrics(data);
       setCpuHistory((prev) =>
-        [...prev.slice(-9), { time: new Date().toLocaleTimeString(), cpu: data.cpu.loadAvg[0] }]
+        [...prev.slice(-19), { time: new Date().toLocaleTimeString(), cpu: data.cpu.loadAvg[0] }]
       );
     });
 
@@ -102,7 +106,7 @@ export default function Dashboard() {
     });
 
     socket.on("activity", (msg: string) => {
-      setLiveActivity((prev) => [msg, ...prev].slice(0, 10));
+      setLiveActivity((prev) => [msg, ...prev].slice(0, 15));
     });
 
     socket.on("payment:new", (p: Payment) => {
@@ -115,9 +119,6 @@ export default function Dashboard() {
     };
   }, []);
 
-  /* ===============================
-     Load Data
-  =============================== */
   async function loadData() {
     try {
       const [projRes, notifRes, badgeRes] = await Promise.all([
@@ -139,7 +140,7 @@ export default function Dashboard() {
       const res = await axios.get("/api/monitoring/metrics");
       setMetrics(res.data.data);
     } catch {
-      console.warn("Monitoring non disponible");
+      toast.info("Monitoring non disponible");
     }
   }
 
@@ -148,7 +149,7 @@ export default function Dashboard() {
       const res = await axios.get("/api/marketplace/items", { params: { limit: 3 } });
       setMarketplace(res.data.items || res.data.data || []);
     } catch {
-      console.warn("Marketplace non disponible");
+      toast.info("Marketplace non disponible");
     }
   }
 
@@ -157,7 +158,7 @@ export default function Dashboard() {
       const res = await axios.get("/api/payments/recent");
       setPayments(res.data.items || []);
     } catch {
-      console.warn("Paiements non disponibles");
+      toast.info("Paiements non disponibles");
     }
   }
 
@@ -167,9 +168,9 @@ export default function Dashboard() {
     navigate(`/ai?prompt=${encodeURIComponent(aiPrompt)}`);
   }
 
-  /* ===============================
-     Render
-  =============================== */
+  /* ============================================================================
+   * Render
+   * ========================================================================== */
   return (
     <DashboardLayout>
       {/* HEADER HERO */}
@@ -199,7 +200,7 @@ export default function Dashboard() {
           <CardContent>
             <SectionTitle title="📂 Mes projets récents" />
             {projects.length === 0 ? (
-              <p className="text-gray-500">Aucun projet.</p>
+              <EmptyState message="Aucun projet" />
             ) : (
               <ul className="divide-y divide-gray-200 dark:divide-slate-700">
                 {projects.map((p) => (
@@ -216,11 +217,11 @@ export default function Dashboard() {
                       </p>
                     </div>
                     <div className="flex gap-2 items-center">
-                      <span className="text-sm text-gray-500">{p.status}</span>
+                      <StatusBadge status={p.status} />
                       {p.shareId && (
                         <Link to={`/preview/${p.shareId}`}>
                           <button className="px-2 py-1 text-xs rounded bg-indigo-600 text-white hover:bg-indigo-700">
-                            👁️ Voir en public
+                            👁️ Public
                           </button>
                         </Link>
                       )}
@@ -237,12 +238,12 @@ export default function Dashboard() {
           <CardContent>
             <SectionTitle title="🔔 Notifications" />
             {notifications.length === 0 ? (
-              <p className="text-gray-500">Aucune notification.</p>
+              <EmptyState message="Aucune notification" />
             ) : (
               <ul className="space-y-2 text-sm">
                 {notifications.map((n) => (
-                  <li key={n.id}>
-                    <span className="font-semibold">{n.title}</span> — {n.message}
+                  <li key={n.id} className={n.read ? "text-gray-500" : "font-semibold"}>
+                    {n.title} — {n.message}
                   </li>
                 ))}
               </ul>
@@ -255,7 +256,7 @@ export default function Dashboard() {
           <CardContent>
             <SectionTitle title="🏆 Badges débloqués" />
             {badges.length === 0 ? (
-              <p className="text-gray-500">Aucun badge.</p>
+              <EmptyState message="Aucun badge" />
             ) : (
               <div className="flex flex-wrap gap-3">
                 {badges.map((b) => (
@@ -279,10 +280,7 @@ export default function Dashboard() {
               <div className="grid md:grid-cols-3 gap-4 text-sm mb-6">
                 <MetricBox label="Uptime" value={`${metrics.uptime.toFixed(0)} sec`} />
                 <MetricBox label="Mémoire" value={metrics.memory.usagePercent} />
-                <MetricBox
-                  label="CPU"
-                  value={`${metrics.cpu.loadAvg.join(", ")} (cores: ${metrics.cpu.cores})`}
-                />
+                <MetricBox label="CPU" value={`${metrics.cpu.loadAvg.join(", ")} (cores: ${metrics.cpu.cores})`} />
               </div>
               <ResponsiveContainer width="100%" height={200}>
                 <LineChart data={cpuHistory}>
@@ -303,9 +301,7 @@ export default function Dashboard() {
             <CardContent>
               <SectionTitle title="💳 Paiements récents" />
               <ResponsiveContainer width="100%" height={200}>
-                <BarChart
-                  data={payments.map((p) => ({ name: p.provider, montant: p.amount }))}
-                >
+                <BarChart data={payments.map((p) => ({ name: p.provider, montant: p.amount }))}>
                   <CartesianGrid strokeDasharray="3 3" />
                   <XAxis dataKey="name" />
                   <YAxis />
@@ -344,6 +340,7 @@ export default function Dashboard() {
                 value={aiPrompt}
                 onChange={(e) => setAiPrompt(e.target.value)}
                 placeholder="Décrivez ce que vous voulez générer..."
+                aria-label="Prompt IA"
                 className="flex-1 px-3 py-2 rounded border dark:bg-slate-900"
               />
               <button
@@ -374,9 +371,7 @@ export default function Dashboard() {
                     {item.description || "—"}
                   </p>
                   <p className="mt-2 text-sm text-blue-600 font-bold">
-                    {item.priceCents
-                      ? (item.priceCents / 100).toFixed(2) + " €"
-                      : "Gratuit"}
+                    {item.priceCents ? (item.priceCents / 100).toFixed(2) + " €" : "Gratuit"}
                   </p>
                 </Link>
               ))}
@@ -388,14 +383,14 @@ export default function Dashboard() {
   );
 }
 
-/* ===============================
-   Components utils
-=============================== */
+/* ============================================================================
+ * Utils Components
+ * ========================================================================== */
 function QuickAction({ to, icon, label }: { to: string; icon: JSX.Element; label: string }) {
   return (
     <Link
       to={to}
-      className="flex flex-col items-center justify-center p-4 rounded-xl bg-white dark:bg-gray-800 shadow hover:shadow-md transition"
+      className="flex flex-col items-center justify-center p-4 rounded-xl bg-white dark:bg-gray-800 shadow hover:shadow-md transition focus:outline-none focus:ring-2 focus:ring-indigo-500"
     >
       <div className="text-indigo-600 dark:text-indigo-400 mb-2">{icon}</div>
       <span className="text-sm font-medium">{label}</span>
@@ -413,4 +408,21 @@ function MetricBox({ label, value }: { label: string; value: string }) {
       <strong>{label} :</strong> {value}
     </div>
   );
+}
+
+function StatusBadge({ status }: { status: string }) {
+  const colors: Record<string, string> = {
+    active: "bg-green-100 text-green-700",
+    draft: "bg-yellow-100 text-yellow-700",
+    archived: "bg-gray-200 text-gray-600",
+  };
+  return (
+    <span className={`px-2 py-1 text-xs rounded ${colors[status] || "bg-slate-200 text-slate-700"}`}>
+      {status}
+    </span>
+  );
+}
+
+function EmptyState({ message }: { message: string }) {
+  return <p className="text-gray-400 italic text-sm">{message}</p>;
 }
