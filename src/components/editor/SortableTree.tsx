@@ -1,4 +1,5 @@
-import React, { useMemo } from "react";
+// src/components/editor/SortableTree.tsx
+import React, { useMemo, useCallback } from "react";
 import {
   DndContext,
   DragEndEvent,
@@ -9,21 +10,17 @@ import {
   useDroppable,
 } from "@dnd-kit/core";
 import { CSS } from "@dnd-kit/utilities";
+import { Folder, Square } from "lucide-react";
 import type { ElementData } from "../../store/useAppStore";
 
 /**
- * Ce composant gère 3 zones de drop par item :
- *  - before  : insérer avant l'élément
- *  - after   : insérer après l'élément
- *  - into    : insérer comme enfant (uniquement si el.type === "group")
- *
- * On n'utilise PAS SortableContext ici pour garder un contrôle fin du "nesting".
+ * Gestion fine du nesting avec zones before/after/into
  */
 
 type Props = {
   elements: ElementData[];
   onSelect: (path: number[] | null) => void;
-  onReorder: (next: ElementData[]) => void; // callback avec l'arbre mis à jour
+  onReorder: (next: ElementData[]) => void;
 };
 
 type FlatNode = { el: ElementData; path: number[] };
@@ -67,14 +64,12 @@ function insertAtPath(
   const copy = structuredClone(tree) as ElementData[];
 
   if (mode === "into") {
-    // Ajouter comme dernier enfant du target (path = chemin exact de l'élément cible)
     const target = getByPath(copy, path);
     target.children = target.children || [];
     target.children.push(node);
     return copy;
   }
 
-  // "before" ou "after" => on insère dans le parent du target
   if (path.length === 1) {
     const idx = path[0];
     const at = mode === "before" ? idx : idx + 1;
@@ -93,7 +88,6 @@ function insertAtPath(
 /* ---------------------------
  * Draggable + Drop zones
  * --------------------------- */
-
 function DraggableRow({
   el,
   path,
@@ -103,85 +97,84 @@ function DraggableRow({
   path: number[];
   onSelect: (path: number[]) => void;
 }) {
-  // Draggable bloc (ligne entière)
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useDraggable({
-    id: el.id,
-  });
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useDraggable({ id: el.id });
 
   const style: React.CSSProperties = {
     transform: CSS.Translate.toString(transform),
     transition,
-    opacity: isDragging ? 0.6 : 1,
+    opacity: isDragging ? 0.5 : 1,
   };
 
-  // 3 zones de drop : before / after / into (si group)
-  const beforeId = `${el.id}__before`;
-  const afterId = `${el.id}__after`;
-  const intoId = `${el.id}__into`;
-
-  const before = useDroppable({ id: beforeId });
-  const after = useDroppable({ id: afterId });
-  const into = el.type === "group" ? useDroppable({ id: intoId }) : null;
-
-  // Cues visuels
-  const line = "h-2 rounded bg-blue-500/40";
-  const thin = "h-1 rounded bg-blue-500/40";
-  const isOverInto = !!into?.isOver;
+  const before = useDroppable({ id: `${el.id}__before` });
+  const after = useDroppable({ id: `${el.id}__after` });
+  const into = el.type === "group" ? useDroppable({ id: `${el.id}__into` }) : null;
 
   return (
-    <div style={{ marginLeft: (path.length - 1) * 12 }}>
-      {/* Zone BEFORE (fine au-dessus) */}
-      <div ref={before.setNodeRef} className={before.isOver ? line : "h-2"} />
+    <div style={{ marginLeft: (path.length - 1) * 14 }}>
+      {/* Zone BEFORE */}
+      <div ref={before.setNodeRef} className={before.isOver ? "h-2 bg-blue-500/50 rounded" : "h-2"} />
 
       {/* Ligne principale draggable */}
       <div
         ref={setNodeRef}
         style={style}
-        className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-grab select-none"
+        className="flex items-center gap-2 px-2 py-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800 cursor-grab select-none transition"
         onClick={() => onSelect(path)}
+        role="treeitem"
         {...attributes}
         {...listeners}
         title={`#${el.id.slice(0, 6)} • ${el.type}`}
       >
-        <span className="text-xs text-gray-400">#{el.id.slice(0, 5)}</span>
-        <span className="font-medium">{el.type}</span>
-        {el.children && el.children.length > 0 && (
-          <span className="text-xs opacity-70">({el.children.length})</span>
+        {el.type === "group" ? (
+          <Folder className="w-4 h-4 text-blue-500" />
+        ) : (
+          <Square className="w-3 h-3 text-gray-400" />
         )}
+        <span className="font-medium">{el.type}</span>
+        {el.children?.length ? (
+          <span className="text-xs opacity-60">({el.children.length})</span>
+        ) : null}
       </div>
 
-      {/* Zone INTO (si group) */}
+      {/* Zone INTO */}
       {el.type === "group" && (
         <div
           ref={into!.setNodeRef}
-          className={
-            "ml-4 my-1 border-2 border-dashed rounded px-2 py-1 transition-colors " +
-            (isOverInto ? "border-blue-500/70 bg-blue-50 dark:bg-blue-900/20" : "border-gray-300 dark:border-gray-700")
-          }
+          className={`ml-5 my-1 border-2 border-dashed rounded px-2 py-1 text-[11px] transition-colors ${
+            into?.isOver
+              ? "border-blue-500/70 bg-blue-50 dark:bg-blue-900/20"
+              : "border-gray-300 dark:border-gray-700 text-gray-400"
+          }`}
         >
-          <span className="text-[11px] opacity-70">Déposer ici pour imbriquer</span>
+          Déposer ici
         </div>
       )}
 
-      {/* Zone AFTER (fine en-dessous) */}
-      <div ref={after.setNodeRef} className={after.isOver ? thin : "h-1"} />
+      {/* Zone AFTER */}
+      <div ref={after.setNodeRef} className={after.isOver ? "h-1 bg-blue-500/40 rounded" : "h-1"} />
     </div>
   );
 }
 
+/* ---------------------------
+ * SortableTree principal
+ * --------------------------- */
 export default function SortableTree({ elements, onSelect, onReorder }: Props) {
-  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 4 } })
+  );
   const flat = useMemo(() => flatten(elements), [elements]);
 
-  function byId(id: string): FlatNode | null {
-    return flat.find((n) => n.el.id === id) || null;
-  }
+  const byId = useCallback(
+    (id: string): FlatNode | null => flat.find((n) => n.el.id === id) || null,
+    [flat]
+  );
 
   function parseTarget(overId: string): { targetId: string; mode: "before" | "after" | "into" } | null {
     if (overId.endsWith("__before")) return { targetId: overId.replace("__before", ""), mode: "before" };
     if (overId.endsWith("__after")) return { targetId: overId.replace("__after", ""), mode: "after" };
     if (overId.endsWith("__into")) return { targetId: overId.replace("__into", ""), mode: "into" };
-    // Si on tombe directement sur l'id (rare), on considère "before"
     return { targetId: overId, mode: "before" };
   }
 
@@ -196,27 +189,28 @@ export default function SortableTree({ elements, onSelect, onReorder }: Props) {
     const target = byId(drop.targetId);
     if (!dragged || !target) return;
 
-    // Empêcher de déposer un parent à l'intérieur de son propre descendant
     const draggedPathStr = dragged.path.join(".");
     const targetPathStr = target.path.join(".");
     if (drop.mode === "into" && targetPathStr.startsWith(draggedPathStr)) {
-      return; // annule
+      console.warn("⚠️ Tentative de drop dans descendant annulée");
+      return;
     }
 
-    // Retirer le noeud de sa position actuelle
     const [removed, treeWithout] = removeAtPath(elements, dragged.path);
-
-    // Si "into" mais cible pas group (sécurité), rebasculer en "after"
     const isTargetGroup = target.el.type === "group";
-    const mode: "before" | "after" | "into" = drop.mode === "into" && isTargetGroup ? "into" : drop.mode === "into" ? "after" : drop.mode;
+    const mode =
+      drop.mode === "into" && isTargetGroup ? "into" : drop.mode === "into" ? "after" : drop.mode;
 
-    // Réinsérer
     const next = insertAtPath(treeWithout, target.path, removed, mode);
     onReorder(next);
   };
 
   return (
-    <aside className="w-72 p-3 border-r bg-white dark:bg-gray-900">
+    <aside
+      className="w-72 p-3 border-r bg-white dark:bg-gray-900"
+      role="tree"
+      aria-label="Arborescence des composants"
+    >
       <div className="text-sm font-semibold mb-2">Arborescence</div>
       <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
         {flat.map(({ el, path }) => (
