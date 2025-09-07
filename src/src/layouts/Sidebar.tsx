@@ -1,3 +1,4 @@
+// src/components/layout/Sidebar.tsx
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -29,6 +30,7 @@ import {
   Plus,
   Star,
 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn } from "@/lib/utils";
 import { useProject } from "@/context/ProjectContext";
 import { useAuth } from "@/hooks/useAuth";
@@ -41,9 +43,6 @@ import {
 } from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 
-/* ============================================================================
- *  Sidebar – Navigation UInova v8 ultra-pro
- * ========================================================================== */
 export default function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -59,7 +58,7 @@ export default function Sidebar() {
   const navItems = [
     { label: "Dashboard", path: "/", icon: <LayoutDashboard className="w-5 h-5" /> },
     { label: "Projets", path: "/projects", icon: <Boxes className="w-5 h-5" /> },
-    { label: "Favoris", path: "/favorites", icon: <Star className="w-5 h-5" /> }, // ✅ NEW
+    { label: "Favoris", path: "/favorites", icon: <Star className="w-5 h-5" /> },
   ];
 
   const marketplaceItems = [
@@ -93,7 +92,10 @@ export default function Sidebar() {
   ];
 
   return (
-    <aside className="w-64 bg-white dark:bg-slate-900 border-r dark:border-slate-800 flex flex-col">
+    <aside
+      className="w-64 bg-white dark:bg-slate-900 border-r dark:border-slate-800 flex flex-col"
+      aria-label="Navigation principale"
+    >
       {/* Header Logo */}
       <div className="px-6 py-4 text-xl font-extrabold text-indigo-600 dark:text-indigo-400 tracking-wide">
         UInova
@@ -145,15 +147,14 @@ export default function Sidebar() {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-2 space-y-1">
+      <nav className="flex-1 px-2 space-y-1 text-sm">
         {navItems.map((item) => (
           <NavItem key={item.path} {...item} active={location.pathname === item.path} />
         ))}
 
         {/* Marketplace */}
-        <SectionHeader label="Marketplace" open={marketplaceOpen} toggle={() => setMarketplaceOpen((o) => !o)} />
-        {marketplaceOpen &&
-          marketplaceItems.map((item) => (
+        <Section label="Marketplace" open={marketplaceOpen} toggle={() => setMarketplaceOpen((o) => !o)}>
+          {marketplaceItems.map((item) => (
             <NavItem
               key={item.path}
               {...item}
@@ -161,29 +162,27 @@ export default function Sidebar() {
               className="ml-4"
             />
           ))}
+        </Section>
 
         {/* Projet actif */}
         {projectId ? (
-          <>
-            <SectionHeader label="Projet actif" open={projectOpen} toggle={() => setProjectOpen((o) => !o)} />
-            {projectOpen &&
-              projectItems.map((item) => (
-                <NavItem
-                  key={item.path}
-                  {...item}
-                  active={location.pathname.startsWith(item.path)}
-                  className="ml-4"
-                />
-              ))}
-          </>
+          <Section label="Projet actif" open={projectOpen} toggle={() => setProjectOpen((o) => !o)}>
+            {projectItems.map((item) => (
+              <NavItem
+                key={item.path}
+                {...item}
+                active={location.pathname.startsWith(item.path)}
+                className="ml-4"
+              />
+            ))}
+          </Section>
         ) : (
           <p className="mt-6 px-3 text-xs italic text-gray-400">Aucun projet actif</p>
         )}
 
         {/* Outils */}
-        <SectionHeader label="Outils" open={toolsOpen} toggle={() => setToolsOpen((o) => !o)} />
-        {toolsOpen &&
-          toolsItems.map((item) => (
+        <Section label="Outils" open={toolsOpen} toggle={() => setToolsOpen((o) => !o)}>
+          {toolsItems.map((item) => (
             <NavItem
               key={item.path}
               {...item}
@@ -191,21 +190,20 @@ export default function Sidebar() {
               className="ml-4"
             />
           ))}
+        </Section>
 
         {/* Admin */}
         {user?.role === "ADMIN" && (
-          <>
-            <SectionHeader label="Administration" open={adminOpen} toggle={() => setAdminOpen((o) => !o)} />
-            {adminOpen &&
-              adminItems.map((item) => (
-                <NavItem
-                  key={item.path}
-                  {...item}
-                  active={location.pathname.startsWith(item.path)}
-                  className="ml-4"
-                />
-              ))}
-          </>
+          <Section label="Administration" open={adminOpen} toggle={() => setAdminOpen((o) => !o)}>
+            {adminItems.map((item) => (
+              <NavItem
+                key={item.path}
+                {...item}
+                active={location.pathname.startsWith(item.path)}
+                className="ml-4"
+              />
+            ))}
+          </Section>
         )}
       </nav>
 
@@ -275,7 +273,7 @@ function NavItem({
       aria-label={label}
       aria-current={active ? "page" : undefined}
       className={cn(
-        "flex items-center gap-3 px-3 py-2 rounded-md transition text-sm font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2",
+        "flex items-center gap-3 px-3 py-2 rounded-md transition font-medium focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2",
         active
           ? "bg-indigo-600 text-white shadow"
           : "text-gray-700 dark:text-gray-300 hover:bg-indigo-50 dark:hover:bg-slate-800",
@@ -289,27 +287,43 @@ function NavItem({
 }
 
 /* ============================================================================
- *  SectionHeader
+ *  Section (animée avec framer-motion)
  * ========================================================================== */
-function SectionHeader({
+function Section({
   label,
   open,
   toggle,
+  children,
 }: {
   label: string;
   open: boolean;
   toggle: () => void;
+  children: React.ReactNode;
 }) {
   return (
-    <div
-      role="button"
-      aria-expanded={open}
-      aria-label={`Toggle ${label}`}
-      className="mt-6 mb-2 px-3 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 flex items-center justify-between cursor-pointer hover:text-indigo-600 transition"
-      onClick={toggle}
-    >
-      <span>{label}</span>
-      {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+    <div>
+      <div
+        role="button"
+        aria-expanded={open}
+        aria-label={`Toggle ${label}`}
+        className="mt-6 mb-2 px-3 text-xs font-semibold uppercase text-gray-500 dark:text-gray-400 flex items-center justify-between cursor-pointer hover:text-indigo-600 transition"
+        onClick={toggle}
+      >
+        <span>{label}</span>
+        {open ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+      </div>
+      <AnimatePresence initial={false}>
+        {open && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2, ease: "easeInOut" }}
+          >
+            {children}
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
