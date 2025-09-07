@@ -13,11 +13,14 @@ import {
   Clock,
   Search,
   ShoppingBag,
+  Filter,
+  ArrowDownWideNarrow,
+  ArrowUpWideNarrow,
 } from "lucide-react";
 import { useNavigate, Link } from "react-router-dom";
 
 /* ============================================================================
- *  PurchasesPage – UInova v2 ultra-pro
+ *  PurchasesPage – UInova v3 ultra-pro
  * ========================================================================== */
 interface Purchase {
   id: string;
@@ -26,12 +29,15 @@ interface Purchase {
   name: string;
   status: "paid" | "pending" | "failed";
   createdAt: string;
+  price?: number; // 💰 enrichi avec prix
 }
 
 export default function PurchasesPage() {
   const [purchases, setPurchases] = useState<Purchase[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [filter, setFilter] = useState<"all" | "paid" | "pending" | "failed">("all");
+  const [sort, setSort] = useState<"desc" | "asc">("desc");
   const navigate = useNavigate();
 
   async function fetchPurchases() {
@@ -51,15 +57,20 @@ export default function PurchasesPage() {
     fetchPurchases();
   }, []);
 
-  /* === Filtrage recherche === */
+  /* === Filtrage + tri === */
   const filtered = useMemo(() => {
-    return purchases.filter(
+    let data = purchases.filter(
       (p) =>
-        p.name.toLowerCase().includes(search.toLowerCase()) ||
-        p.type.toLowerCase().includes(search.toLowerCase()) ||
-        p.status.toLowerCase().includes(search.toLowerCase())
+        (filter === "all" || p.status === filter) &&
+        (p.name.toLowerCase().includes(search.toLowerCase()) ||
+          p.type.toLowerCase().includes(search.toLowerCase()))
     );
-  }, [purchases, search]);
+    return data.sort((a, b) =>
+      sort === "desc"
+        ? new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        : new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+    );
+  }, [purchases, search, filter, sort]);
 
   /* === Stats === */
   const stats = useMemo(() => {
@@ -68,6 +79,10 @@ export default function PurchasesPage() {
       paid: purchases.filter((p) => p.status === "paid").length,
       pending: purchases.filter((p) => p.status === "pending").length,
       failed: purchases.filter((p) => p.status === "failed").length,
+      spent: purchases
+        .filter((p) => p.status === "paid" && p.price)
+        .reduce((sum, p) => sum + (p.price || 0), 0),
+      last: purchases.length > 0 ? purchases[0].createdAt : null,
     };
   }, [purchases]);
 
@@ -96,39 +111,56 @@ export default function PurchasesPage() {
 
   return (
     <DashboardLayout>
-      <div className="p-6">
+      <div className="p-6 space-y-6">
         {/* Header */}
-        <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+        <div className="flex flex-col md:flex-row justify-between items-center gap-4">
           <h1 className="text-2xl font-bold text-indigo-600 flex items-center gap-2">
             🛒 Mes Achats
           </h1>
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input
-              type="text"
-              placeholder="Rechercher un achat..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="pl-9 pr-3 py-2 rounded border dark:bg-slate-900 dark:border-slate-700 text-sm"
-            />
+          <div className="flex gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+              <input
+                type="text"
+                placeholder="Rechercher..."
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                className="pl-9 pr-3 py-2 rounded border dark:bg-slate-900 dark:border-slate-700 text-sm"
+              />
+            </div>
+            <Button variant="outline" onClick={() => setFilter("all")}>
+              <Filter className="w-4 h-4 mr-1" /> {filter}
+            </Button>
+            <Button variant="outline" onClick={() => setSort(sort === "desc" ? "asc" : "desc")}>
+              {sort === "desc" ? <ArrowDownWideNarrow className="w-4 h-4 mr-1" /> : <ArrowUpWideNarrow className="w-4 h-4 mr-1" />}
+              {sort === "desc" ? "Récent" : "Ancien"}
+            </Button>
           </div>
         </div>
 
         {/* Résumé */}
         {purchases.length > 0 && (
-          <div className="mb-6 flex flex-wrap gap-3 text-xs">
+          <div className="flex flex-wrap gap-3 text-xs">
             <Badge label={`Total : ${stats.total}`} color="blue" />
             <Badge label={`Payés : ${stats.paid}`} color="green" />
             <Badge label={`En attente : ${stats.pending}`} color="yellow" />
             <Badge label={`Échoués : ${stats.failed}`} color="red" />
+            <Badge label={`Dépensé : ${stats.spent} €`} color="indigo" />
           </div>
         )}
 
         {/* Contenu */}
         {loading ? (
-          <div className="flex justify-center items-center py-20 text-indigo-500">
-            <Loader2 className="animate-spin w-6 h-6 mr-2" />
-            Chargement de vos achats...
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <Card key={i} className="animate-pulse">
+                <CardContent className="p-6 space-y-3">
+                  <div className="h-4 bg-gray-200 rounded w-2/3"></div>
+                  <div className="h-3 bg-gray-200 rounded w-1/3"></div>
+                  <div className="h-6 bg-gray-300 rounded w-1/2"></div>
+                </CardContent>
+              </Card>
+            ))}
           </div>
         ) : filtered.length === 0 ? (
           <div className="text-center text-gray-400 py-20 space-y-4">
@@ -174,7 +206,10 @@ export default function PurchasesPage() {
                       <Button
                         size="sm"
                         className="bg-indigo-600 text-white hover:bg-indigo-700"
-                        onClick={() => toast.success("✅ Ajouté à vos projets")}
+                        onClick={() =>
+                          window.confirm("Ajouter cet achat à vos projets ?") &&
+                          toast.success("✅ Ajouté à vos projets")
+                        }
                       >
                         <Download className="w-4 h-4 mr-1" /> Réutiliser
                       </Button>
@@ -198,13 +233,14 @@ function Badge({
   color,
 }: {
   label: string;
-  color: "blue" | "green" | "yellow" | "red";
+  color: "blue" | "green" | "yellow" | "red" | "indigo";
 }) {
   const colors = {
     blue: "bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-200",
     green: "bg-green-100 text-green-700 dark:bg-green-900 dark:text-green-200",
     yellow: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900 dark:text-yellow-200",
     red: "bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-200",
+    indigo: "bg-indigo-100 text-indigo-700 dark:bg-indigo-900 dark:text-indigo-200",
   };
   return (
     <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${colors[color]}`}>
