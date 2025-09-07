@@ -10,16 +10,22 @@ import { toast } from "react-hot-toast";
 import { useAppStore, ElementData } from "@/store/useAppStore";
 
 export interface DroppedComponent extends ElementData {}
-
 export interface LiveEditorHandles {
   undo: () => void;
   redo: () => void;
 }
-
 interface LiveEditorProps {
   onSelect?: (component: DroppedComponent | DroppedComponent[]) => void;
   previewOverride?: DroppedComponent | null;
 }
+
+const SNAP = 20;
+const DEFAULTS: Record<string, any> = {
+  Bouton: { text: "Nouveau bouton", width: 120, height: 40 },
+  Texte: { text: "Nouveau texte", width: 200, height: 40 },
+  Image: { src: "https://via.placeholder.com/150", width: 150, height: 150 },
+  Formulaire: { buttonText: "Envoyer", width: 250, height: 120 },
+};
 
 const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
   ({ onSelect, previewOverride }, ref) => {
@@ -71,29 +77,16 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
       const type = e.dataTransfer.getData("component-type");
       if (!type) return;
 
-      const defaults: Record<string, any> = {
-        Bouton: { text: "Nouveau bouton", x: 40, y: 40, width: 120, height: 40 },
-        Texte: { text: "Nouveau texte", x: 40, y: 40, width: 200, height: 40 },
-        Image: {
-          src: "https://via.placeholder.com/150",
-          x: 40,
-          y: 40,
-          width: 150,
-          height: 150,
-        },
-        Formulaire: {
-          buttonText: "Envoyer",
-          x: 40,
-          y: 40,
-          width: 250,
-          height: 120,
-        },
-      };
-
       const newComponent: DroppedComponent = {
         id: crypto.randomUUID(),
         type,
-        props: { ...defaults[type], rotate: 0, zIndex: components.length + 1 },
+        props: {
+          ...DEFAULTS[type],
+          x: 40,
+          y: 40,
+          rotate: 0,
+          zIndex: components.length + 1,
+        },
       };
 
       saveSnapshot();
@@ -105,22 +98,18 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
        Sélection
     =============================== */
     function handleSelect(c: DroppedComponent, multi = false) {
-      if (multi) {
-        setSelectedIds((prev) =>
-          prev.includes(c.id) ? prev.filter((id) => id !== c.id) : [...prev, c.id]
-        );
-      } else {
-        setSelectedIds([c.id]);
-      }
-      onSelect?.(
+      setSelectedIds((prev) =>
         multi
-          ? components.filter((el) => selectedIds.includes(el.id))
-          : c
+          ? prev.includes(c.id)
+            ? prev.filter((id) => id !== c.id)
+            : [...prev, c.id]
+          : [c.id]
       );
+      onSelect?.(multi ? components.filter((el) => selectedIds.includes(el.id)) : c);
     }
 
     /* ===============================
-       Update / Delete / Duplicate
+       Mutations
     =============================== */
     function updateComponent(id: string, newProps: Record<string, any>) {
       if (!currentPageId) return;
@@ -145,8 +134,8 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
         id: crypto.randomUUID(),
         props: {
           ...target.props,
-          x: target.props.x + 20,
-          y: target.props.y + 20,
+          x: target.props.x + SNAP,
+          y: target.props.y + SNAP,
           zIndex: target.props.zIndex + 1,
         },
       };
@@ -159,7 +148,6 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
       const maxZ = Math.max(...components.map((c) => c.props.zIndex || 1), 1);
       updateComponent(id, { zIndex: maxZ + 1 });
     }
-
     function sendToBack(id: string) {
       updateComponent(id, { zIndex: 1 });
     }
@@ -170,14 +158,13 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
     function handleDragEnd(e: React.DragEvent, c: DroppedComponent) {
       const canvasRect = (e.currentTarget.parentNode as HTMLElement).getBoundingClientRect();
       const rect = (e.target as HTMLElement).getBoundingClientRect();
-      const snap = 20;
-      const x = Math.round((rect.left - canvasRect.left) / snap) * snap;
-      const y = Math.round((rect.top - canvasRect.top) / snap) * snap;
+      const x = Math.round((rect.left - canvasRect.left) / SNAP) * SNAP;
+      const y = Math.round((rect.top - canvasRect.top) / SNAP) * SNAP;
       updateComponent(c.id, { x, y });
     }
 
     /* ===============================
-       Resize
+       Resize / Rotate
     =============================== */
     function startResize(e: React.MouseEvent, c: DroppedComponent) {
       e.stopPropagation();
@@ -191,27 +178,21 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
       document.addEventListener("mousemove", onResizing);
       document.addEventListener("mouseup", stopResize);
     }
-
     function onResizing(e: MouseEvent) {
       if (!resizingRef.current) return;
       const { id, startX, startY, startW, startH } = resizingRef.current;
       const dx = e.clientX - startX;
       const dy = e.clientY - startY;
-      const snap = 20;
-      const width = Math.max(40, Math.round((startW + dx) / snap) * snap);
-      const height = Math.max(40, Math.round((startH + dy) / snap) * snap);
+      const width = Math.max(40, Math.round((startW + dx) / SNAP) * SNAP);
+      const height = Math.max(40, Math.round((startH + dy) / SNAP) * SNAP);
       updateComponent(id, { width, height });
     }
-
     function stopResize() {
       resizingRef.current = null;
       document.removeEventListener("mousemove", onResizing);
       document.removeEventListener("mouseup", stopResize);
     }
 
-    /* ===============================
-       Rotation
-    =============================== */
     function startRotate(e: React.MouseEvent, c: DroppedComponent) {
       e.stopPropagation();
       rotatingRef.current = {
@@ -223,15 +204,13 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
       document.addEventListener("mousemove", onRotating);
       document.addEventListener("mouseup", stopRotate);
     }
-
     function onRotating(e: MouseEvent) {
       if (!rotatingRef.current) return;
-      const { id, startX, startY, startAngle } = rotatingRef.current;
+      const { id, startX, startAngle } = rotatingRef.current;
       const dx = e.clientX - startX;
       const angle = startAngle + dx * 0.5;
       updateComponent(id, { rotate: angle });
     }
-
     function stopRotate() {
       rotatingRef.current = null;
       document.removeEventListener("mousemove", onRotating);
@@ -239,7 +218,7 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
     }
 
     /* ===============================
-       Raccourcis clavier
+       Raccourcis clavier pro
     =============================== */
     useEffect(() => {
       function handleKey(e: KeyboardEvent) {
@@ -250,11 +229,17 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
         if (e.ctrlKey && e.key.toLowerCase() === "d") {
           selectedIds.forEach((id) => duplicateComponent(id));
         }
-        if (e.ctrlKey && e.key.toLowerCase() === "z") {
-          undo();
+        if (e.ctrlKey && e.key.toLowerCase() === "a") {
+          e.preventDefault();
+          setSelectedIds(components.map((c) => c.id));
         }
-        if (e.ctrlKey && e.key.toLowerCase() === "y") {
-          redo();
+        if (["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"].includes(e.key)) {
+          e.preventDefault();
+          const move = { ArrowUp: [0, -SNAP], ArrowDown: [0, SNAP], ArrowLeft: [-SNAP, 0], ArrowRight: [SNAP, 0] }[e.key];
+          selectedIds.forEach((id) => {
+            const c = components.find((el) => el.id === id);
+            if (c) updateComponent(id, { x: c.props.x + move![0], y: c.props.y + move![1] });
+          });
         }
       }
       window.addEventListener("keydown", handleKey);
@@ -282,7 +267,7 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
         {/* Grille */}
         <div
           className="absolute inset-0 pointer-events-none bg-[linear-gradient(to_right,#ccc_1px,transparent_1px),linear-gradient(to_bottom,#ccc_1px,transparent_1px)]"
-          style={{ backgroundSize: "20px 20px", opacity: 0.15 }}
+          style={{ backgroundSize: `${SNAP}px ${SNAP}px`, opacity: 0.15 }}
         />
 
         {components.length === 0 ? (
@@ -367,6 +352,7 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
                     <div
                       onMouseDown={(e) => startResize(e, display)}
                       className="absolute w-3 h-3 bg-blue-500 bottom-0 right-0 cursor-se-resize rounded-full"
+                      title="Redimensionner"
                     />
                   )}
 
@@ -375,6 +361,7 @@ const LiveEditor = forwardRef<LiveEditorHandles, LiveEditorProps>(
                     <div
                       onMouseDown={(e) => startRotate(e, display)}
                       className="absolute w-3 h-3 bg-red-500 -top-4 right-2 cursor-crosshair rounded-full"
+                      title="Pivoter"
                     />
                   )}
 
