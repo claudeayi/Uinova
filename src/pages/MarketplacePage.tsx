@@ -1,11 +1,19 @@
 // src/pages/MarketplacePage.tsx
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import axios from "axios";
 import toast from "react-hot-toast";
 import DashboardLayout from "@/layouts/DashboardLayout";
 import { Card, CardContent } from "@/components/ui/card";
-import { ShoppingCart, Eye, Filter, Tag } from "lucide-react";
+import {
+  ShoppingCart,
+  Eye,
+  Filter,
+  Tag,
+  ArrowDownAZ,
+  ArrowUpAZ,
+  Loader2,
+} from "lucide-react";
 
 /* ===============================
    Interfaces
@@ -20,6 +28,8 @@ interface Item {
   createdAt: string;
   type?: string; // template | component
   purchased?: boolean;
+  thumbnail?: string;
+  popularity?: number;
 }
 
 /* ===============================
@@ -31,7 +41,12 @@ export default function MarketplacePage() {
   const [search, setSearch] = useState("");
   const [error, setError] = useState("");
   const [page, setPage] = useState(1);
-  const [filter, setFilter] = useState<"all" | "template" | "component" | "free">("all");
+  const [filter, setFilter] = useState<
+    "all" | "template" | "component" | "free" | "purchased"
+  >("all");
+  const [sort, setSort] = useState<"recent" | "priceAsc" | "priceDesc" | "popular">(
+    "recent"
+  );
   const [buying, setBuying] = useState<string | null>(null);
   const pageSize = 9;
   const navigate = useNavigate();
@@ -88,13 +103,23 @@ export default function MarketplacePage() {
     }
   }
 
-  // Pagination
-  const filtered = items.filter((item) => {
-    if (filter === "template") return item.type === "template";
-    if (filter === "component") return item.type === "component";
-    if (filter === "free") return item.priceCents === 0;
-    return true;
-  });
+  // Filtrage
+  const filtered = useMemo(() => {
+    return items
+      .filter((item) => {
+        if (filter === "template") return item.type === "template";
+        if (filter === "component") return item.type === "component";
+        if (filter === "free") return item.priceCents === 0;
+        if (filter === "purchased") return item.purchased;
+        return true;
+      })
+      .sort((a, b) => {
+        if (sort === "priceAsc") return a.priceCents - b.priceCents;
+        if (sort === "priceDesc") return b.priceCents - a.priceCents;
+        if (sort === "popular") return (b.popularity || 0) - (a.popularity || 0);
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      });
+  }, [items, filter, sort]);
 
   const totalPages = Math.ceil(filtered.length / pageSize);
   const paginated = filtered.slice((page - 1) * pageSize, page * pageSize);
@@ -105,15 +130,16 @@ export default function MarketplacePage() {
         {/* Header */}
         <div className="flex flex-col md:flex-row justify-between md:items-center gap-4">
           <h1 className="text-3xl font-bold">🛒 Marketplace UInova</h1>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <FilterButton label="Tous" active={filter === "all"} onClick={() => setFilter("all")} />
             <FilterButton label="Templates" active={filter === "template"} onClick={() => setFilter("template")} />
             <FilterButton label="Composants" active={filter === "component"} onClick={() => setFilter("component")} />
             <FilterButton label="Gratuits" active={filter === "free"} onClick={() => setFilter("free")} />
+            <FilterButton label="Mes achats" active={filter === "purchased"} onClick={() => setFilter("purchased")} />
           </div>
         </div>
 
-        {/* Barre recherche */}
+        {/* Barre recherche + Tri */}
         <div className="flex flex-col md:flex-row gap-3 md:items-center">
           <input
             type="text"
@@ -131,10 +157,25 @@ export default function MarketplacePage() {
           >
             Rechercher
           </button>
+          <select
+            value={sort}
+            onChange={(e) => setSort(e.target.value as any)}
+            className="px-3 py-2 rounded border dark:bg-slate-900 dark:border-slate-700 text-sm"
+          >
+            <option value="recent">📅 Récents</option>
+            <option value="priceAsc">⬆️ Prix croissant</option>
+            <option value="priceDesc">⬇️ Prix décroissant</option>
+            <option value="popular">🔥 Populaires</option>
+          </select>
         </div>
 
         {/* Loading / Error */}
-        {loading && <p className="text-gray-500">⏳ Chargement des items...</p>}
+        {loading && (
+          <div className="flex justify-center items-center py-20 text-indigo-500">
+            <Loader2 className="animate-spin w-6 h-6" />
+            <span className="ml-2">Chargement des items...</span>
+          </div>
+        )}
         {error && <p className="text-red-500">{error}</p>}
 
         {/* Liste des items */}
@@ -146,10 +187,18 @@ export default function MarketplacePage() {
           {paginated.map((item) => (
             <Card
               key={item.id}
-              className="hover:shadow-lg transition hover:-translate-y-1"
+              className="hover:shadow-lg transition hover:-translate-y-1 relative"
             >
               <CardContent className="p-4 flex flex-col justify-between h-full">
                 <div>
+                  {/* Miniature */}
+                  {item.thumbnail && (
+                    <img
+                      src={item.thumbnail}
+                      alt={item.title}
+                      className="w-full h-40 object-cover rounded mb-3"
+                    />
+                  )}
                   <h2 className="text-lg font-semibold mb-1">{item.title}</h2>
                   <p className="text-sm text-gray-500 line-clamp-3 flex-1">
                     {item.description || "Pas de description."}
@@ -212,24 +261,20 @@ export default function MarketplacePage() {
 
         {/* Pagination */}
         {totalPages > 1 && (
-          <div className="flex justify-center gap-3 mt-6">
-            <button
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-              className="px-3 py-1 border rounded disabled:opacity-50"
-            >
-              ← Précédent
-            </button>
-            <span>
-              Page {page} / {totalPages}
-            </span>
-            <button
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-              className="px-3 py-1 border rounded disabled:opacity-50"
-            >
-              Suivant →
-            </button>
+          <div className="flex justify-center gap-3 mt-6 flex-wrap">
+            {Array.from({ length: totalPages }, (_, i) => (
+              <button
+                key={i}
+                onClick={() => setPage(i + 1)}
+                className={`px-3 py-1 rounded border ${
+                  page === i + 1
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 dark:bg-slate-800 text-gray-700 dark:text-gray-300"
+                }`}
+              >
+                {i + 1}
+              </button>
+            ))}
           </div>
         )}
       </div>
