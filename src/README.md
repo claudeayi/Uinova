@@ -80,43 +80,55 @@ Il inclut :
 
 ## 📂 Structure du projet
 
-```bash
 frontend/
 ├─ src/
-│  ├─ App.tsx                   # Routing global (lazy loading + layouts)
-│  ├─ main.tsx                  # Entrée React (providers, mount root)
-│  ├─ index.css                 # Styles globaux (Tailwind, animations, dark mode)
+│  ├─ App.tsx                     # Routing global (lazy + layouts)
+│  ├─ main.tsx                    # Entrée React (providers, error boundary)
+│  ├─ index.css                   # Styles globaux (Tailwind, dark mode)
 │  │
 │  ├─ layouts/
-│  │  ├─ Navbar.tsx             # Navigation responsive
-│  │  └─ DashboardLayout.tsx    # Layout cockpit (sidebar + header)
+│  │  ├─ DashboardLayout.tsx      # Layout cockpit (sidebar + header)
+│  │  ├─ AdminLayout.tsx          # Layout admin (sidebar + topbar)
+│  │  └─ Navbar.tsx               # Navbar responsive
 │  │
 │  ├─ context/
-│  │  └─ ProjectContext.tsx     # Contexte projet actif
+│  │  ├─ AuthContext.tsx
+│  │  ├─ ProjectContext.tsx
+│  │  ├─ WorkspaceContext.tsx
+│  │  └─ FavoritesContext.tsx
 │  │
 │  ├─ hooks/
-│  │  ├─ useAuth.ts             # Hook auth global
-│  │  ├─ useToast.ts            # Notifications centralisées
-│  │  └─ useTheme.ts            # Dark / light mode
+│  │  ├─ useAuth.ts
+│  │  ├─ useToast.ts
+│  │  ├─ useTheme.ts
+│  │  └─ useWorkspace.ts
 │  │
-│  ├─ services/                 # Appels API
-│  │  ├─ http.ts                # Axios configuré (baseURL + JWT)
-│  │  ├─ auth.ts                # Login/Register/Me
-│  │  ├─ projects.ts            # CRUD projets
-│  │  ├─ marketplace.ts         # API marketplace
-│  │  ├─ payments.ts            # API paiements
-│  │  ├─ billing.ts             # API billing
-│  │  ├─ notifications.ts       # Notifications
-│  │  ├─ ai.ts                  # API assistant IA
-│  │  └─ admin.ts               # API admin
+│  ├─ services/                   # Appels API
+│  │  ├─ http.ts
+│  │  ├─ auth.ts
+│  │  ├─ projects.ts
+│  │  ├─ marketplace.ts
+│  │  ├─ payments.ts
+│  │  ├─ billing.ts
+│  │  ├─ notifications.ts
+│  │  ├─ ai.ts
+│  │  └─ admin.ts
 │  │
 │  ├─ components/
-│  │  ├─ base/                  # Boutons, Inputs, etc.
-│  │  ├─ advanced/              # Cards, Modal, Carousel
-│  │  ├─ editor/                # Canvas, Palette, LivePreview
-│  │  └─ projects/              # Sélecteur projets, etc.
+│  │  ├─ base/                    # Boutons, Inputs, etc.
+│  │  ├─ advanced/                # Cards, Carousel, Modal
+│  │  ├─ editor/                  # Canvas, Palette, Toolbar, AssetLibrary
+│  │  │  ├─ LiveEditor.tsx
+│  │  │  ├─ EditorWrapper.tsx
+│  │  │  ├─ ComponentPalette.tsx
+│  │  │  ├─ ProPalette.tsx
+│  │  │  ├─ SelectionToolbar.tsx
+│  │  │  ├─ AssetLibrary.tsx
+│  │  │  └─ renderers.tsx
+│  │  ├─ projects/                # Sélecteurs projets
+│  │  └─ ui/                      # Shadcn/ui (Button, Card, DropdownMenu…)
 │  │
-│  ├─ pages/                    # Pages principales
+│  ├─ pages/
 │  │  ├─ Dashboard.tsx
 │  │  ├─ ProjectsPage.tsx
 │  │  ├─ EditorPage.tsx
@@ -127,16 +139,27 @@ frontend/
 │  │  ├─ DeployPage.tsx
 │  │  ├─ MonitoringPage.tsx
 │  │  ├─ AIAssistantPage.tsx
+│  │  ├─ ReplayPage.tsx
+│  │  ├─ NotificationsPage.tsx
+│  │  ├─ BadgesPage.tsx
 │  │  ├─ LoginPage.tsx
 │  │  ├─ RegisterPage.tsx
 │  │  └─ NotFound.tsx
 │  │
-│  └─ routes/
-│     └─ ProtectedRoute.tsx      # Protection des routes
+│  ├─ routes/
+│  │  └─ ProtectedRoute.tsx
+│  │
+│  ├─ utils/
+│  │  └─ cn.ts                    # utilitaire tailwind
+│  │
+│  └─ store/
+│     ├─ useAppStore.ts           # Zustand (canvas, pages, history)
+│     ├─ useCMS.ts                # Mock CMS pour collection
+│     └─ useThemeStore.ts
 │
-├─ public/                       # favicon, manifest, index.html
+├─ public/                         # favicon, manifest, index.html
 ├─ tailwind.config.js
 ├─ vite.config.ts
 ├─ package.json
 ├─ tsconfig.json
-└─ .env.example                  # VITE_API_URL, clés test Stripe/PayPal/OpenAI
+└─ .env.example                    # VITE_API_URL, clés Stripe/PayPal/OpenAI/CinetPay
