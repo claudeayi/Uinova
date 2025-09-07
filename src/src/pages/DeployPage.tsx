@@ -13,20 +13,28 @@ import {
   Loader,
   Globe,
   Terminal,
+  FileDown,
+  CheckCircle,
+  XCircle,
+  Clock,
 } from "lucide-react";
+import io from "socket.io-client";
 
 /* ============================================================================
- * DeployPage – UInova
+ * DeployPage – UInova v2
  *  ✅ Déploiement + Annulation + Relance + Rollback
- *  ✅ Logs live + Timeline enrichie
- *  ✅ Hotkeys (r = refresh, d = deploy)
+ *  ✅ Logs temps réel via WebSocket
+ *  ✅ Téléchargement logs
+ *  ✅ Hotkeys enrichies (r, d, l)
  * ========================================================================== */
 export default function DeployPage() {
   const { projectId } = useParams();
   const [status, setStatus] = useState<any>(null);
   const [history, setHistory] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
-  const [autoRefresh, setAutoRefresh] = useState(true);
+  const [logs, setLogs] = useState<string[]>([]);
+  const [startTime, setStartTime] = useState<number | null>(null);
+
   const logRef = useRef<HTMLPreElement>(null);
 
   /* ===============================
@@ -39,6 +47,9 @@ export default function DeployPage() {
         headers: { Authorization: "Bearer " + localStorage.getItem("token") },
       });
       setStatus(res.data);
+      if (res.data?.status === "RUNNING" && !startTime) {
+        setStartTime(Date.now());
+      }
     } catch (err) {
       console.error("❌ fetchStatus error", err);
       toast.error("Erreur récupération statut déploiement");
@@ -67,6 +78,8 @@ export default function DeployPage() {
         { headers: { Authorization: "Bearer " + localStorage.getItem("token") } }
       );
       toast.success("🚀 Déploiement lancé !");
+      setLogs([]);
+      setStartTime(Date.now());
       fetchStatus();
       fetchHistory();
     } catch (err) {
@@ -122,37 +135,43 @@ export default function DeployPage() {
   };
 
   /* ===============================
-   * Effects
+   * WebSocket Logs temps réel
    * =============================== */
   useEffect(() => {
-    fetchStatus();
-    fetchHistory();
+    if (!projectId) return;
+    const socket = io("http://localhost:5000", {
+      auth: { token: localStorage.getItem("token") },
+    });
 
-    if (autoRefresh) {
-      const interval = setInterval(() => {
-        fetchStatus();
-        fetchHistory();
-      }, 10000);
-      return () => clearInterval(interval);
-    }
-  }, [projectId, autoRefresh]);
+    socket.on("deploy:log", (line: string) => {
+      setLogs((prev) => [...prev, line]);
+    });
+    socket.on("deploy:status", (s: any) => {
+      setStatus(s);
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [projectId]);
 
   /* Auto-scroll logs */
   useEffect(() => {
     if (logRef.current) {
       logRef.current.scrollTop = logRef.current.scrollHeight;
     }
-  }, [status?.data?.logs]);
+  }, [logs]);
 
   /* Hotkeys */
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.key === "r") fetchStatus();
       if (e.key === "d") startDeploy();
+      if (e.key === "l" && logs.length > 0) downloadLogs();
     };
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
-  }, []);
+  });
 
   /* ===============================
    * Helpers
@@ -170,6 +189,17 @@ export default function DeployPage() {
     }
   };
 
+  const downloadLogs = () => {
+    const blob = new Blob([logs.join("\n")], { type: "text/plain" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `deploy-${projectId}.log`;
+    a.click();
+  };
+
+  const elapsedTime = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+
   /* ===============================
    * Render
    * =============================== */
@@ -179,15 +209,16 @@ export default function DeployPage() {
         {/* Header */}
         <div className="flex justify-between items-center">
           <h1 className="text-2xl font-bold">🚀 Déploiement du projet</h1>
-          <Button
-            variant="outline"
-            onClick={() => {
-              fetchStatus();
-              fetchHistory();
-            }}
-          >
-            <RefreshCw className="w-4 h-4 mr-1" /> Rafraîchir
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={fetchStatus}>
+              <RefreshCw className="w-4 h-4 mr-1" /> Rafraîchir
+            </Button>
+            {logs.length > 0 && (
+              <Button variant="outline" onClick={downloadLogs}>
+                <FileDown className="w-4 h-4 mr-1" /> Télécharger logs
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Actions */}
@@ -200,12 +231,12 @@ export default function DeployPage() {
             {loading ? <Loader className="w-4 h-4 animate-spin" /> : <Rocket className="w-4 h-4" />}
             {loading ? "Déploiement..." : "Lancer un déploiement"}
           </Button>
-          {status?.data?.status === "RUNNING" && (
+          {status?.status === "RUNNING" && (
             <Button onClick={cancelDeploy} variant="destructive">
               <Ban className="w-4 h-4 mr-1" /> Annuler
             </Button>
           )}
-          {status?.data?.status === "ERROR" && (
+          {status?.status === "ERROR" && (
             <Button onClick={restartDeploy} className="bg-yellow-500 hover:bg-yellow-600 text-white">
               <RotateCcw className="w-4 h-4 mr-1" /> Relancer
             </Button>
@@ -217,24 +248,24 @@ export default function DeployPage() {
           <div className="mt-4 p-4 bg-white dark:bg-slate-800 rounded shadow space-y-3">
             <h2 className="font-semibold flex items-center gap-2">
               📡 Statut actuel
-              {status?.data?.status === "RUNNING" && (
-                <span className="flex-1 h-1 bg-yellow-200 rounded overflow-hidden">
-                  <span className="block w-1/2 h-full bg-yellow-500 animate-pulse"></span>
+              {status?.status === "RUNNING" && (
+                <span className="ml-2 text-xs flex items-center gap-1 text-yellow-600">
+                  <Clock className="w-4 h-4" /> {elapsedTime}s écoulées
                 </span>
               )}
             </h2>
             <p
               className={`inline-block px-2 py-1 rounded text-sm font-semibold ${getStatusColor(
-                status?.data?.status
+                status?.status
               )}`}
             >
-              {status?.data?.status || "Inconnu"}
+              {status?.status || "Inconnu"}
             </p>
 
-            {status?.data?.targetUrl && (
+            {status?.targetUrl && (
               <p className="mt-2">
                 <a
-                  href={status.data.targetUrl}
+                  href={status.targetUrl}
                   target="_blank"
                   rel="noreferrer"
                   className="flex items-center gap-1 text-indigo-600 hover:underline"
@@ -244,16 +275,16 @@ export default function DeployPage() {
               </p>
             )}
 
-            {status?.data?.logs && (
+            {logs.length > 0 && (
               <div>
                 <h3 className="text-sm font-semibold flex items-center gap-2">
-                  <Terminal className="w-4 h-4" /> Logs
+                  <Terminal className="w-4 h-4" /> Logs en temps réel
                 </h3>
                 <pre
                   ref={logRef}
                   className="mt-2 p-3 bg-slate-900 text-green-400 rounded text-xs overflow-y-auto max-h-64"
                 >
-                  {status.data.logs}
+                  {logs.join("\n")}
                 </pre>
               </div>
             )}
@@ -275,7 +306,12 @@ export default function DeployPage() {
                   <time className="block text-xs text-gray-500">
                     {new Date(d.createdAt).toLocaleString()}
                   </time>
-                  <p className="font-semibold">{d.status}</p>
+                  <p className="font-semibold flex items-center gap-1">
+                    {d.status === "SUCCESS" && <CheckCircle className="w-4 h-4 text-green-500" />}
+                    {d.status === "ERROR" && <XCircle className="w-4 h-4 text-red-500" />}
+                    {d.status === "RUNNING" && <Clock className="w-4 h-4 text-yellow-500" />}
+                    {d.status}
+                  </p>
                   <div className="flex gap-2 mt-1">
                     {d.targetUrl && (
                       <a
