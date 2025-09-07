@@ -38,18 +38,7 @@ import {
 import DashboardLayout from "@/layouts/DashboardLayout";
 
 /* ============================================================================
- *  EditorPage – UInova v6
- *  ✅ Undo/Redo réels (LiveEditor ref)
- *  ✅ Preview image live
- *  ✅ Persistance cohérente dans useAppStore
- *  ✅ Gestion des propriétés dynamiques
- *  ✅ Flag unsaved + autosave toutes 30s
- *  ✅ Preview public avec lien partageable
- *  ✅ Collaboration : nb utilisateurs connectés
- *  ✅ Historique IA enrichi
- *  ✅ Hotkeys (Ctrl+S, Ctrl+Z, Ctrl+Y)
- *  ✅ Confirmation avant quit si unsaved
- *  ✅ Publication + partage API
+ *  EditorPage – UInova v7 ultra-pro
  * ========================================================================== */
 export default function EditorPage() {
   const {
@@ -106,6 +95,7 @@ export default function EditorPage() {
 
   async function handleRefresh() {
     if (!currentProjectId) return;
+    if (!confirm("Voulez-vous recharger ce projet ? Les modifications non sauvegardées seront perdues.")) return;
     try {
       const res = await getProject(currentProjectId);
       toast.success("🔄 Projet rechargé");
@@ -118,11 +108,13 @@ export default function EditorPage() {
 
   async function handlePublish() {
     if (!currentProjectId) return;
+    if (!confirm("Publier ce projet et le rendre public ?")) return;
     try {
       const res = await publishProject(currentProjectId);
-      if (res) toast.success("🚀 Projet publié");
+      if (res) toast.success("🚀 Projet publié avec succès");
     } catch (err) {
       console.error("❌ Erreur publication:", err);
+      toast.error("Impossible de publier.");
     }
   }
 
@@ -133,9 +125,11 @@ export default function EditorPage() {
       if (res?.url) {
         setShareLink(res.url);
         setShowShare(true);
+        toast.success("🔗 Lien de partage généré !");
       }
     } catch (err) {
       console.error("❌ Erreur partage:", err);
+      toast.error("Impossible de générer un lien.");
     }
   }
 
@@ -250,8 +244,14 @@ export default function EditorPage() {
      Online/Offline listener
   =============================== */
   useEffect(() => {
-    const setOnline = () => setIsOnline(true);
-    const setOffline = () => setIsOnline(false);
+    const setOnline = () => {
+      setIsOnline(true);
+      toast.success("✅ Vous êtes de nouveau en ligne");
+    };
+    const setOffline = () => {
+      setIsOnline(false);
+      toast.error("⚠️ Vous êtes hors ligne");
+    };
     window.addEventListener("online", setOnline);
     window.addEventListener("offline", setOffline);
     return () => {
@@ -269,6 +269,10 @@ export default function EditorPage() {
         e.preventDefault();
         handleSave();
       }
+      if (e.ctrlKey && e.key === "p") {
+        e.preventDefault();
+        handlePublish();
+      }
       if (e.ctrlKey && e.key === "z") {
         e.preventDefault();
         handleUndo();
@@ -276,6 +280,10 @@ export default function EditorPage() {
       if (e.ctrlKey && (e.key === "y" || (e.shiftKey && e.key === "z"))) {
         e.preventDefault();
         handleRedo();
+      }
+      if (e.ctrlKey && e.shiftKey && e.key === "S") {
+        e.preventDefault();
+        window.open(`/export/${currentProjectId}/${currentPageId}`, "_blank");
       }
     }
     window.addEventListener("keydown", handleKey);
@@ -370,9 +378,11 @@ export default function EditorPage() {
               className="bg-indigo-100 dark:bg-slate-800 hover:bg-indigo-200 dark:hover:bg-slate-700"
             />
             {/* Collaboration */}
-            <div className="flex items-center gap-1 px-3 py-1 text-sm bg-slate-100 dark:bg-slate-800 rounded">
-              <Users className="w-4 h-4 text-indigo-500" /> {onlineUsers} en
-              ligne
+            <div
+              className="flex items-center gap-1 px-3 py-1 text-sm bg-slate-100 dark:bg-slate-800 rounded"
+              title="Utilisateurs connectés"
+            >
+              <Users className="w-4 h-4 text-indigo-500" /> {onlineUsers} en ligne
             </div>
             {/* Connexion */}
             <div
@@ -381,6 +391,7 @@ export default function EditorPage() {
                   ? "bg-green-100 text-green-700"
                   : "bg-red-100 text-red-700"
               }`}
+              title={isOnline ? "Connecté" : "Déconnecté"}
             >
               {isOnline ? <Wifi className="w-4 h-4" /> : <WifiOff className="w-4 h-4" />}
               {isOnline ? "En ligne" : "Hors ligne"}
@@ -500,6 +511,7 @@ function ToolbarButton({
     <button
       onClick={onClick}
       disabled={disabled}
+      title={label}
       className={`flex items-center gap-1 px-3 py-1 rounded text-sm ${className} ${
         disabled ? "opacity-50 cursor-not-allowed" : ""
       }`}
@@ -528,6 +540,7 @@ function PropertiesPanel({
             onUpdate(component.id, { ...component.props, text: e.target.value })
           }
           className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+          placeholder="Texte..."
         />
       )}
       {"color" in component.props && (
@@ -538,22 +551,26 @@ function PropertiesPanel({
             onUpdate(component.id, { ...component.props, color: e.target.value })
           }
           className="w-12 h-8 border rounded"
+          aria-label="Choisir couleur"
         />
       )}
       {"width" in component.props && (
-        <input
-          type="range"
-          min={10}
-          max={100}
-          defaultValue={component.props.width}
-          onChange={(e) =>
-            onUpdate(component.id, {
-              ...component.props,
-              width: Number(e.target.value),
-            })
-          }
-          className="w-full"
-        />
+        <div>
+          <label className="text-xs opacity-70">Largeur (%)</label>
+          <input
+            type="range"
+            min={10}
+            max={100}
+            defaultValue={component.props.width}
+            onChange={(e) =>
+              onUpdate(component.id, {
+                ...component.props,
+                width: Number(e.target.value),
+              })
+            }
+            className="w-full"
+          />
+        </div>
       )}
       {"src" in component.props && (
         <div className="space-y-2">
@@ -564,6 +581,7 @@ function PropertiesPanel({
               onUpdate(component.id, { ...component.props, src: e.target.value })
             }
             className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+            placeholder="URL image"
           />
           <label className="flex items-center gap-2 text-xs cursor-pointer text-blue-600 hover:underline">
             <Upload className="w-4 h-4" /> Importer une image
@@ -597,6 +615,7 @@ function PropertiesPanel({
             })
           }
           className="w-full px-2 py-1 border rounded dark:bg-slate-800 dark:border-slate-700"
+          placeholder="Texte bouton..."
         />
       )}
     </div>
