@@ -1,26 +1,82 @@
-import { useState, useEffect } from "react";
+// src/hooks/useAuth.ts
+import { useState, useEffect, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import useToast from "./useToast";
+
+export interface User {
+  id: string;
+  email: string;
+  role?: "USER" | "PREMIUM" | "ADMIN";
+  name?: string;
+}
+
+interface AuthResponse {
+  token: string;
+  user: User;
+}
 
 export function useAuth() {
-  const [user, setUser] = useState<{id: string, email: string}|null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [loading, setLoading] = useState(true);
+  const toast = useToast();
+  const navigate = useNavigate();
 
+  /* ============================================================================
+   * Vérification du token au montage
+   * ========================================================================== */
   useEffect(() => {
-    // Ici, tu peux vérifier le token localStorage/cookie
     const token = localStorage.getItem("uinova_token");
     if (token) {
-      // Simuler une récupération utilisateur
-      setUser({id: "user_demo", email: "demo@uinova.com"});
+      axios
+        .get<User>("/api/auth/me", {
+          headers: { Authorization: `Bearer ${token}` },
+        })
+        .then((res) => setUser(res.data))
+        .catch(() => {
+          localStorage.removeItem("uinova_token");
+          setUser(null);
+        })
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
     }
   }, []);
 
-  function login(email: string, password: string) {
-    // Appel à ton backend ici
-    localStorage.setItem("uinova_token", "demo-token");
-    setUser({id: "user_demo", email});
-  }
-  function logout() {
+  /* ============================================================================
+   * Login
+   * ========================================================================== */
+  const login = useCallback(
+    async (email: string, password: string) => {
+      try {
+        setLoading(true);
+        const res = await axios.post<AuthResponse>("/api/auth/login", {
+          email,
+          password,
+        });
+        localStorage.setItem("uinova_token", res.data.token);
+        setUser(res.data.user);
+        toast.success("✅ Connexion réussie !");
+        navigate("/dashboard");
+      } catch (err: any) {
+        toast.error("❌ Email ou mot de passe incorrect");
+        throw err;
+      } finally {
+        setLoading(false);
+      }
+    },
+    [toast, navigate]
+  );
+
+  /* ============================================================================
+   * Logout
+   * ========================================================================== */
+  const logout = useCallback(() => {
     localStorage.removeItem("uinova_token");
     setUser(null);
-  }
+    toast.info("👋 Déconnecté");
+    navigate("/login");
+  }, [toast, navigate]);
 
-  return { user, login, logout };
+  return { user, loading, login, logout, isAuthenticated: !!user };
 }
