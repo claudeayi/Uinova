@@ -2,9 +2,13 @@
 import { Request, Response, NextFunction } from "express";
 import { ZodError } from "zod";
 import { Prisma } from "@prisma/client";
+import crypto from "crypto";
+import { prisma } from "../utils/prisma";
 
-// Types d'erreurs possibles (facultatif)
-type HttpStatus = 400 | 401 | 403 | 404 | 409 | 413 | 415 | 422 | 429 | 500;
+/* ============================================================================
+ * TYPES
+ * ========================================================================== */
+type HttpStatus = 400 | 401 | 403 | 404 | 408 | 409 | 413 | 415 | 422 | 429 | 500 | 502 | 503 | 504;
 type NormalizedError = {
   status: HttpStatus;
   code?: string;
@@ -14,11 +18,11 @@ type NormalizedError = {
 
 const isDev = process.env.NODE_ENV !== "production";
 
-/**
- * Normalise les erreurs connues vers un format stable pour le front.
- */
+/* ============================================================================
+ * NORMALIZER
+ * ========================================================================== */
 function normalizeError(err: any): NormalizedError {
-  // 1) Erreurs de validation Zod
+  // 1) Zod validation
   if (err instanceof ZodError) {
     return {
       status: 400,
@@ -28,19 +32,18 @@ function normalizeError(err: any): NormalizedError {
     };
   }
 
-  // 2) Erreurs Prisma
+  // 2) Prisma errors
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
-    // https://www.prisma.io/docs/reference/api-reference/error-reference
     if (err.code === "P2002") {
       return { status: 409, code: "UNIQUENESS_VIOLATION", message: "Conflit: valeur déjà utilisée.", details: err.meta };
     }
     if (err.code === "P2025") {
       return { status: 404, code: "RECORD_NOT_FOUND", message: "Ressource introuvable.", details: err.meta };
     }
-    return { status: 400, code: err.code, message: "Erreur de requête base de données.", details: err.meta };
+    return { status: 400, code: err.code, message: "Erreur base de données Prisma.", details: err.meta };
   }
 
-  // 3) Multer (upload)
+  // 3) Multer upload
   if (err?.name === "MulterError") {
     const map: Record<string, NormalizedError> = {
       LIMIT_FILE_SIZE: { status: 413, code: "UPLOAD_TOO_LARGE", message: "Fichier trop volumineux." },
@@ -50,12 +53,12 @@ function normalizeError(err: any): NormalizedError {
     return map[err.code] ?? { status: 400, code: "UPLOAD_ERROR", message: "Erreur d’upload." };
   }
 
-  // 4) Body parser JSON (SyntaxError)
+  // 4) Body parser JSON
   if (err instanceof SyntaxError && (err as any).status === 400 && "body" in err) {
     return { status: 400, code: "BAD_JSON", message: "JSON mal formé." };
   }
 
-  // 5) JWT / Auth (ex: jsonwebtoken, verifyToken)
+  // 5) JWT / Auth
   if (err?.name === "UnauthorizedError" || err?.code === "INVALID_TOKEN") {
     return { status: 401, code: "INVALID_TOKEN", message: "Token invalide." };
   }
@@ -69,12 +72,12 @@ function normalizeError(err: any): NormalizedError {
     return { status: 403, code: "FORBIDDEN", message: err.message || "Accès refusé." };
   }
 
-  // 6) Rate limit (express-rate-limit)
+  // 6) Rate limiting
   if (err?.status === 429 || err?.statusCode === 429) {
     return { status: 429, code: "RATE_LIMITED", message: "Trop de requêtes, réessayez plus tard." };
   }
 
-  // 7) Stripe (signatures webhook, etc.)
+  // 7) Stripe
   if (err?.type?.toString?.().includes("Stripe") || err?.rawType === "card_error") {
     return { status: 400, code: "STRIPE_ERROR", message: err?.message || "Erreur de paiement Stripe." };
   }
@@ -82,45 +85,52 @@ function normalizeError(err: any): NormalizedError {
     return { status: 400, code: "STRIPE_SIGNATURE", message: "Signature Stripe invalide." };
   }
 
-  // 8) Erreurs applicatives custom avec status
+  // 8) API externes (Axios/Fetch/OpenAI/etc.)
+  if (err?.response?.status) {
+    return {
+      status: (err.response.status as HttpStatus) || 500,
+      code: err.code || "EXTERNAL_API_ERROR",
+      message: err.response.data?.error?.message || err.response.statusText || "Erreur API externe.",
+      details: isDev ? err.response.data : undefined,
+    };
+  }
+
+  // 9) Réseau (timeout, DNS, refus)
+  if (err?.code === "ECONNREFUSED" || err?.code === "ENOTFOUND") {
+    return { status: 503, code: "SERVICE_UNAVAILABLE", message: "Service externe indisponible." };
+  }
+  if (err?.code === "ETIMEDOUT" || err?.message?.includes("timeout")) {
+    return { status: 504, code: "TIMEOUT", message: "Délai d’attente dépassé." };
+  }
+
+  // 10) Custom app errors
   if (typeof err?.status === "number" && err?.message) {
     const status = (err.status as HttpStatus) || 500;
     return { status, code: err.code || "APP_ERROR", message: err.message, details: err.details };
   }
 
-  // 9) Fallback
+  // 11) Fallback
   return { status: 500, code: "INTERNAL_ERROR", message: "Erreur interne du serveur." };
 }
 
-/**
- * Ajoute un requestId dans res.locals pour le corréler dans les logs.
- */
+/* ============================================================================
+ * MIDDLEWARES
+ * ========================================================================== */
 export function requestId(req: Request, res: Response, next: NextFunction) {
   const hdr = (req.headers["x-request-id"] as string) || undefined;
-  res.locals.requestId = hdr || cryptoSafeId();
+  res.locals.requestId = hdr || crypto.randomBytes(8).toString("hex") + Date.now().toString(36);
   res.setHeader("X-Request-Id", res.locals.requestId);
   next();
 }
 
-function cryptoSafeId() {
-  // petit id pseudo-aléatoire pour la corrélation
-  return Math.random().toString(36).slice(2, 10) + Date.now().toString(36);
-}
-
-/**
- * 404 Not Found handler (à placer après toutes les routes).
- */
 export function notFound(_req: Request, res: Response) {
   res.status(404).json({ error: "Not Found" });
 }
 
-/**
- * Error handler central.
- */
-export function errorHandler(err: any, req: Request, res: Response, _next: NextFunction) {
+export async function errorHandler(err: any, req: Request, res: Response, _next: NextFunction) {
   const normalized = normalizeError(err);
 
-  // Log serveur (évite d'imprimer des payloads sensibles)
+  // Logging
   const logPayload = {
     requestId: res.locals.requestId,
     method: req.method,
@@ -129,8 +139,24 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
     code: normalized.code,
     msg: normalized.message,
   };
-  // eslint-disable-next-line no-console
-  console.error("API_ERROR", logPayload, isDev ? err : undefined);
+  if (normalized.status >= 500) {
+    console.error("API_ERROR", logPayload, isDev ? err : undefined);
+  } else {
+    console.warn("API_WARN", logPayload);
+  }
+
+  // Audit log en DB (optionnel)
+  try {
+    await prisma.auditLog.create({
+      data: {
+        userId: (req as any)?.user?.id || null,
+        action: "API_ERROR",
+        metadata: logPayload,
+      },
+    });
+  } catch {
+    /* ignore si audit non dispo */
+  }
 
   const body: any = {
     error: normalized.code || "ERROR",
@@ -143,11 +169,21 @@ export function errorHandler(err: any, req: Request, res: Response, _next: NextF
   res.status(normalized.status).json(body);
 }
 
-/**
- * Helper pour wrapper des handlers async sans try/catch
- * usage: router.get('/', asyncHandler(async (req,res)=>{ ... }))
- */
+/* ============================================================================
+ * UTILS
+ * ========================================================================== */
 export const asyncHandler =
   (fn: (req: Request, res: Response, next: NextFunction) => Promise<any>) =>
   (req: Request, res: Response, next: NextFunction) =>
     Promise.resolve(fn(req, res, next)).catch(next);
+
+/**
+ * Crée une erreur HTTP custom à thrower facilement
+ */
+export function throwHttpError(status: HttpStatus, message: string, code = "APP_ERROR", details?: any) {
+  const e: any = new Error(message);
+  e.status = status;
+  e.code = code;
+  e.details = details;
+  throw e;
+}
