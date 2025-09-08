@@ -1,81 +1,139 @@
 // src/services/admin.ts
 import http from "./http";
+import { toast } from "react-hot-toast";
 
-/* -------------------------------------------------------------------------- */
-/* 📊 Statistiques globales                                                    */
-/* -------------------------------------------------------------------------- */
+/* ============================================================================
+ * Utils
+ * ========================================================================== */
+function handleError(err: any, context: string, userMsg: string) {
+  console.error(`❌ [Admin] ${context}:`, err);
+  toast.error(userMsg);
+  throw err;
+}
+
+function downloadFile(blob: Blob, filename: string) {
+  const url = window.URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  window.URL.revokeObjectURL(url);
+}
+
+/* ============================================================================
+ * 📊 Statistiques globales
+ * ========================================================================== */
 export interface AdminStats {
   users: number;
   projects: number;
   payments: number;
   emailTemplates: number;
   marketplaceItems?: number;
+  activeUsers?: number;
 }
 
 export async function getAdminStats(): Promise<AdminStats> {
-  const res = await http.get("/admin/stats");
-  return res.data.data || res.data;
+  try {
+    const res = await http.get("/admin/stats");
+    return res.data.data || res.data;
+  } catch (err) {
+    return handleError(err, "getAdminStats", "Impossible de charger les statistiques.");
+  }
 }
 
-/* -------------------------------------------------------------------------- */
-/* 👤 Gestion des utilisateurs                                                 */
-/* -------------------------------------------------------------------------- */
+/* ============================================================================
+ * 👤 Gestion des utilisateurs
+ * ========================================================================== */
 export interface AdminUser {
   id: string;
   email: string;
   role: "USER" | "PREMIUM" | "ADMIN";
   createdAt: string;
+  lastLoginAt?: string;
+  isActive?: boolean;
 }
 
 export async function getUsers(): Promise<AdminUser[]> {
-  const res = await http.get("/admin/users");
-  return res.data.data || res.data || [];
+  try {
+    const res = await http.get("/admin/users");
+    return res.data.data || res.data || [];
+  } catch (err) {
+    return handleError(err, "getUsers", "Impossible de charger les utilisateurs.");
+  }
 }
 
 export async function updateUserRole(
   userId: string,
   role: "USER" | "PREMIUM" | "ADMIN"
 ): Promise<{ success: boolean; message?: string }> {
-  const res = await http.put(`/admin/users/${userId}/role`, { role });
-  return res.data;
+  try {
+    const res = await http.put(`/admin/users/${userId}/role`, { role });
+    toast.success("✅ Rôle utilisateur mis à jour");
+    return res.data;
+  } catch (err) {
+    return handleError(err, "updateUserRole", "Erreur mise à jour rôle.");
+  }
 }
 
-/* -------------------------------------------------------------------------- */
-/* 📦 Gestion des projets                                                      */
-/* -------------------------------------------------------------------------- */
+export async function toggleUserStatus(
+  userId: string,
+  active: boolean
+): Promise<{ success: boolean }> {
+  try {
+    const res = await http.patch(`/admin/users/${userId}/status`, { active });
+    toast.success(active ? "🟢 Utilisateur activé" : "🔴 Utilisateur désactivé");
+    return res.data;
+  } catch (err) {
+    return handleError(err, "toggleUserStatus", "Erreur changement état utilisateur.");
+  }
+}
+
+/* ============================================================================
+ * 📦 Gestion des projets
+ * ========================================================================== */
 export interface AdminProject {
   id: string;
   name: string;
   owner: { id: string; email: string };
   createdAt: string;
   updatedAt?: string;
-  status?: string;
+  status?: "draft" | "published" | "archived";
+  pagesCount?: number;
 }
 
 export async function getAllProjects(params?: {
   search?: string;
   limit?: number;
 }): Promise<AdminProject[]> {
-  const query = new URLSearchParams();
-  if (params?.search) query.set("search", params.search);
-  if (params?.limit) query.set("limit", String(params.limit));
+  try {
+    const query = new URLSearchParams();
+    if (params?.search) query.set("search", params.search);
+    if (params?.limit) query.set("limit", String(params.limit));
 
-  const res = await http.get(
-    `/admin/projects${query.toString() ? `?${query.toString()}` : ""}`
-  );
-  return res.data.data || res.data || [];
+    const res = await http.get(
+      `/admin/projects${query.toString() ? `?${query.toString()}` : ""}`
+    );
+    return res.data.data || res.data || [];
+  } catch (err) {
+    return handleError(err, "getAllProjects", "Impossible de charger les projets.");
+  }
 }
 
 export async function deleteProject(
   projectId: string
 ): Promise<{ success: boolean; message?: string }> {
-  const res = await http.delete(`/admin/projects/${projectId}`);
-  return res.data;
+  try {
+    const res = await http.delete(`/admin/projects/${projectId}`);
+    toast.success("🗑️ Projet supprimé");
+    return res.data;
+  } catch (err) {
+    return handleError(err, "deleteProject", "Erreur suppression projet.");
+  }
 }
 
-/* -------------------------------------------------------------------------- */
-/* 🎬 Gestion des replays collaboratifs                                        */
-/* -------------------------------------------------------------------------- */
+/* ============================================================================
+ * 🎬 Gestion des replays collaboratifs
+ * ========================================================================== */
 export interface AdminReplay {
   id: string;
   projectId: string;
@@ -87,21 +145,30 @@ export interface AdminReplay {
 export async function getAllReplays(params?: {
   limit?: number;
 }): Promise<AdminReplay[]> {
-  const query = params?.limit ? `?limit=${params.limit}` : "";
-  const res = await http.get(`/admin/replays${query}`);
-  return res.data.data || res.data || [];
+  try {
+    const query = params?.limit ? `?limit=${params.limit}` : "";
+    const res = await http.get(`/admin/replays${query}`);
+    return res.data.data || res.data || [];
+  } catch (err) {
+    return handleError(err, "getAllReplays", "Impossible de charger les replays.");
+  }
 }
 
 export async function deleteReplay(
   replayId: string
 ): Promise<{ success: boolean; message?: string }> {
-  const res = await http.delete(`/admin/replays/${replayId}`);
-  return res.data;
+  try {
+    const res = await http.delete(`/admin/replays/${replayId}`);
+    toast.success("🗑️ Replay supprimé");
+    return res.data;
+  } catch (err) {
+    return handleError(err, "deleteReplay", "Erreur suppression replay.");
+  }
 }
 
-/* -------------------------------------------------------------------------- */
-/* 📜 Logs système / Audit                                                     */
-/* -------------------------------------------------------------------------- */
+/* ============================================================================
+ * 📜 Logs système / Audit
+ * ========================================================================== */
 export interface AuditLog {
   id: string;
   action: string;
@@ -114,19 +181,38 @@ export async function getAuditLogs(params?: {
   limit?: number;
   search?: string;
 }): Promise<AuditLog[]> {
-  const query = new URLSearchParams();
-  if (params?.limit) query.set("limit", String(params.limit));
-  if (params?.search) query.set("search", params.search);
+  try {
+    const query = new URLSearchParams();
+    if (params?.limit) query.set("limit", String(params.limit));
+    if (params?.search) query.set("search", params.search);
 
-  const res = await http.get(
-    `/admin/logs${query.toString() ? `?${query.toString()}` : ""}`
-  );
-  return res.data.data || res.data || [];
+    const res = await http.get(
+      `/admin/logs${query.toString() ? `?${query.toString()}` : ""}`
+    );
+    return res.data.data || res.data || [];
+  } catch (err) {
+    return handleError(err, "getAuditLogs", "Impossible de charger les logs.");
+  }
 }
 
-/* -------------------------------------------------------------------------- */
-/* 💳 Gestion des paiements                                                    */
-/* -------------------------------------------------------------------------- */
+export async function exportAuditLogsCSV(logs: AuditLog[]) {
+  const header = "ID,Action,Date,Utilisateur\n";
+  const rows = logs
+    .map(
+      (l) =>
+        `${l.id},${l.action},${new Date(l.createdAt).toISOString()},${
+          l.user?.email || "-"
+        }`
+    )
+    .join("\n");
+
+  const blob = new Blob([header + rows], { type: "text/csv" });
+  downloadFile(blob, "audit_logs.csv");
+}
+
+/* ============================================================================
+ * 💳 Gestion des paiements
+ * ========================================================================== */
 export interface AdminPayment {
   id: string;
   userId: string;
@@ -139,14 +225,18 @@ export interface AdminPayment {
 export async function getAdminPayments(params?: {
   limit?: number;
 }): Promise<AdminPayment[]> {
-  const query = params?.limit ? `?limit=${params.limit}` : "";
-  const res = await http.get(`/admin/payments${query}`);
-  return res.data.data || res.data || [];
+  try {
+    const query = params?.limit ? `?limit=${params.limit}` : "";
+    const res = await http.get(`/admin/payments${query}`);
+    return res.data.data || res.data || [];
+  } catch (err) {
+    return handleError(err, "getAdminPayments", "Impossible de charger les paiements.");
+  }
 }
 
-/* -------------------------------------------------------------------------- */
-/* 🛒 Gestion de la marketplace                                                */
-/* -------------------------------------------------------------------------- */
+/* ============================================================================
+ * 🛒 Gestion de la marketplace
+ * ========================================================================== */
 export interface AdminMarketplaceItem {
   id: string;
   title: string;
@@ -158,13 +248,22 @@ export interface AdminMarketplaceItem {
 }
 
 export async function getAllMarketplaceItems(): Promise<AdminMarketplaceItem[]> {
-  const res = await http.get("/admin/marketplace");
-  return res.data.data || res.data || [];
+  try {
+    const res = await http.get("/admin/marketplace");
+    return res.data.data || res.data || [];
+  } catch (err) {
+    return handleError(err, "getAllMarketplaceItems", "Impossible de charger la marketplace.");
+  }
 }
 
 export async function deleteMarketplaceItem(
   id: string
 ): Promise<{ success: boolean; message?: string }> {
-  const res = await http.delete(`/admin/marketplace/${id}`);
-  return res.data;
+  try {
+    const res = await http.delete(`/admin/marketplace/${id}`);
+    toast.success("🗑️ Item supprimé");
+    return res.data;
+  } catch (err) {
+    return handleError(err, "deleteMarketplaceItem", "Erreur suppression item.");
+  }
 }
