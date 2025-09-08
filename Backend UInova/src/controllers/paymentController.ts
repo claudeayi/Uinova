@@ -3,7 +3,7 @@ import { Request, Response } from "express";
 import Stripe from "stripe";
 import { z } from "zod";
 import crypto from "node:crypto";
-import { prisma } from "../utils/prisma"; // pour audit log & DB persistence
+import { prisma } from "../utils/prisma";
 
 const STRIPE_SECRET = process.env.STRIPE_SECRET || process.env.STRIPE_KEY;
 if (!STRIPE_SECRET) {
@@ -11,8 +11,7 @@ if (!STRIPE_SECRET) {
 }
 
 export const stripe = new Stripe(STRIPE_SECRET, {
-  // apiVersion conseillé à fixer
-  // apiVersion: "2024-06-20",
+  apiVersion: "2024-06-20" as any,
 });
 
 /* ============================================================================
@@ -53,16 +52,14 @@ async function getOrCreateCustomer(email?: string, userId?: string) {
  *  CONTROLLERS
  * ========================================================================== */
 
-/**
- * POST /api/payments/intent
- */
+// ✅ Créer un PaymentIntent
 export const createPaymentIntent = async (req: Request, res: Response) => {
   try {
     const { id: userId, email } = getUser(req);
 
     const parsed = PaymentIntentSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res.status(400).json({ error: "Invalid body", details: parsed.error.flatten() });
+      return res.status(400).json({ success: false, error: "Invalid body", details: parsed.error.flatten() });
     }
     const { priceId, quantity = 1, amount, currency, description, orgId, projectId, idempotencyKey } =
       parsed.data;
@@ -76,17 +73,17 @@ export const createPaymentIntent = async (req: Request, res: Response) => {
     if (priceId) {
       const price = await stripe.prices.retrieve(priceId);
       if (!price.active || price.currency !== currency) {
-        return res.status(400).json({ error: "Invalid or inactive priceId/currency mismatch" });
+        return res.status(400).json({ success: false, error: "Invalid or inactive priceId/currency mismatch" });
       }
       if (!price.unit_amount) {
-        return res.status(400).json({ error: "Unsupported price (no unit_amount)" });
+        return res.status(400).json({ success: false, error: "Unsupported price (no unit_amount)" });
       }
       finalAmount = price.unit_amount * quantity;
       finalDescription = description || `UInova purchase (${price.nickname || priceId}) x${quantity}`;
     }
 
     if (!finalAmount) {
-      return res.status(400).json({ error: "Missing amount (provide priceId or amount in cents)" });
+      return res.status(400).json({ success: false, error: "Missing amount (provide priceId or amount in cents)" });
     }
 
     const pi = await stripe.paymentIntents.create(
@@ -107,7 +104,6 @@ export const createPaymentIntent = async (req: Request, res: Response) => {
       { idempotencyKey: key }
     );
 
-    // Audit log
     await prisma.auditLog.create({
       data: {
         action: "PAYMENT_INTENT_CREATED",
@@ -117,6 +113,7 @@ export const createPaymentIntent = async (req: Request, res: Response) => {
     });
 
     return res.status(201).json({
+      success: true,
       clientSecret: pi.client_secret,
       paymentIntentId: pi.id,
       amount: pi.amount,
@@ -125,14 +122,11 @@ export const createPaymentIntent = async (req: Request, res: Response) => {
   } catch (e: any) {
     console.error("❌ [Stripe] createPaymentIntent error:", e?.message || e);
     const status = (e as any)?.statusCode || 500;
-    return res.status(status).json({ error: "Stripe error", details: e?.message || "unknown_error" });
+    return res.status(status).json({ success: false, error: "Stripe error", details: e?.message || "unknown_error" });
   }
 };
 
-/**
- * GET /api/payments/:id/status
- * → Récupère le statut d’un PaymentIntent
- */
+// ✅ Vérifier le statut d’un paiement
 export const getPaymentStatus = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
@@ -150,10 +144,7 @@ export const getPaymentStatus = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * GET /api/payments/prices
- * → Liste des plans (PricingPage)
- */
+// ✅ Lister les prix
 export const listPrices = async (_req: Request, res: Response) => {
   try {
     const prices = await stripe.prices.list({ active: true, expand: ["data.product"] });
@@ -164,10 +155,37 @@ export const listPrices = async (_req: Request, res: Response) => {
   }
 };
 
-/**
- * POST /api/payments/webhook
- * → Stripe envoie les événements (paiement réussi/échoué/remboursé)
- */
+// ✅ Rembourser un paiement
+export const refundPayment = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const refund = await stripe.refunds.create({ payment_intent: id });
+    await prisma.auditLog.create({
+      data: { action: "PAYMENT_REFUND", userId: (req as any).user?.id, details: `Refund ${id}` },
+    });
+    res.json({ success: true, data: refund });
+  } catch (e: any) {
+    console.error("❌ refundPayment error:", e?.message);
+    res.status(500).json({ success: false, error: "Erreur remboursement paiement" });
+  }
+};
+
+// ✅ Annuler un PaymentIntent
+export const cancelPayment = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const canceled = await stripe.paymentIntents.cancel(id);
+    await prisma.auditLog.create({
+      data: { action: "PAYMENT_CANCELLED", userId: (req as any).user?.id, details: `Cancel ${id}` },
+    });
+    res.json({ success: true, data: canceled });
+  } catch (e: any) {
+    console.error("❌ cancelPayment error:", e?.message);
+    res.status(500).json({ success: false, error: "Erreur annulation paiement" });
+  }
+};
+
+// ✅ Webhook Stripe
 export const stripeWebhook = async (req: Request, res: Response) => {
   try {
     const sig = req.headers["stripe-signature"];
@@ -186,8 +204,10 @@ export const stripeWebhook = async (req: Request, res: Response) => {
     switch (event.type) {
       case "payment_intent.succeeded": {
         const pi = event.data.object as Stripe.PaymentIntent;
-        await prisma.payment.create({
-          data: {
+        await prisma.payment.upsert({
+          where: { id: pi.id },
+          update: { status: pi.status },
+          create: {
             id: pi.id,
             amount: pi.amount,
             currency: pi.currency,
@@ -202,7 +222,22 @@ export const stripeWebhook = async (req: Request, res: Response) => {
       }
       case "payment_intent.payment_failed": {
         const pi = event.data.object as Stripe.PaymentIntent;
+        await prisma.auditLog.create({
+          data: { action: "PAYMENT_FAILED", userId: pi.metadata.userId || null, details: `Payment ${pi.id} failed` },
+        });
         console.warn("⚠️ Payment failed:", pi.id);
+        break;
+      }
+      case "charge.refunded": {
+        const charge = event.data.object as Stripe.Charge;
+        await prisma.auditLog.create({
+          data: { action: "PAYMENT_REFUNDED", userId: charge.metadata?.userId || null, details: `Charge ${charge.id} refunded` },
+        });
+        console.log("↩️ Payment refunded:", charge.id);
+        break;
+      }
+      case "invoice.paid": {
+        console.log("💳 Subscription invoice paid");
         break;
       }
       default:
