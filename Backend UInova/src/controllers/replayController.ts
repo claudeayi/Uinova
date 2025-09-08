@@ -1,6 +1,8 @@
+// src/controllers/replayController.ts
 import { Request, Response } from "express";
 import { prisma } from "../utils/prisma";
 import { getReplaySession, saveReplaySession } from "../services/replayService";
+import { v4 as uuidv4, validate as isUuid } from "uuid";
 
 /* ============================================================================
  *  REPLAY CONTROLLER – gestion des replays collaboratifs
@@ -12,10 +14,10 @@ export async function startReplay(req: Request, res: Response) {
     const { projectId } = req.params;
     const user = (req as any).user;
     if (!user?.id) return res.status(401).json({ success: false, message: "Non autorisé" });
+    if (!isUuid(projectId)) return res.status(400).json({ success: false, message: "projectId invalide" });
 
     const project = await prisma.project.findUnique({ where: { id: projectId } });
     if (!project) return res.status(404).json({ success: false, message: "Projet introuvable" });
-
     if (project.ownerId !== user.id && user.role !== "ADMIN") {
       return res.status(403).json({ success: false, message: "Accès interdit à ce projet" });
     }
@@ -24,8 +26,9 @@ export async function startReplay(req: Request, res: Response) {
       data: {
         projectId,
         userId: user.id,
-        dataUrl: "", // sera rempli lors du stop
+        dataUrl: "",
         startedAt: new Date(),
+        status: "ACTIVE",
       },
     });
 
@@ -51,11 +54,12 @@ export async function stopReplay(req: Request, res: Response) {
     const { replayId, dataUrl } = req.body;
     const user = (req as any).user;
     if (!user?.id) return res.status(401).json({ success: false, message: "Non autorisé" });
-    if (!replayId) return res.status(400).json({ success: false, message: "replayId requis" });
+    if (!replayId || !isUuid(replayId)) {
+      return res.status(400).json({ success: false, message: "replayId invalide" });
+    }
 
     const replay = await prisma.replaySession.findUnique({ where: { id: replayId } });
     if (!replay) return res.status(404).json({ success: false, message: "Replay introuvable" });
-
     if (replay.projectId !== projectId) {
       return res.status(400).json({ success: false, message: "Replay invalide pour ce projet" });
     }
@@ -66,7 +70,6 @@ export async function stopReplay(req: Request, res: Response) {
       return res.status(403).json({ success: false, message: "Accès interdit" });
     }
 
-    // ⚡ Sauvegarde snapshot + steps compressés
     const savedSession = await saveReplaySession(projectId, user.id);
 
     const updated = await prisma.replaySession.update({
@@ -76,6 +79,7 @@ export async function stopReplay(req: Request, res: Response) {
         endedAt: new Date(),
         stepsCompressed: savedSession.stepsCompressed,
         snapshot: savedSession.snapshot,
+        status: "COMPLETED",
       },
     });
 
@@ -98,19 +102,28 @@ export async function stopReplay(req: Request, res: Response) {
 export async function listReplays(req: Request, res: Response) {
   try {
     const { projectId } = req.params;
+    const { userId, from, to } = req.query;
     const page = Math.max(1, Number(req.query.page) || 1);
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
     const skip = (page - 1) * limit;
 
+    const where: any = { projectId };
+    if (userId) where.userId = String(userId);
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt.gte = new Date(String(from));
+      if (to) where.createdAt.lte = new Date(String(to));
+    }
+
     const [replays, total] = await Promise.all([
       prisma.replaySession.findMany({
-        where: { projectId },
+        where,
         include: { user: { select: { id: true, email: true } } },
         orderBy: { createdAt: "desc" },
         skip,
         take: limit,
       }),
-      prisma.replaySession.count({ where: { projectId } }),
+      prisma.replaySession.count({ where }),
     ]);
 
     res.json({
@@ -124,11 +137,13 @@ export async function listReplays(req: Request, res: Response) {
   }
 }
 
-// ✅ GET /replay/:projectId/:replayId → détail d’un replay (avec steps)
+// ✅ GET /replay/:projectId/:replayId → détail d’un replay
 export async function getReplay(req: Request, res: Response) {
   try {
     const { replayId } = req.params;
-    if (!replayId) return res.status(400).json({ success: false, message: "replayId requis" });
+    if (!replayId || !isUuid(replayId)) {
+      return res.status(400).json({ success: false, message: "replayId invalide" });
+    }
 
     const replay = await getReplaySession(replayId);
     if (!replay) return res.status(404).json({ success: false, message: "Replay introuvable" });
@@ -140,7 +155,7 @@ export async function getReplay(req: Request, res: Response) {
   }
 }
 
-// ✅ DELETE /replay/:projectId/:replayId → suppression (owner/admin)
+// ✅ DELETE /replay/:projectId/:replayId → suppression
 export async function deleteReplay(req: Request, res: Response) {
   try {
     const { projectId, replayId } = req.params;
@@ -158,7 +173,10 @@ export async function deleteReplay(req: Request, res: Response) {
       return res.status(403).json({ success: false, message: "Accès interdit" });
     }
 
-    await prisma.replaySession.delete({ where: { id: replayId } });
+    await prisma.replaySession.update({
+      where: { id: replayId },
+      data: { status: "DELETED", deletedAt: new Date() }, // soft delete
+    });
 
     await prisma.auditLog.create({
       data: {
@@ -168,7 +186,7 @@ export async function deleteReplay(req: Request, res: Response) {
       },
     });
 
-    res.json({ success: true, message: "Replay supprimé" });
+    res.json({ success: true, message: "Replay supprimé (soft delete)" });
   } catch (err: any) {
     console.error("❌ deleteReplay error:", err);
     res.status(500).json({ success: false, message: err.message || "Erreur serveur" });
@@ -176,10 +194,49 @@ export async function deleteReplay(req: Request, res: Response) {
 }
 
 /* ============================================================================
- *  ADMIN ENDPOINTS – pour ReplaysAdmin.tsx
+ *  ENDPOINTS SUPPLÉMENTAIRES
  * ========================================================================== */
 
-// ✅ GET /admin/replays → liste globale
+// ✅ Restaurer un replay supprimé
+export async function restoreReplay(req: Request, res: Response) {
+  try {
+    const { replayId } = req.params;
+    const user = (req as any).user;
+    if (!user?.id || user.role !== "ADMIN") {
+      return res.status(403).json({ success: false, message: "Accès admin requis" });
+    }
+
+    const replay = await prisma.replaySession.update({
+      where: { id: replayId },
+      data: { status: "COMPLETED", deletedAt: null },
+    });
+
+    res.json({ success: true, message: "Replay restauré", data: replay });
+  } catch (err: any) {
+    console.error("❌ restoreReplay error:", err);
+    res.status(500).json({ success: false, message: err.message || "Erreur serveur" });
+  }
+}
+
+// ✅ Exporter un replay en JSON
+export async function exportReplay(req: Request, res: Response) {
+  try {
+    const { replayId } = req.params;
+    const replay = await getReplaySession(replayId);
+    if (!replay) return res.status(404).json({ success: false, message: "Replay introuvable" });
+
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Content-Disposition", `attachment; filename=replay-${replayId}.json`);
+    res.send(JSON.stringify(replay, null, 2));
+  } catch (err: any) {
+    console.error("❌ exportReplay error:", err);
+    res.status(500).json({ success: false, message: err.message || "Erreur serveur" });
+  }
+}
+
+/* ============================================================================
+ *  ADMIN ENDPOINTS – pour ReplaysAdmin.tsx
+ * ========================================================================== */
 export async function listAllReplays(req: Request, res: Response) {
   try {
     const role = (req as any).user?.role;
