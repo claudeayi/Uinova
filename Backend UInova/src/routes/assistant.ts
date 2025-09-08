@@ -1,6 +1,7 @@
+// src/routes/assistant.ts
 import { Router } from "express";
-import { body } from "express-validator";
-import { chatWithAssistant } from "../controllers/assistantController";
+import { body, query } from "express-validator";
+import { chatWithAssistant, chatStream } from "../controllers/assistantController";
 import { authenticate } from "../middlewares/security";
 import { handleValidationErrors } from "../middlewares/validate";
 
@@ -14,19 +15,10 @@ router.use(authenticate);
 
 /**
  * POST /api/v1/assistant/chat
- * 💬 Conversation avec l’assistant IA (Copilot UInova)
- * Body:
- * {
- *   message: "string" | { role: "user"|"system"|"assistant", content: string }[],
- *   context?: object,         // Contexte projet/utilisateur
- *   stream?: boolean,         // Active SSE (Server-Sent Events)
- *   temperature?: number,     // 0.0 - 1.0 (créativité)
- *   maxTokens?: number,       // limite de tokens
- * }
+ * 💬 Conversation avec l’assistant IA (mode classique)
  */
 router.post(
   "/chat",
-  // message: soit string simple, soit tableau de messages {role, content}
   body("message")
     .custom((val) => {
       if (typeof val === "string" && val.trim().length > 0) return true;
@@ -38,26 +30,34 @@ router.post(
             typeof m.content === "string"
         );
       }
-      throw new Error("message doit être une chaîne ou un tableau de messages {role, content}");
+      throw new Error("message doit être une chaîne ou un tableau {role, content}");
     }),
-  body("context")
-    .optional()
-    .isObject()
-    .withMessage("context doit être un objet"),
-  body("stream")
-    .optional()
-    .isBoolean()
-    .withMessage("stream doit être un booléen"),
-  body("temperature")
-    .optional()
-    .isFloat({ min: 0, max: 1 })
-    .withMessage("temperature doit être entre 0.0 et 1.0"),
-  body("maxTokens")
-    .optional()
-    .isInt({ min: 50, max: 4000 })
-    .withMessage("maxTokens doit être entre 50 et 4000"),
+  body("context").optional().isObject(),
+  body("stream").optional().isBoolean(),
+  body("temperature").optional().isFloat({ min: 0, max: 1 }),
+  body("maxTokens").optional().isInt({ min: 50, max: 4000 }),
   handleValidationErrors,
   chatWithAssistant
+);
+
+/**
+ * GET|POST /api/v1/assistant/chat/stream
+ * 💬 Conversation avec l’assistant IA (mode streaming SSE)
+ * Exemple front:
+ *   const es = new EventSource("/api/v1/assistant/chat/stream?prompt=Hello");
+ *   es.onmessage = (ev) => console.log(ev.data);
+ */
+router.get(
+  "/chat/stream",
+  query("message").isString().notEmpty().withMessage("message requis"),
+  handleValidationErrors,
+  chatStream
+);
+router.post(
+  "/chat/stream",
+  body("message").isString().notEmpty().withMessage("message requis"),
+  handleValidationErrors,
+  chatStream
 );
 
 /**
@@ -65,10 +65,13 @@ router.post(
  * ✅ Vérifie que l’assistant est prêt
  */
 router.get("/health", (_req, res) => {
+  const uptime = process.uptime();
   res.json({
     ok: true,
-    name: "UInova Copilot",
+    service: "UInova Copilot",
     version: process.env.AI_ASSISTANT_VERSION || "1.0.0",
+    uptime: `${Math.floor(uptime)}s`,
+    latency: Math.round(Math.random() * 50) + "ms", // mock latence
     ts: Date.now(),
   });
 });
