@@ -3,13 +3,17 @@ import { Request, Response } from "express";
 import { z } from "zod";
 import { prisma } from "../utils/prisma";
 
-// --- Config / Types autorisés
+/* ============================================================================
+ *  CONFIG & SCHEMAS
+ * ========================================================================== */
 export const BADGE_TYPES = [
   "EARLY_ADOPTER",
   "PRO_USER",
   "COMMUNITY_HELPER",
   "TOP_CREATOR",
   "BETA_TESTER",
+  "CONTRIBUTOR",
+  "LEGENDARY_CREATOR",
 ] as const;
 
 const GiveBadgeSchema = z.object({
@@ -28,7 +32,9 @@ const ListQuerySchema = z.object({
     .default("earnedAt:desc"),
 });
 
-// Petits helpers
+/* ============================================================================
+ *  HELPERS
+ * ========================================================================== */
 function ensureAuth(req: Request) {
   const u = (req as any).user;
   if (!u?.sub && !u?.id) {
@@ -36,7 +42,7 @@ function ensureAuth(req: Request) {
     err.status = 401;
     throw err;
   }
-  return { id: u.sub || u.id, role: u.role || "USER" };
+  return { id: u.sub || u.id, role: u.role || "USER", email: u.email };
 }
 
 function ensureAdmin(role?: string) {
@@ -47,7 +53,6 @@ function ensureAdmin(role?: string) {
   }
 }
 
-// Sélection uniforme
 const selectBadge = {
   id: true,
   type: true,
@@ -71,16 +76,16 @@ export const give = async (req: Request, res: Response) => {
 
     const badge = await prisma.badge.upsert({
       where: { userId_type: { userId: targetUserId, type } },
-      update: { meta: meta ?? undefined },
+      update: { meta: meta ?? undefined, updatedAt: new Date() },
       create: { userId: targetUserId, type, meta: meta ?? undefined, earnedAt: new Date() },
       select: selectBadge,
     });
 
     await prisma.auditLog.create({
       data: {
-        action: "BADGE_GIVEN",
         userId: caller.id,
-        details: `Badge ${type} donné à ${targetUserId}`,
+        action: "BADGE_GIVEN",
+        metadata: { type, targetUserId, meta },
       },
     });
 
@@ -88,9 +93,7 @@ export const give = async (req: Request, res: Response) => {
   } catch (e: any) {
     console.error("❌ give badge error:", e);
     if (e?.code === "P2002") {
-      return res
-        .status(409)
-        .json({ success: false, message: "Badge déjà attribué à cet utilisateur." });
+      return res.status(409).json({ success: false, message: "Badge déjà attribué à cet utilisateur." });
     }
     return res.status(500).json({ success: false, message: "Erreur assignation badge" });
   }
@@ -139,6 +142,28 @@ export const list = async (req: Request, res: Response) => {
 };
 
 /* ============================================================================
+ *  GET /api/badges/:id → détail d’un badge
+ * ========================================================================== */
+export const getOne = async (req: Request, res: Response) => {
+  try {
+    const caller = ensureAuth(req);
+    const { id } = req.params;
+
+    const badge = await prisma.badge.findUnique({ where: { id }, select: selectBadge });
+    if (!badge) return res.status(404).json({ success: false, message: "Badge introuvable" });
+
+    if (caller.role !== "ADMIN" && badge.userId !== caller.id) {
+      return res.status(403).json({ success: false, message: "Accès interdit" });
+    }
+
+    return res.json({ success: true, data: badge });
+  } catch (e: any) {
+    console.error("❌ getOne badge error:", e);
+    return res.status(500).json({ success: false, message: "Erreur récupération badge" });
+  }
+};
+
+/* ============================================================================
  *  DELETE /api/badges/:id
  * ========================================================================== */
 export const revoke = async (req: Request, res: Response) => {
@@ -160,15 +185,18 @@ export const revoke = async (req: Request, res: Response) => {
 
     await prisma.auditLog.create({
       data: {
-        action: "BADGE_REVOKED",
         userId: caller.id,
-        details: `Badge ${badge.type} retiré de ${badge.userId}`,
+        action: "BADGE_REVOKED",
+        metadata: { type: badge.type, userId: badge.userId },
       },
     });
 
     return res.json({ success: true, message: "Badge retiré avec succès" });
   } catch (e: any) {
     console.error("❌ revoke badge error:", e);
+    if (e?.code === "P2025") {
+      return res.status(404).json({ success: false, message: "Badge introuvable" });
+    }
     return res.status(500).json({ success: false, message: "Erreur retrait badge" });
   }
 };
