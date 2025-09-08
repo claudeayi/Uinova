@@ -7,7 +7,7 @@ import {
   markAllRead,
   remove,
 } from "../controllers/notificationController";
-import { authenticate } from "../middlewares/security";
+import { authenticate, authorize } from "../middlewares/security";
 import { body, param } from "express-validator";
 import { handleValidationErrors } from "../middlewares/validate";
 import { notificationService } from "../services/notificationService";
@@ -21,33 +21,37 @@ router.use(authenticate);
 
 /**
  * POST /api/notifications
- * Envoyer une notification
- * - USER : pour lui-même
- * - ADMIN : peut cibler un autre user via userId
+ * Créer une notification (DB + multi-canal si activé)
+ * - USER : ne peut notifier que lui-même
+ * - ADMIN : peut cibler n’importe quel utilisateur
  */
 router.post(
   "/",
   body("title")
     .isString()
     .isLength({ min: 1, max: 120 })
-    .withMessage("Le titre est obligatoire et doit contenir entre 1 et 120 caractères."),
+    .withMessage("Le titre est obligatoire (1–120 caractères)."),
   body("message")
     .isString()
     .isLength({ min: 1, max: 1000 })
-    .withMessage("Le message est obligatoire et doit contenir entre 1 et 1000 caractères."),
+    .withMessage("Le message est obligatoire (1–1000 caractères)."),
   body("type")
     .optional()
-    .isString()
     .isIn(["INFO", "ALERT", "BILLING", "SYSTEM"])
     .withMessage("Type de notification invalide."),
-  body("userId").optional().isString(),
+  body("userId")
+    .optional()
+    .isString()
+    .withMessage("userId invalide"),
   handleValidationErrors,
   notify
 );
 
 /**
  * GET /api/notifications
- * Lister les notifications de l'utilisateur (ou d’un autre si admin)
+ * Lister les notifications
+ * - USER : liste uniquement ses notifications
+ * - ADMIN : peut filtrer avec ?userId
  */
 router.get("/", list);
 
@@ -57,7 +61,10 @@ router.get("/", list);
  */
 router.patch(
   "/:id/read",
-  param("id").isString().withMessage("ID de notification invalide"),
+  param("id")
+    .isString()
+    .isLength({ min: 8 })
+    .withMessage("ID de notification invalide."),
   handleValidationErrors,
   markRead
 );
@@ -65,46 +72,71 @@ router.patch(
 /**
  * POST /api/notifications/read-all
  * Marquer toutes les notifications comme lues
- * - USER : marque les siennes
- * - ADMIN : peut cibler un autre via body.userId
+ * - USER : uniquement les siennes
+ * - ADMIN : peut cibler via body.userId
  */
-router.post("/read-all", markAllRead);
+router.post(
+  "/read-all",
+  body("userId")
+    .optional()
+    .isString()
+    .withMessage("userId invalide."),
+  handleValidationErrors,
+  markAllRead
+);
 
 /**
  * DELETE /api/notifications/:id
  * Supprimer une notification
- * - USER : peut supprimer les siennes
+ * - USER : peut supprimer uniquement les siennes
  * - ADMIN : peut supprimer celles d’autrui
  */
 router.delete(
   "/:id",
-  param("id").isString().withMessage("ID de notification invalide"),
+  param("id")
+    .isString()
+    .isLength({ min: 8 })
+    .withMessage("ID de notification invalide."),
   handleValidationErrors,
   remove
 );
 
 /* ============================================================================
- *  NOUVELLES ROUTES – Multi-canal (temps réel + email + webhooks)
+ *  TEST & DIAGNOSTIC – Notifications multi-canal
  * ========================================================================== */
 
 /**
  * POST /api/notifications/test
- * Créer une notification de test (multi-canal)
+ * Créer et envoyer une notification de test (DB + socket + email si configuré)
  */
 router.post(
   "/test",
-  body("title").isString().notEmpty(),
-  body("message").isString().notEmpty(),
+  body("title").isString().notEmpty().withMessage("Titre obligatoire."),
+  body("message").isString().notEmpty().withMessage("Message obligatoire."),
+  body("type")
+    .optional()
+    .isIn(["INFO", "ALERT", "BILLING", "SYSTEM"])
+    .withMessage("Type de notification invalide."),
   handleValidationErrors,
   async (req, res) => {
     try {
       const { title, message, type } = req.body;
       const userId = req.user!.id;
-      const notif = await notificationService.create(userId, type || "INFO", title, message);
-      res.json({ ok: true, notif });
-    } catch (err) {
+
+      const notif = await notificationService.create(
+        userId,
+        type || "INFO",
+        title,
+        message,
+        { test: true }
+      );
+
+      return res.json({ success: true, notif });
+    } catch (err: any) {
       console.error("❌ Notification test error:", err);
-      res.status(500).json({ error: "Erreur création notification" });
+      return res
+        .status(500)
+        .json({ error: "NOTIFICATION_ERROR", message: "Erreur création notification" });
     }
   }
 );
