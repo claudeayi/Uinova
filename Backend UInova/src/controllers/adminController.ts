@@ -4,9 +4,9 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "../utils/prisma";
 
-/**
- * Helpers / validation
- */
+/* ============================================================================
+ * VALIDATION SCHEMAS
+ * ========================================================================== */
 const CreateUserSchema = z.object({
   email: z.string().email(),
   password: z.string().min(6),
@@ -15,28 +15,27 @@ const CreateUserSchema = z.object({
 });
 
 const UpdateUserSchema = z.object({
-  email: z.string().email().optional(),          // autorise la MAJ d'email si nécessaire
+  email: z.string().email().optional(),
   displayName: z.string().min(2).max(80).optional(),
   role: z.enum(["USER", "ADMIN"]).optional(),
-  password: z.string().min(6).optional(),        // si présent => réinitialisation
+  password: z.string().min(6).optional(),
 });
 
 const ListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
-  q: z.string().trim().optional(),               // recherche email/displayName
+  q: z.string().trim().optional(),
   role: z.enum(["USER", "ADMIN"]).optional(),
   sort: z
-    .enum(["createdAt:asc","createdAt:desc","email:asc","email:desc"])
-    .optional()
+    .enum(["createdAt:asc", "createdAt:desc", "email:asc", "email:desc"])
     .default("createdAt:desc"),
 });
 
-/**
- * Assure que l'appelant est ADMIN (tu peux aussi faire ça dans un middleware global).
- */
+/* ============================================================================
+ * HELPERS
+ * ========================================================================== */
 function ensureAdmin(req: Request) {
-  const role = (req as any)?.user?.role; // supposé injecté par ton middleware auth
+  const role = (req as any)?.user?.role;
   if (role !== "ADMIN") {
     const err: any = new Error("Forbidden");
     err.status = 403;
@@ -44,16 +43,25 @@ function ensureAdmin(req: Request) {
   }
 }
 
-/**
- * GET /api/admin/users
- * Query: page, pageSize, q, role, sort
- * Réponse: { items, page, pageSize, total, totalPages }
- */
+async function auditLog(userId: string, action: string, metadata: any = {}) {
+  try {
+    await prisma.auditLog.create({
+      data: { userId, action, metadata },
+    });
+  } catch (err) {
+    console.warn("⚠️ Audit log failed:", err);
+  }
+}
+
+/* ============================================================================
+ * CONTROLLERS
+ * ========================================================================== */
+
+// ✅ GET /api/admin/users
 export const listUsers = async (req: Request, res: Response) => {
   ensureAdmin(req);
   const { page, pageSize, q, role, sort } = ListQuerySchema.parse(req.query);
 
-  // Filtre
   const where: any = {};
   if (role) where.role = role;
   if (q) {
@@ -63,7 +71,6 @@ export const listUsers = async (req: Request, res: Response) => {
     ];
   }
 
-  // Tri
   const [sortField, sortDir] = sort.split(":") as ["createdAt" | "email", "asc" | "desc"];
   const orderBy: any = { [sortField]: sortDir };
 
@@ -74,39 +81,44 @@ export const listUsers = async (req: Request, res: Response) => {
       orderBy,
       skip: (page - 1) * pageSize,
       take: pageSize,
-      select: { id: true, email: true, displayName: true, role: true, createdAt: true, updatedAt: true },
+      select: {
+        id: true,
+        email: true,
+        displayName: true,
+        role: true,
+        createdAt: true,
+        updatedAt: true,
+      },
     }),
   ]);
 
-  const totalPages = Math.ceil(total / pageSize) || 1;
-  res.json({ items, page, pageSize, total, totalPages });
+  return res.json({
+    success: true,
+    data: { items, page, pageSize, total, totalPages: Math.ceil(total / pageSize) || 1 },
+  });
 };
 
-/**
- * GET /api/admin/users/:id
- */
+// ✅ GET /api/admin/users/:id
 export const getUser = async (req: Request, res: Response) => {
   ensureAdmin(req);
   const { id } = req.params;
+
   const user = await prisma.user.findUnique({
-    where: { id }, // si id numérique: { id: Number(id) }
+    where: { id },
     select: { id: true, email: true, displayName: true, role: true, createdAt: true, updatedAt: true },
   });
-  if (!user) return res.status(404).json({ error: "User not found" });
-  res.json(user);
+
+  if (!user) return res.status(404).json({ success: false, error: "User not found" });
+  return res.json({ success: true, data: user });
 };
 
-/**
- * POST /api/admin/users
- * Body: { email, password, displayName?, role? }
- */
+// ✅ POST /api/admin/users
 export const createUser = async (req: Request, res: Response) => {
   ensureAdmin(req);
   const body = CreateUserSchema.parse(req.body);
 
-  // Unicité email
   const exists = await prisma.user.findUnique({ where: { email: body.email } });
-  if (exists) return res.status(409).json({ error: "Email already in use" });
+  if (exists) return res.status(409).json({ success: false, error: "Email already in use" });
 
   const passwordHash = await bcrypt.hash(body.password, 10);
 
@@ -120,13 +132,12 @@ export const createUser = async (req: Request, res: Response) => {
     select: { id: true, email: true, displayName: true, role: true, createdAt: true, updatedAt: true },
   });
 
-  res.status(201).json(user);
+  await auditLog((req as any).user?.id, "ADMIN_USER_CREATE", { targetUserId: user.id });
+
+  return res.status(201).json({ success: true, data: user });
 };
 
-/**
- * PUT /api/admin/users/:id
- * Body: { email?, displayName?, role?, password? }
- */
+// ✅ PUT /api/admin/users/:id
 export const updateUser = async (req: Request, res: Response) => {
   ensureAdmin(req);
   const { id } = req.params;
@@ -140,54 +151,60 @@ export const updateUser = async (req: Request, res: Response) => {
 
   try {
     const updated = await prisma.user.update({
-      where: { id }, // si id numérique: { id: Number(id) }
+      where: { id },
       data,
       select: { id: true, email: true, displayName: true, role: true, createdAt: true, updatedAt: true },
     });
-    res.json(updated);
+
+    await auditLog((req as any).user?.id, "ADMIN_USER_UPDATE", { targetUserId: id });
+    return res.json({ success: true, data: updated });
   } catch (e: any) {
-    // Gestion collision email unique
-    if (e?.code === "P2002") return res.status(409).json({ error: "Email already in use" });
-    if (e?.code === "P2025") return res.status(404).json({ error: "User not found" });
+    if (e?.code === "P2002") return res.status(409).json({ success: false, error: "Email already in use" });
+    if (e?.code === "P2025") return res.status(404).json({ success: false, error: "User not found" });
     throw e;
   }
 };
 
-/**
- * DELETE /api/admin/users/:id
- * Suppression définitive de l’utilisateur (respecte les onDelete Prisma).
- */
+// ✅ DELETE /api/admin/users/:id
 export const deleteUser = async (req: Request, res: Response) => {
   ensureAdmin(req);
   const { id } = req.params;
 
   try {
-    await prisma.user.delete({ where: { id } }); // si id numérique: { id: Number(id) }
-    res.json({ message: "User deleted" });
+    await prisma.user.delete({ where: { id } });
+    await auditLog((req as any).user?.id, "ADMIN_USER_DELETE", { targetUserId: id });
+    return res.json({ success: true, message: "User deleted" });
   } catch (e: any) {
-    if (e?.code === "P2025") return res.status(404).json({ error: "User not found" });
+    if (e?.code === "P2025") return res.status(404).json({ success: false, error: "User not found" });
     throw e;
   }
 };
 
-/**
- * GET /api/admin/users/stats
- * Petites métriques utiles au tableau de bord admin.
- */
+// ✅ GET /api/admin/users/stats
 export const userStats = async (req: Request, res: Response) => {
   ensureAdmin(req);
-  const [total, admins, users, last7d] = await Promise.all([
+
+  const [total, admins, users, last7d, perDay] = await Promise.all([
     prisma.user.count(),
     prisma.user.count({ where: { role: "ADMIN" } }),
     prisma.user.count({ where: { role: "USER" } }),
-    prisma.user.count({
-      where: { createdAt: { gte: new Date(Date.now() - 7 * 24 * 3600 * 1000) } },
-    }),
+    prisma.user.count({ where: { createdAt: { gte: new Date(Date.now() - 7 * 24 * 3600 * 1000) } } }),
+    prisma.$queryRawUnsafe<{ day: string; count: number }[]>(`
+      SELECT DATE("createdAt") as day, COUNT(*)::int as count
+      FROM "User"
+      WHERE "createdAt" >= NOW() - INTERVAL '30 days'
+      GROUP BY day
+      ORDER BY day ASC
+    `),
   ]);
 
-  res.json({
-    total,
-    byRole: { ADMIN: admins, USER: users },
-    newLast7d: last7d,
+  return res.json({
+    success: true,
+    data: {
+      total,
+      byRole: { ADMIN: admins, USER: users },
+      newLast7d: last7d,
+      trend30d: perDay,
+    },
   });
 };
