@@ -1,5 +1,6 @@
+// src/routes/favorites.ts
 import { Router } from "express";
-import { body, param } from "express-validator";
+import { body, param, query } from "express-validator";
 import { authenticate } from "../middlewares/security";
 import {
   listFavorites,
@@ -11,7 +12,7 @@ import { handleValidationErrors } from "../middlewares/validate";
 const router = Router();
 
 /* ============================================================================
- *  FAVORITES ROUTES – User Auth Required
+ *  FAVORITES ROUTES – nécessite authentification utilisateur
  * ============================================================================
  */
 router.use(authenticate);
@@ -19,24 +20,45 @@ router.use(authenticate);
 /**
  * GET /api/favorites
  * ▶️ Liste les favoris de l’utilisateur connecté
- * Query: ?type=project|template&page=1&pageSize=20
+ * Query params :
+ *   - type?: "project" | "template"
+ *   - page?: number (par défaut 1)
+ *   - pageSize?: number (par défaut 20, max 100)
  */
-router.get("/", listFavorites);
+router.get(
+  "/",
+  query("type")
+    .optional()
+    .isIn(["project", "template"])
+    .withMessage("type doit être 'project' ou 'template'"),
+  query("page")
+    .optional()
+    .isInt({ min: 1 })
+    .toInt()
+    .withMessage("page doit être ≥ 1"),
+  query("pageSize")
+    .optional()
+    .isInt({ min: 1, max: 100 })
+    .toInt()
+    .withMessage("pageSize doit être entre 1 et 100"),
+  handleValidationErrors,
+  listFavorites
+);
 
 /**
  * POST /api/favorites
  * ▶️ Ajouter un projet ou template aux favoris
  * Body:
  * {
- *   itemId: string,         // ID du projet ou template
- *   type: "project"|"template"
+ *   itemId: string,              // ID du projet ou template
+ *   type: "project" | "template" // type de favori
  * }
  */
 router.post(
   "/",
   body("itemId")
     .isString()
-    .isLength({ min: 5 })
+    .isLength({ min: 5, max: 100 })
     .withMessage("itemId invalide"),
   body("type")
     .isIn(["project", "template"])
@@ -48,10 +70,15 @@ router.post(
 /**
  * DELETE /api/favorites/:id
  * ▶️ Retirer un favori (par son ID favori)
+ * Param:
+ *   - id: string (UUID/cuid ou similaire)
  */
 router.delete(
   "/:id",
-  param("id").isString().withMessage("id invalide"),
+  param("id")
+    .isString()
+    .isLength({ min: 5 })
+    .withMessage("id invalide"),
   handleValidationErrors,
   removeFavorite
 );
