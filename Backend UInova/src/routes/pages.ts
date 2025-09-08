@@ -9,6 +9,7 @@ import {
   validatePagesReorder,
   handleValidationErrors,
 } from "../middlewares/validate";
+import { param, body } from "express-validator";
 import {
   list,
   get,
@@ -20,6 +21,13 @@ import {
   preview,
   publish,
   unpublish,
+  getPageStats,
+  restoreVersion,
+  listVersions,
+  addCollaborator,
+  removeCollaborator,
+  markAsFavorite,
+  unmarkAsFavorite,
 } from "../controllers/pageController";
 
 const router = Router();
@@ -29,9 +37,11 @@ const router = Router();
  * ========================================================================== */
 router.use(authenticate);
 
+/* ---------------- PAR PROJET ---------------- */
+
 /**
  * GET /api/projects/:projectId/pages
- * Lister toutes les pages d’un projet
+ * ▶️ Lister toutes les pages d’un projet
  */
 router.get(
   "/projects/:projectId/pages",
@@ -42,7 +52,7 @@ router.get(
 
 /**
  * POST /api/projects/:projectId/pages
- * Créer une nouvelle page dans un projet
+ * ▶️ Créer une nouvelle page dans un projet
  */
 router.post(
   "/projects/:projectId/pages",
@@ -54,7 +64,7 @@ router.post(
 
 /**
  * POST /api/projects/:projectId/pages/reorder
- * Réordonner les pages d’un projet
+ * ▶️ Réordonner les pages d’un projet
  * Body: { items: [{ id, sortOrder }] }
  */
 router.post(
@@ -65,19 +75,17 @@ router.post(
   reorder
 );
 
-/* ============================================================================
- *  ROUTES PAR PAGE (indépendantes du projet)
- * ========================================================================== */
+/* ---------------- PAR PAGE ---------------- */
 
 /**
  * GET /api/pages/:id
- * Obtenir le détail d’une page
+ * ▶️ Obtenir le détail d’une page
  */
 router.get("/pages/:id", validatePageIdParam, handleValidationErrors, get);
 
 /**
  * PATCH /api/pages/:id
- * Mettre à jour une page (partiellement)
+ * ▶️ Mettre à jour une page
  */
 router.patch(
   "/pages/:id",
@@ -89,7 +97,7 @@ router.patch(
 
 /**
  * POST /api/pages/:id/duplicate
- * Dupliquer une page
+ * ▶️ Dupliquer une page
  */
 router.post(
   "/pages/:id/duplicate",
@@ -100,45 +108,102 @@ router.post(
 
 /**
  * DELETE /api/pages/:id
- * Supprimer une page
+ * ▶️ Supprimer une page
  */
 router.delete("/pages/:id", validatePageIdParam, handleValidationErrors, remove);
 
-/* ============================================================================
- *  ROUTES EXTENDUES (Preview / Publication)
- * ========================================================================== */
+/* ---------------- EXTENSIONS (Preview / Publication) ---------------- */
 
 /**
  * GET /api/pages/:id/preview
- * Prévisualiser une page (JSON/HTML pour LivePreview)
+ * ▶️ Prévisualiser une page (JSON/HTML pour LivePreview)
  */
-router.get(
-  "/pages/:id/preview",
-  validatePageIdParam,
-  handleValidationErrors,
-  preview
-);
+router.get("/pages/:id/preview", validatePageIdParam, handleValidationErrors, preview);
 
 /**
  * POST /api/pages/:id/publish
- * Publier une page (disponible publiquement)
+ * ▶️ Publier une page (publique)
  */
-router.post(
-  "/pages/:id/publish",
-  validatePageIdParam,
-  handleValidationErrors,
-  publish
-);
+router.post("/pages/:id/publish", validatePageIdParam, handleValidationErrors, publish);
 
 /**
  * POST /api/pages/:id/unpublish
- * Retirer une page de la publication
+ * ▶️ Retirer une page de la publication
  */
-router.post(
-  "/pages/:id/unpublish",
+router.post("/pages/:id/unpublish", validatePageIdParam, handleValidationErrors, unpublish);
+
+/* ---------------- ANALYTICS & VERSIONING ---------------- */
+
+/**
+ * GET /api/pages/:id/stats
+ * ▶️ Statistiques d’une page (vues, temps moyen, interactions)
+ */
+router.get(
+  "/pages/:id/stats",
+  param("id").isString().isLength({ min: 5 }),
+  handleValidationErrors,
+  getPageStats
+);
+
+/**
+ * GET /api/pages/:id/versions
+ * ▶️ Liste des versions précédentes (historique sauvegardes)
+ */
+router.get(
+  "/pages/:id/versions",
   validatePageIdParam,
   handleValidationErrors,
-  unpublish
+  listVersions
 );
+
+/**
+ * POST /api/pages/:id/restore/:versionId
+ * ▶️ Restaurer une version précédente
+ */
+router.post(
+  "/pages/:id/restore/:versionId",
+  validatePageIdParam,
+  param("versionId").isString().isLength({ min: 5 }),
+  handleValidationErrors,
+  restoreVersion
+);
+
+/* ---------------- COLLABORATION & FAVORIS ---------------- */
+
+/**
+ * POST /api/pages/:id/collaborators
+ * ▶️ Ajouter un collaborateur à une page
+ */
+router.post(
+  "/pages/:id/collaborators",
+  validatePageIdParam,
+  body("userId").isString().withMessage("userId requis"),
+  handleValidationErrors,
+  addCollaborator
+);
+
+/**
+ * DELETE /api/pages/:id/collaborators/:userId
+ * ▶️ Retirer un collaborateur d’une page
+ */
+router.delete(
+  "/pages/:id/collaborators/:userId",
+  validatePageIdParam,
+  param("userId").isString().isLength({ min: 5 }),
+  handleValidationErrors,
+  removeCollaborator
+);
+
+/**
+ * POST /api/pages/:id/favorite
+ * ▶️ Marquer une page comme favori
+ */
+router.post("/pages/:id/favorite", validatePageIdParam, handleValidationErrors, markAsFavorite);
+
+/**
+ * DELETE /api/pages/:id/favorite
+ * ▶️ Retirer une page des favoris
+ */
+router.delete("/pages/:id/favorite", validatePageIdParam, handleValidationErrors, unmarkAsFavorite);
 
 export default router;
