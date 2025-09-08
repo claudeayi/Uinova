@@ -3,24 +3,23 @@ import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import { Request } from "express";
 
-/**
- * Helmet — durcissement des en-têtes.
- * CSP est désactivé par défaut pour éviter de casser l’éditeur/preview.
- * Active-la en prod en renseignant SECURITY_CSP=1 et adapte les sources.
+/* ============================================================================
+ *  HELMET — HEADERS DE SÉCURITÉ
+ * ============================================================================
  */
 const useCsp = process.env.SECURITY_CSP === "1";
 
 export const securityHeaders = helmet({
-  xPoweredBy: false,
+  xPoweredBy: false, // masque Express
   frameguard: { action: "sameorigin" },
   referrerPolicy: { policy: "strict-origin-when-cross-origin" },
   crossOriginOpenerPolicy: { policy: "same-origin" },
-  crossOriginResourcePolicy: { policy: "cross-origin" }, // utile si tu sers des assets publics
+  crossOriginResourcePolicy: { policy: "cross-origin" },
+  hsts: { maxAge: 15552000, includeSubDomains: true, preload: true }, // 180 jours
   contentSecurityPolicy: useCsp
     ? {
         useDefaults: true,
         directives: {
-          // ⚠️ adapte selon ton front/éditeurs/iframes
           "default-src": ["'self'"],
           "script-src": ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https:"],
           "style-src": ["'self'", "'unsafe-inline'", "https:"],
@@ -33,20 +32,36 @@ export const securityHeaders = helmet({
         },
       }
     : false,
-  // Désactive la protection XSS de navigateur obsolète
+  // Désactive la XSS protection obsolète
   xssFilter: false as any,
 });
 
-/** Utilitaire pour retrouver l’IP client (derrière proxy/load balancer) */
+/* ============================================================================
+ *  HELPERS
+ * ============================================================================
+ */
 function getClientIp(req: Request) {
-  const xfwd = (req.headers["x-forwarded-for"] as string) || "";
+  const xfwd =
+    (req.headers["cf-connecting-ip"] as string) ||
+    (req.headers["x-real-ip"] as string) ||
+    (req.headers["x-forwarded-for"] as string) ||
+    "";
   return (xfwd.split(",")[0] || req.ip || req.socket.remoteAddress || "").trim();
 }
 
+function limiterLog(name: string, req: Request) {
+  console.warn(
+    `[RATE_LIMIT] ${name} exceeded by IP=${getClientIp(req)} path=${req.originalUrl}`
+  );
+}
+
+/* ============================================================================
+ *  RATE LIMITERS
+ * ============================================================================
+ */
+
 /**
- * Rate limit générique API.
- * Par défaut: 100 requêtes / 60s / IP.
- * Configure via env: RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX
+ * API générique : 100 req / min par IP
  */
 export const apiLimiter = rateLimit({
   windowMs: Number(process.env.RATE_LIMIT_WINDOW_MS || 60_000),
@@ -54,12 +69,16 @@ export const apiLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: getClientIp,
-  message: { error: "RATE_LIMITED", message: "Trop de requêtes, réessayez plus tard." },
+  handler: (req, res, _next, _opts) => {
+    limiterLog("API", req);
+    res
+      .status(429)
+      .json({ error: "RATE_LIMITED", message: "Trop de requêtes, réessayez plus tard." });
+  },
 });
 
 /**
- * Limiteur plus strict pour Auth (login/register/refresh).
- * Par défaut: 10 req / 5 min / IP.
+ * Auth (login/register/refresh) : 10 req / 5 min
  */
 export const authLimiter = rateLimit({
   windowMs: Number(process.env.AUTH_LIMIT_WINDOW_MS || 5 * 60_000),
@@ -67,12 +86,16 @@ export const authLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   keyGenerator: getClientIp,
-  message: { error: "RATE_LIMITED", message: "Trop de tentatives, réessayez plus tard." },
+  handler: (req, res) => {
+    limiterLog("AUTH", req);
+    res
+      .status(429)
+      .json({ error: "RATE_LIMITED", message: "Trop de tentatives, réessayez plus tard." });
+  },
 });
 
 /**
- * Limiteur pour Webhooks (Stripe, etc.) — identifiant par signature si dispo.
- * Par défaut: 60 req / 60s.
+ * Webhooks (Stripe, PayPal…) : 60 req / min
  */
 export const webhookLimiter = rateLimit({
   windowMs: Number(process.env.WEBHOOK_LIMIT_WINDOW_MS || 60_000),
@@ -81,7 +104,45 @@ export const webhookLimiter = rateLimit({
   legacyHeaders: false,
   keyGenerator: (req) =>
     (req.headers["stripe-signature"] as string) ||
+    (req.headers["paypal-transmission-id"] as string) ||
     (req.headers["x-signature"] as string) ||
     getClientIp(req),
-  message: { error: "RATE_LIMITED", message: "Webhook trop fréquent." },
+  handler: (req, res) => {
+    limiterLog("WEBHOOK", req);
+    res.status(429).json({ error: "RATE_LIMITED", message: "Webhook trop fréquent." });
+  },
+});
+
+/**
+ * AI endpoints : limites renforcées (prévenir abus GPT)
+ */
+export const aiLimiter = rateLimit({
+  windowMs: Number(process.env.AI_LIMIT_WINDOW_MS || 60_000),
+  max: Number(process.env.AI_LIMIT_MAX || 30),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: getClientIp,
+  handler: (req, res) => {
+    limiterLog("AI", req);
+    res
+      .status(429)
+      .json({ error: "RATE_LIMITED", message: "Trop de requêtes IA, réessayez plus tard." });
+  },
+});
+
+/**
+ * Admin routes : très strict (éviter brute force)
+ */
+export const adminLimiter = rateLimit({
+  windowMs: Number(process.env.ADMIN_LIMIT_WINDOW_MS || 10 * 60_000),
+  max: Number(process.env.ADMIN_LIMIT_MAX || 50),
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: getClientIp,
+  handler: (req, res) => {
+    limiterLog("ADMIN", req);
+    res
+      .status(429)
+      .json({ error: "RATE_LIMITED", message: "Trop de requêtes admin détectées." });
+  },
 });
