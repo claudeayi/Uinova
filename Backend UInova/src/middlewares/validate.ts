@@ -1,3 +1,4 @@
+// src/middlewares/validate.ts
 import { Request, Response, NextFunction } from "express";
 import { checkSchema, validationResult, ParamSchema, Schema } from "express-validator";
 
@@ -46,6 +47,23 @@ const optString: ParamSchema = {
   optional: { options: { nullable: true } },
   isString: { errorMessage: "Doit être une chaîne" },
   trim: true,
+};
+
+const optNumber: ParamSchema = {
+  optional: true,
+  toInt: true,
+  isInt: { errorMessage: "Doit être un nombre entier" },
+};
+
+const optBoolean: ParamSchema = {
+  optional: true,
+  isBoolean: { errorMessage: "Doit être un booléen" },
+  toBoolean: true,
+};
+
+const isBooleanLike: ParamSchema["custom"] = {
+  options: (v) => v === undefined || typeof v === "boolean" || ["true","false","1","0"].includes(String(v)),
+  errorMessage: "Doit être un booléen",
 };
 
 export const paginationQuery: Schema = {
@@ -212,10 +230,56 @@ export const validateBadgeGive = checkSchema(
   {
     type: {
       in: ["body"],
-      isIn: { options: [["EARLY_ADOPTER","PRO_USER","COMMUNITY_HELPER","TOP_CREATOR"]] },
+      isIn: { options: [["EARLY_ADOPTER","PRO_USER","COMMUNITY_HELPER","TOP_CREATOR","BETA_TESTER"]] },
       errorMessage: "Type de badge invalide",
     },
-    userId: { in: ["body"], custom: isId },
+    userId: { in: ["body"], optional: true, custom: isId },
+    meta: { in: ["body"], optional: true, custom: isJsonLike },
+  },
+  ["body"]
+);
+
+/* ============================================================================
+ * API KEYS
+ * ========================================================================== */
+export const validateApiKeyCreate = checkSchema(
+  {
+    scope: { in: ["body"], optional: true, isString: true, trim: true },
+  },
+  ["body"]
+);
+
+/* ============================================================================
+ * MARKETPLACE
+ * ========================================================================== */
+export const validateMarketplacePublish = checkSchema(
+  {
+    title: { in: ["body"], isString: true, notEmpty: { errorMessage: "Titre requis" }, trim: true },
+    description: { in: ["body"], optional: true, isString: true, trim: true },
+    priceCents: { in: ["body"], optional: true, toInt: true, isInt: { options: { min: 0 } } },
+    currency: { in: ["body"], optional: true, isString: true, trim: true, isLength: { options: { min: 3, max: 3 } } },
+    contentUrl: { in: ["body"], isString: true, notEmpty: { errorMessage: "Contenu requis" }, trim: true },
+  },
+  ["body"]
+);
+
+/* ============================================================================
+ * DEPLOYMENTS
+ * ========================================================================== */
+export const validateDeploymentStart = checkSchema(
+  {
+    projectId: { in: ["params"], custom: isId },
+  },
+  ["params"]
+);
+
+/* ============================================================================
+ * FAVORITES
+ * ========================================================================== */
+export const validateFavoriteAdd = checkSchema(
+  {
+    itemId: { in: ["body"], custom: isId },
+    type: { in: ["body"], isIn: { options: [["project", "template"]] }, errorMessage: "type invalide" },
   },
   ["body"]
 );
