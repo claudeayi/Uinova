@@ -13,39 +13,87 @@ import {
   markFailed,
   markReady,
 } from "../controllers/exportController";
+import { param, body } from "express-validator";
 
 const router = Router();
 
-// Toutes les routes exports nécessitent l'auth
+/* ============================================================================
+ * EXPORTS ROUTES – nécessite authentification
+ * ============================================================================
+ */
 router.use(requireAuth);
 
 /**
- * Créer un export (direct ou enqueue)
- * - Sans page: POST /api/exports/:projectId
- * - Par page : POST /api/exports/:projectId/:pageId
- * Body: { type, content?, strategy?, meta? }
+ * POST /api/exports/:projectId
+ * POST /api/exports/:projectId/:pageId
+ * 🆕 Créer un export (direct ou en file d’attente)
+ * Body: { type: "react"|"html"|"flutter"|"pwa", content?, strategy?, meta? }
  */
-router.post("/:projectId", validateExportSave, handleValidationErrors, saveExport);
-router.post("/:projectId/:pageId", validateExportSave, handleValidationErrors, saveExport);
+router.post(
+  "/:projectId",
+  param("projectId").isString().isLength({ min: 8 }).withMessage("projectId invalide"),
+  validateExportSave,
+  handleValidationErrors,
+  saveExport
+);
+
+router.post(
+  "/:projectId/:pageId",
+  param("projectId").isString().isLength({ min: 8 }).withMessage("projectId invalide"),
+  param("pageId").isString().isLength({ min: 8 }).withMessage("pageId invalide"),
+  validateExportSave,
+  handleValidationErrors,
+  saveExport
+);
 
 /**
- * Lister les exports (paginé/filtré)
- * GET /api/exports?projectId=...&pageId=...&type=&status=&page=&pageSize=&sort=
+ * GET /api/exports
+ * 📋 Lister les exports (paginé/filtré)
+ * Query: projectId, pageId, type, status, page, pageSize, sort
  */
-router.get("/", validateExportListQuery, handleValidationErrors, list);
+router.get(
+  "/",
+  validateExportListQuery,
+  handleValidationErrors,
+  list
+);
 
 /**
- * Détail d’un export (pour polling)
  * GET /api/exports/:id
+ * 🔎 Détail d’un export (polling frontend)
  */
-router.get("/:id", getOne);
+router.get(
+  "/:id",
+  param("id").isString().isLength({ min: 10 }).withMessage("ID export invalide"),
+  handleValidationErrors,
+  getOne
+);
 
 /**
- * Hooks worker (optionnels) pour MAJ de statut
- * POST /api/exports/:id/mark-failed    { error? }
- * POST /api/exports/:id/mark-ready     { bundleUrl, meta? }
+ * POST /api/exports/:id/mark-failed
+ * ❌ Marquer un export comme échoué
+ * Body: { error?: string }
  */
-router.post("/:id/mark-failed", markFailed);
-router.post("/:id/mark-ready", markReady);
+router.post(
+  "/:id/mark-failed",
+  param("id").isString().isLength({ min: 10 }).withMessage("ID export invalide"),
+  body("error").optional().isString().isLength({ max: 500 }),
+  handleValidationErrors,
+  markFailed
+);
+
+/**
+ * POST /api/exports/:id/mark-ready
+ * ✅ Marquer un export comme prêt
+ * Body: { bundleUrl: string, meta?: object }
+ */
+router.post(
+  "/:id/mark-ready",
+  param("id").isString().isLength({ min: 10 }).withMessage("ID export invalide"),
+  body("bundleUrl").isURL().withMessage("bundleUrl doit être une URL valide"),
+  body("meta").optional().isObject(),
+  handleValidationErrors,
+  markReady
+);
 
 export default router;
