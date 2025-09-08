@@ -1,3 +1,4 @@
+// src/routes/emailTemplates.ts
 import { Router } from "express";
 import { body, param } from "express-validator";
 import {
@@ -15,29 +16,34 @@ const router = Router();
 
 /* ============================================================================
  * EMAIL TEMPLATE ROUTES – ADMIN ONLY
- * ========================================================================== */
+ * ============================================================================
+ */
 router.use(authenticate, authorize(["ADMIN"]));
 
 /**
  * GET /api/admin/email-templates
- * Liste tous les templates
+ * 📋 Liste tous les templates disponibles
  */
 router.get("/", listTemplates);
 
 /**
  * GET /api/admin/email-templates/:id
- * Détail d’un template
+ * 🔎 Détail d’un template par ID
  */
 router.get(
   "/:id",
-  param("id").isString().isLength({ min: 10 }).withMessage("ID invalide"),
+  param("id")
+    .isString()
+    .isLength({ min: 10 })
+    .withMessage("ID invalide"),
   handleValidationErrors,
   getTemplate
 );
 
 /**
  * POST /api/admin/email-templates
- * Créer un template
+ * 🆕 Créer un nouveau template email
+ * Body: { code, name, subject, bodyHtml, bodyText?, lang? }
  */
 router.post(
   "/",
@@ -47,9 +53,20 @@ router.post(
     .matches(/^[a-zA-Z0-9_-]+$/)
     .withMessage("Code invalide (caractères autorisés: lettres, chiffres, _ et -)")
     .trim(),
-  body("name").isString().isLength({ min: 3, max: 100 }).trim(),
-  body("subject").isString().isLength({ min: 3, max: 200 }).trim(),
-  body("bodyHtml").isString().isLength({ min: 3 }),
+  body("name")
+    .isString()
+    .isLength({ min: 3, max: 100 })
+    .withMessage("Nom invalide (3–100 caractères)")
+    .trim(),
+  body("subject")
+    .isString()
+    .isLength({ min: 3, max: 200 })
+    .withMessage("Sujet invalide (3–200 caractères)")
+    .trim(),
+  body("bodyHtml")
+    .isString()
+    .isLength({ min: 3 })
+    .withMessage("Le corps HTML est obligatoire"),
   body("bodyText").optional().isString(),
   body("lang")
     .optional()
@@ -63,14 +80,31 @@ router.post(
 
 /**
  * PUT /api/admin/email-templates/:id
- * Mettre à jour un template
+ * ✏️ Mettre à jour un template existant
  */
 router.put(
   "/:id",
-  param("id").isString().isLength({ min: 10 }),
-  body("name").optional().isString().isLength({ min: 3, max: 100 }).trim(),
-  body("subject").optional().isString().isLength({ min: 3, max: 200 }).trim(),
-  body("bodyHtml").optional().isString().isLength({ min: 3 }),
+  param("id")
+    .isString()
+    .isLength({ min: 10 })
+    .withMessage("ID invalide"),
+  body("name")
+    .optional()
+    .isString()
+    .isLength({ min: 3, max: 100 })
+    .withMessage("Nom invalide (3–100 caractères)")
+    .trim(),
+  body("subject")
+    .optional()
+    .isString()
+    .isLength({ min: 3, max: 200 })
+    .withMessage("Sujet invalide (3–200 caractères)")
+    .trim(),
+  body("bodyHtml")
+    .optional()
+    .isString()
+    .isLength({ min: 3 })
+    .withMessage("Le corps HTML doit avoir au moins 3 caractères"),
   body("bodyText").optional().isString(),
   body("lang")
     .optional()
@@ -84,23 +118,34 @@ router.put(
 
 /**
  * DELETE /api/admin/email-templates/:id
- * Supprimer un template
+ * 🗑️ Supprimer un template
  */
 router.delete(
   "/:id",
-  param("id").isString().isLength({ min: 10 }),
+  param("id")
+    .isString()
+    .isLength({ min: 10 })
+    .withMessage("ID invalide"),
   handleValidationErrors,
   deleteTemplate
 );
 
 /**
  * POST /api/admin/email-templates/:id/preview
- * Générer un rendu preview du template
+ * 👀 Générer un rendu preview d’un template avec variables dynamiques
+ * Body: { variables?: Record<string, any> }
  */
 router.post(
   "/:id/preview",
-  param("id").isString().isLength({ min: 10 }),
-  body("variables").optional().isObject().default({}),
+  param("id")
+    .isString()
+    .isLength({ min: 10 })
+    .withMessage("ID invalide"),
+  body("variables")
+    .optional()
+    .isObject()
+    .withMessage("Variables doit être un objet valide")
+    .default({}),
   handleValidationErrors,
   previewTemplate
 );
