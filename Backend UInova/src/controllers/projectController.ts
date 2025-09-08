@@ -4,6 +4,7 @@ import { z } from "zod";
 import { prisma } from "../utils/prisma";
 import { toProjectCardDTO } from "../utils/dto";
 import * as policy from "../services/policy";
+import crypto from "crypto";
 
 /* ============================================================================
  * HELPERS
@@ -18,11 +19,7 @@ function ensureAuth(req: Request) {
   return { id: u.sub || u.id, role: u.role || "USER" };
 }
 
-async function ensureCanAccessProject(
-  userId: string,
-  projectId: string,
-  need: "VIEW" | "EDIT"
-) {
+async function ensureCanAccessProject(userId: string, projectId: string, need: "VIEW" | "EDIT") {
   if (policy?.canAccessProject) {
     const ok = await policy.canAccessProject(userId, projectId, need);
     if (!ok) {
@@ -32,10 +29,7 @@ async function ensureCanAccessProject(
     }
     return;
   }
-  const p = await prisma.project.findUnique({
-    where: { id: projectId },
-    select: { ownerId: true },
-  });
+  const p = await prisma.project.findUnique({ where: { id: projectId }, select: { ownerId: true } });
   if (!p || p.ownerId !== userId) {
     const err: any = new Error("Forbidden");
     err.status = 403;
@@ -68,187 +62,263 @@ const AutosaveSchema = z.object({
  * CONTROLLERS
  * ========================================================================== */
 
-// GET /api/projects
+// ✅ Lister mes projets
 export const listProjects = async (req: Request, res: Response) => {
-  const user = ensureAuth(req);
-  const projects = await prisma.project.findMany({
-    where: { ownerId: user.id },
-    orderBy: { updatedAt: "desc" },
-    select: {
-      id: true,
-      name: true,
-      tagline: true,
-      icon: true,
-      status: true,
-      updatedAt: true,
-    },
-  });
-  res.json(projects.map(toProjectCardDTO));
-};
-
-// POST /api/projects
-export const createProject = async (req: Request, res: Response) => {
-  const user = ensureAuth(req);
-  const body = CreateSchema.parse(req.body);
-
-  const project = await prisma.project.create({
-    data: {
-      ownerId: user.id,
-      name: body.name,
-      tagline: body.tagline ?? null,
-      icon: body.icon ?? null,
-      status: "DRAFT",
-      json: body.schema ?? {},
-    },
-  });
-
-  res.status(201).json(toProjectCardDTO(project));
-};
-
-// GET /api/projects/:id
-export const getProject = async (req: Request, res: Response) => {
-  const user = ensureAuth(req);
-  const project = await prisma.project.findUnique({
-    where: { id: req.params.id },
-    include: { pages: true },
-  });
-  if (!project) return res.status(404).json({ error: "Not found" });
-
-  await ensureCanAccessProject(user.id, project.id, "VIEW");
-  res.json(project);
-};
-
-// PATCH /api/projects/:id
-export const updateProject = async (req: Request, res: Response) => {
-  const user = ensureAuth(req);
-  const body = UpdateSchema.parse(req.body);
-  await ensureCanAccessProject(user.id, req.params.id, "EDIT");
-
-  const updated = await prisma.project.update({
-    where: { id: req.params.id },
-    data: {
-      ...body,
-      updatedAt: new Date(),
-    },
-  });
-  res.json(toProjectCardDTO(updated));
-};
-
-// DELETE /api/projects/:id
-export const removeProject = async (req: Request, res: Response) => {
-  const user = ensureAuth(req);
-  await ensureCanAccessProject(user.id, req.params.id, "EDIT");
-
-  await prisma.project.delete({ where: { id: req.params.id } });
-  res.json({ ok: true });
-};
-
-// POST /api/projects/:id/duplicate
-export const duplicateProject = async (req: Request, res: Response) => {
-  const user = ensureAuth(req);
-  const src = await prisma.project.findUnique({
-    where: { id: req.params.id },
-  });
-  if (!src) return res.status(404).json({ error: "Not found" });
-
-  await ensureCanAccessProject(user.id, src.id, "VIEW");
-
-  const copy = await prisma.project.create({
-    data: {
-      ownerId: user.id,
-      name: `${src.name} (copie)`,
-      tagline: src.tagline,
-      icon: src.icon,
-      status: src.status,
-      json: src.json,
-    },
-  });
-
-  res.status(201).json(toProjectCardDTO(copy));
-};
-
-// PATCH /api/projects/:id/autosave
-export const autosaveProject = async (req: Request, res: Response) => {
-  const user = ensureAuth(req);
-  const { schema } = AutosaveSchema.parse(req.body);
-  await ensureCanAccessProject(user.id, req.params.id, "EDIT");
-
-  const updated = await prisma.project.update({
-    where: { id: req.params.id },
-    data: { json: schema, lastSavedAt: new Date() },
-  });
-  res.json({ ok: true, updatedAt: updated.updatedAt });
-};
-
-// GET /api/projects/:id/export
-export const exportProject = async (req: Request, res: Response) => {
-  const user = ensureAuth(req);
-  await ensureCanAccessProject(user.id, req.params.id, "VIEW");
-
-  const { format = "json" } = req.query;
-  const project = await prisma.project.findUnique({
-    where: { id: req.params.id },
-  });
-  if (!project) return res.status(404).json({ error: "Not found" });
-
-  if (format === "json") {
-    res.json(project.json);
-  } else if (format === "html") {
-    res.type("html").send(`<!DOCTYPE html><html><body><pre>${JSON.stringify(project.json, null, 2)}</pre></body></html>`);
-  } else if (format === "flutter") {
-    res.json({ code: "// TODO: générer Flutter à partir du schema" });
-  } else {
-    res.status(400).json({ error: "Format non supporté" });
+  try {
+    const user = ensureAuth(req);
+    const projects = await prisma.project.findMany({
+      where: { ownerId: user.id, deletedAt: null },
+      orderBy: { updatedAt: "desc" },
+      select: {
+        id: true,
+        name: true,
+        tagline: true,
+        icon: true,
+        status: true,
+        updatedAt: true,
+        published: true,
+        lastSavedAt: true,
+      },
+    });
+    res.json({ success: true, data: projects.map(toProjectCardDTO) });
+  } catch (err: any) {
+    console.error("❌ listProjects:", err);
+    res.status(500).json({ success: false, error: "Erreur récupération projets" });
   }
 };
 
-// POST /api/projects/:id/deploy
+// ✅ Créer un projet
+export const createProject = async (req: Request, res: Response) => {
+  try {
+    const user = ensureAuth(req);
+    const body = CreateSchema.parse(req.body);
+
+    const project = await prisma.project.create({
+      data: {
+        ownerId: user.id,
+        name: body.name,
+        tagline: body.tagline ?? null,
+        icon: body.icon ?? null,
+        status: "DRAFT",
+        json: body.schema ?? {},
+      },
+    });
+
+    res.status(201).json({ success: true, data: toProjectCardDTO(project) });
+  } catch (err: any) {
+    console.error("❌ createProject:", err);
+    res.status(500).json({ success: false, error: "Erreur création projet" });
+  }
+};
+
+// ✅ Récupérer un projet
+export const getProject = async (req: Request, res: Response) => {
+  try {
+    const user = ensureAuth(req);
+    const project = await prisma.project.findUnique({
+      where: { id: req.params.id },
+      include: { pages: true },
+    });
+    if (!project) return res.status(404).json({ success: false, error: "Not found" });
+
+    await ensureCanAccessProject(user.id, project.id, "VIEW");
+    res.json({ success: true, data: project });
+  } catch (err: any) {
+    console.error("❌ getProject:", err);
+    res.status(500).json({ success: false, error: "Erreur récupération projet" });
+  }
+};
+
+// ✅ Mettre à jour un projet
+export const updateProject = async (req: Request, res: Response) => {
+  try {
+    const user = ensureAuth(req);
+    const body = UpdateSchema.parse(req.body);
+    await ensureCanAccessProject(user.id, req.params.id, "EDIT");
+
+    const updated = await prisma.project.update({
+      where: { id: req.params.id },
+      data: { ...body, updatedAt: new Date() },
+    });
+    res.json({ success: true, data: toProjectCardDTO(updated) });
+  } catch (err: any) {
+    console.error("❌ updateProject:", err);
+    res.status(500).json({ success: false, error: "Erreur mise à jour projet" });
+  }
+};
+
+// ✅ Supprimer un projet (soft delete)
+export const removeProject = async (req: Request, res: Response) => {
+  try {
+    const user = ensureAuth(req);
+    await ensureCanAccessProject(user.id, req.params.id, "EDIT");
+
+    await prisma.project.update({
+      where: { id: req.params.id },
+      data: { deletedAt: new Date(), status: "ARCHIVED" },
+    });
+    res.json({ success: true, message: "Projet archivé" });
+  } catch (err: any) {
+    console.error("❌ removeProject:", err);
+    res.status(500).json({ success: false, error: "Erreur suppression projet" });
+  }
+};
+
+// ✅ Restaurer un projet archivé
+export const restoreProject = async (req: Request, res: Response) => {
+  try {
+    const user = ensureAuth(req);
+    await ensureCanAccessProject(user.id, req.params.id, "EDIT");
+
+    const restored = await prisma.project.update({
+      where: { id: req.params.id },
+      data: { deletedAt: null, status: "DRAFT" },
+    });
+    res.json({ success: true, data: toProjectCardDTO(restored) });
+  } catch (err: any) {
+    console.error("❌ restoreProject:", err);
+    res.status(500).json({ success: false, error: "Erreur restauration projet" });
+  }
+};
+
+// ✅ Dupliquer un projet
+export const duplicateProject = async (req: Request, res: Response) => {
+  try {
+    const user = ensureAuth(req);
+    const src = await prisma.project.findUnique({ where: { id: req.params.id } });
+    if (!src) return res.status(404).json({ success: false, error: "Not found" });
+
+    await ensureCanAccessProject(user.id, src.id, "VIEW");
+
+    const copy = await prisma.project.create({
+      data: {
+        ownerId: user.id,
+        name: `${src.name} (copie)`,
+        tagline: src.tagline,
+        icon: src.icon,
+        status: "DRAFT",
+        json: src.json,
+      },
+    });
+
+    res.status(201).json({ success: true, data: toProjectCardDTO(copy) });
+  } catch (err: any) {
+    console.error("❌ duplicateProject:", err);
+    res.status(500).json({ success: false, error: "Erreur duplication projet" });
+  }
+};
+
+// ✅ Autosave
+export const autosaveProject = async (req: Request, res: Response) => {
+  try {
+    const user = ensureAuth(req);
+    const { schema } = AutosaveSchema.parse(req.body);
+    await ensureCanAccessProject(user.id, req.params.id, "EDIT");
+
+    const updated = await prisma.project.update({
+      where: { id: req.params.id },
+      data: { json: schema, lastSavedAt: new Date() },
+    });
+    res.json({ success: true, updatedAt: updated.updatedAt });
+  } catch (err: any) {
+    console.error("❌ autosaveProject:", err);
+    res.status(500).json({ success: false, error: "Erreur autosave" });
+  }
+};
+
+// ✅ Exporter un projet
+export const exportProject = async (req: Request, res: Response) => {
+  try {
+    const user = ensureAuth(req);
+    await ensureCanAccessProject(user.id, req.params.id, "VIEW");
+
+    const { format = "json" } = req.query;
+    const project = await prisma.project.findUnique({ where: { id: req.params.id } });
+    if (!project) return res.status(404).json({ success: false, error: "Not found" });
+
+    if (format === "json") {
+      res.json({ success: true, data: project.json });
+    } else if (format === "html") {
+      res.type("html").send(
+        `<!DOCTYPE html><html><body><script>window.project=${JSON.stringify(project.json)}</script></body></html>`
+      );
+    } else if (format === "flutter") {
+      res.json({ success: true, code: "// TODO: générer Flutter à partir du schema" });
+    } else {
+      res.status(400).json({ success: false, error: "Format non supporté" });
+    }
+  } catch (err: any) {
+    console.error("❌ exportProject:", err);
+    res.status(500).json({ success: false, error: "Erreur export projet" });
+  }
+};
+
+// ✅ Déploiement (mock)
 export const deployProject = async (req: Request, res: Response) => {
-  const user = ensureAuth(req);
-  await ensureCanAccessProject(user.id, req.params.id, "EDIT");
+  try {
+    const user = ensureAuth(req);
+    await ensureCanAccessProject(user.id, req.params.id, "EDIT");
 
-  // Mock déploiement
-  const deploy = await prisma.deployment.create({
-    data: { projectId: req.params.id, status: "PENDING" },
-  });
-  res.status(202).json({ ok: true, deploymentId: deploy.id });
+    const deploy = await prisma.deployment.create({
+      data: { projectId: req.params.id, status: "PENDING" },
+    });
+    res.status(202).json({ success: true, deploymentId: deploy.id });
+  } catch (err: any) {
+    console.error("❌ deployProject:", err);
+    res.status(500).json({ success: false, error: "Erreur déploiement projet" });
+  }
 };
 
-// GET /api/projects/:id/replay
+// ✅ Replays associés
 export const getReplay = async (req: Request, res: Response) => {
-  const user = ensureAuth(req);
-  await ensureCanAccessProject(user.id, req.params.id, "VIEW");
+  try {
+    const user = ensureAuth(req);
+    await ensureCanAccessProject(user.id, req.params.id, "VIEW");
 
-  const sessions = await prisma.replaySession.findMany({
-    where: { projectId: req.params.id },
-    orderBy: { createdAt: "desc" },
-  });
-  res.json(sessions);
+    const sessions = await prisma.replaySession.findMany({
+      where: { projectId: req.params.id },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json({ success: true, data: sessions });
+  } catch (err: any) {
+    console.error("❌ getReplay:", err);
+    res.status(500).json({ success: false, error: "Erreur récupération replays" });
+  }
 };
 
-// POST /api/projects/:id/share
+// ✅ Partager un projet
 export const shareProject = async (req: Request, res: Response) => {
-  const user = ensureAuth(req);
-  await ensureCanAccessProject(user.id, req.params.id, "VIEW");
+  try {
+    const user = ensureAuth(req);
+    await ensureCanAccessProject(user.id, req.params.id, "VIEW");
 
-  const link = await prisma.shareLink.create({
-    data: {
-      projectId: req.params.id,
-      token: crypto.randomUUID(),
-      expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24), // 24h
-    },
-  });
-  res.json({ url: `${process.env.FRONTEND_URL}/preview/${link.token}` });
+    const link = await prisma.shareLink.create({
+      data: {
+        projectId: req.params.id,
+        token: crypto.randomUUID(),
+        expiresAt: new Date(Date.now() + 1000 * 60 * 60 * 24),
+      },
+    });
+    res.json({ success: true, url: `${process.env.FRONTEND_URL}/preview/${link.token}` });
+  } catch (err: any) {
+    console.error("❌ shareProject:", err);
+    res.status(500).json({ success: false, error: "Erreur partage projet" });
+  }
 };
 
-// POST /api/projects/:id/publish
+// ✅ Publier un projet
 export const publishProject = async (req: Request, res: Response) => {
-  const user = ensureAuth(req);
-  await ensureCanAccessProject(user.id, req.params.id, "EDIT");
+  try {
+    const user = ensureAuth(req);
+    await ensureCanAccessProject(user.id, req.params.id, "EDIT");
 
-  const project = await prisma.project.update({
-    where: { id: req.params.id },
-    data: { published: true },
-  });
-  res.json({ ok: true, id: project.id });
+    const project = await prisma.project.update({
+      where: { id: req.params.id },
+      data: { published: true },
+    });
+    res.json({ success: true, id: project.id });
+  } catch (err: any) {
+    console.error("❌ publishProject:", err);
+    res.status(500).json({ success: false, error: "Erreur publication projet" });
+  }
 };
