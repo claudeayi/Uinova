@@ -1,24 +1,30 @@
 // src/controllers/aiController.ts
 import { Request, Response } from "express";
 import { z } from "zod";
+import crypto from "crypto";
 import {
   generateAssistantResponse,
   generateAssistantStream,
   listAvailableModels,
 } from "../services/aiService";
 import { moderatePrompt } from "../utils/aiModeration";
-import crypto from "crypto";
 
-// (Optionnel) quotas et audit – à remplacer par tes vrais utilitaires si dispo
+/* ============================================================================
+ *  QUOTA & AUDIT MOCKS (à brancher sur ton vrai service)
+ * ========================================================================== */
 const quota = {
-  async ensureAndDebit(_userId: string, _kind: "ai", _cost = 1) {},
+  async ensureAndDebit(userId: string, kind: "ai", cost = 1) {
+    console.log(`💳 Quota debit [${kind}] user=${userId}, cost=${cost}`);
+  },
 };
 const audit = {
-  async log(_data: any) {},
+  async log(data: any) {
+    console.log("📝 Audit log:", data);
+  },
 };
 
 /* ============================================================================
- *  SCHEMAS VALIDATION
+ *  VALIDATION
  * ========================================================================== */
 const ChatSchema = z.object({
   prompt: z.string().min(1).max(4000),
@@ -31,10 +37,10 @@ const ChatSchema = z.object({
     )
     .optional(),
   system: z.string().max(2000).optional(),
-  model: z.string().optional(), // ex: "gpt-4o-mini"
+  model: z.string().optional(),
   temperature: z.number().min(0).max(2).optional(),
   maxTokens: z.number().int().min(1).max(4096).optional(),
-  json: z.boolean().optional(), // JSON mode
+  json: z.boolean().optional(),
 });
 
 function truncateHistory(
@@ -59,29 +65,31 @@ function truncateHistory(
 
 /**
  * POST /api/ai/chat
- * → Génération classique (pas streaming)
+ * → Génération classique (réponse complète)
  */
 export const chat = async (req: Request, res: Response) => {
   try {
     const userId = (req as any)?.user?.id || "anonymous";
     const parsed = ChatSchema.safeParse(req.body);
     if (!parsed.success) {
-      return res
-        .status(400)
-        .json({ error: "Invalid body", details: parsed.error.flatten() });
+      return res.status(400).json({
+        success: false,
+        error: "INVALID_BODY",
+        details: parsed.error.flatten(),
+      });
     }
 
     const { prompt, history = [], system, model, temperature, maxTokens, json } =
       parsed.data;
 
+    // 🔒 Sécurité : modération
     if (!moderatePrompt(prompt)) {
       return res
         .status(403)
-        .json({ error: "Prompt interdit par la politique UInova." });
+        .json({ success: false, error: "Prompt interdit par la politique UInova." });
     }
 
     const safeHistory = truncateHistory(history);
-
     await quota.ensureAndDebit(userId, "ai", 1);
 
     const result = await generateAssistantResponse({
@@ -95,7 +103,7 @@ export const chat = async (req: Request, res: Response) => {
       userId,
     });
 
-    // Audit log (prompt hash pour confidentialité)
+    // 📜 Audit (sans stocker le prompt complet)
     audit
       .log({
         type: "AI_CHAT",
@@ -103,6 +111,8 @@ export const chat = async (req: Request, res: Response) => {
         promptHash: crypto.createHash("sha256").update(prompt).digest("hex"),
         model: result?.model,
         tokens: result?.usage?.totalTokens,
+        ip: req.ip,
+        ua: req.headers["user-agent"],
         ts: Date.now(),
       })
       .catch(() => {});
@@ -112,11 +122,12 @@ export const chat = async (req: Request, res: Response) => {
       answer: result.answer,
       usage: result.usage,
       model: result.model,
+      mode: json ? "json" : "text",
     });
   } catch (e: any) {
-    console.error("[AI] chat error:", e?.response?.data || e?.message || e);
+    console.error("❌ [AI] chat error:", e?.response?.data || e?.message || e);
     const msg =
-      e?.response?.data?.error ||
+      e?.response?.data?.error?.message ||
       e?.message ||
       "Erreur lors de la génération AI.";
     return res.status(500).json({ success: false, error: msg });
@@ -124,7 +135,8 @@ export const chat = async (req: Request, res: Response) => {
 };
 
 /**
- * SSE Streaming – GET ou POST /api/ai/chat/stream
+ * GET|POST /api/ai/chat/stream
+ * → Réponse en streaming SSE
  */
 export const chatStream = async (req: Request, res: Response) => {
   const method = req.method.toUpperCase();
@@ -134,7 +146,7 @@ export const chatStream = async (req: Request, res: Response) => {
   if (!parsed.success) {
     res
       .status(400)
-      .json({ error: "Invalid body", details: parsed.error.flatten() });
+      .json({ success: false, error: "INVALID_BODY", details: parsed.error.flatten() });
     return;
   }
 
@@ -143,9 +155,7 @@ export const chatStream = async (req: Request, res: Response) => {
     parsed.data;
 
   if (!moderatePrompt(prompt)) {
-    res
-      .status(403)
-      .json({ error: "Prompt interdit par la politique UInova." });
+    res.status(403).json({ success: false, error: "Prompt interdit." });
     return;
   }
 
@@ -189,7 +199,7 @@ export const chatStream = async (req: Request, res: Response) => {
 
     res.end();
   } catch (e: any) {
-    console.error("[AI] chatStream error:", e?.response?.data || e?.message);
+    console.error("❌ [AI] chatStream error:", e?.response?.data || e?.message);
     send("error", e?.message || "Erreur lors du streaming AI.");
     res.end();
   }
@@ -197,14 +207,16 @@ export const chatStream = async (req: Request, res: Response) => {
 
 /**
  * GET /api/ai/models
- * → Retourne la liste des modèles disponibles pour le frontend
+ * → Retourne la liste des modèles disponibles
  */
 export const getModels = async (_req: Request, res: Response) => {
   try {
     const models = await listAvailableModels();
     res.json({ success: true, data: models });
   } catch (e: any) {
-    console.error("[AI] getModels error:", e?.message);
-    res.status(500).json({ success: false, error: "Impossible de charger les modèles" });
+    console.error("❌ [AI] getModels error:", e?.message);
+    res
+      .status(500)
+      .json({ success: false, error: "Impossible de charger les modèles" });
   }
 };
