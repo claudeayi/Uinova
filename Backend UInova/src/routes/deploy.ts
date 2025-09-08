@@ -1,3 +1,4 @@
+// src/routes/deploy.ts
 import { Router } from "express";
 import { param } from "express-validator";
 import {
@@ -18,17 +19,21 @@ import { deploySchema } from "../validators/deploy.schema";
 const router = Router();
 
 /* ============================================================================
- *  DEPLOYMENT ROUTES – utilisateur authentifié
+ *  DEPLOYMENT ROUTES – accessibles uniquement aux utilisateurs authentifiés
  * ========================================================================== */
 router.use(authenticate);
 
 /**
  * POST /api/deploy/:projectId
- * 🚀 Lancer un déploiement
+ * 🚀 Lancer un déploiement pour un projet
+ * Body: { env, version, strategy, config }
  */
 router.post(
   "/:projectId",
-  param("projectId").isString().isLength({ min: 8 }),
+  param("projectId")
+    .isString()
+    .isLength({ min: 8 })
+    .withMessage("projectId invalide"),
   handleValidationErrors,
   validateBody(deploySchema),
   startDeployment
@@ -36,7 +41,7 @@ router.post(
 
 /**
  * GET /api/deploy/:projectId/status
- * 📊 Statut du dernier déploiement
+ * 📊 Récupérer le statut du dernier déploiement
  */
 router.get(
   "/:projectId/status",
@@ -47,7 +52,7 @@ router.get(
 
 /**
  * GET /api/deploy/:projectId/history
- * 🕒 Historique complet des déploiements d’un projet
+ * 🕒 Historique des déploiements du projet
  */
 router.get(
   "/:projectId/history",
@@ -58,7 +63,7 @@ router.get(
 
 /**
  * POST /api/deploy/:projectId/:deployId/rollback
- * ↩️ Rollback vers une version précédente
+ * ↩️ Revenir à une version précédente
  */
 router.post(
   "/:projectId/:deployId/rollback",
@@ -70,7 +75,7 @@ router.post(
 
 /**
  * GET /api/deploy/:projectId/:deployId/logs
- * 📜 Logs détaillés d’un déploiement
+ * 📜 Obtenir les logs détaillés d’un déploiement
  */
 router.get(
   "/:projectId/:deployId/logs",
@@ -103,16 +108,13 @@ router.post(
 );
 
 /* ============================================================================
- *  ADMIN ROUTES – uniquement administrateurs
+ *  ADMIN ROUTES – réservées aux administrateurs
  * ========================================================================== */
+
 /**
  * GET /api/deploy/admin/deployments
- * 🔐 Lister tous les déploiements
+ * 🔐 Liste globale des déploiements (tous projets confondus)
  */
-router.get(
-  "/admin/deployments",
-  authorize(["ADMIN"]),
-  listAllDeployments
-);
+router.get("/admin/deployments", authorize(["ADMIN"]), listAllDeployments);
 
 export default router;
