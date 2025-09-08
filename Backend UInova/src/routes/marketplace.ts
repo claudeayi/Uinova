@@ -1,4 +1,6 @@
+// src/routes/marketplace.ts
 import { Router } from "express";
+import { param } from "express-validator";
 import {
   listItems,
   getItem,
@@ -13,6 +15,7 @@ import {
 } from "../controllers/marketplaceController";
 import { authenticate, authorize } from "../middlewares/security";
 import { validateBody, validateQuery } from "../middlewares/validator";
+import { handleValidationErrors } from "../middlewares/validate";
 import {
   publishItemSchema,
   purchaseSchema,
@@ -25,43 +28,102 @@ const router = Router();
  *  ROUTES PUBLIQUES – accessibles sans authentification
  * ========================================================================== */
 
-// ✅ Liste paginée des items (query: page, pageSize, search?, category?)
+/**
+ * GET /api/marketplace/items
+ * ▶️ Liste paginée des items
+ * Query: { page, pageSize, search?, category?, sort? }
+ */
 router.get("/items", validateQuery(listItemsQuerySchema), listItems);
 
-// ✅ Détail d’un item par ID
-router.get("/items/:id", getItem);
+/**
+ * GET /api/marketplace/items/:id
+ * ▶️ Détail d’un item par ID
+ */
+router.get(
+  "/items/:id",
+  param("id").isString().isLength({ min: 5 }).withMessage("ID invalide"),
+  handleValidationErrors,
+  getItem
+);
 
 /* ============================================================================
  *  ROUTES UTILISATEUR – nécessite authentification
  * ========================================================================== */
 router.use(authenticate);
 
-// ✅ Publier un nouvel item marketplace
+/**
+ * POST /api/marketplace/items
+ * ▶️ Publier un nouvel item marketplace
+ */
 router.post("/items", validateBody(publishItemSchema), publishItem);
 
-// ✅ Mettre à jour son propre item
-router.patch("/items/:id", validateBody(publishItemSchema.partial()), updateItem);
+/**
+ * PATCH /api/marketplace/items/:id
+ * ▶️ Mettre à jour son propre item
+ */
+router.patch(
+  "/items/:id",
+  param("id").isString().isLength({ min: 5 }),
+  handleValidationErrors,
+  validateBody(publishItemSchema.partial()),
+  updateItem
+);
 
-// ✅ Supprimer son propre item
-router.delete("/items/:id", deleteItem);
+/**
+ * DELETE /api/marketplace/items/:id
+ * ▶️ Supprimer son propre item
+ */
+router.delete(
+  "/items/:id",
+  param("id").isString().isLength({ min: 5 }),
+  handleValidationErrors,
+  deleteItem
+);
 
-// ✅ Liste des items de l’utilisateur connecté
+/**
+ * GET /api/marketplace/my/items
+ * ▶️ Liste des items de l’utilisateur connecté
+ */
 router.get("/my/items", listUserItems);
 
-// ✅ Acheter un item
+/**
+ * POST /api/marketplace/purchase
+ * ▶️ Acheter un item
+ */
 router.post("/purchase", validateBody(purchaseSchema), purchaseItem);
 
 /* ============================================================================
  *  ROUTES ADMIN – nécessite rôle administrateur
  * ========================================================================== */
 
-// ✅ Liste complète des items (filtrage + modération)
+/**
+ * GET /api/marketplace/admin/items
+ * ▶️ Liste complète des items (modération)
+ */
 router.get("/admin/items", authorize(["ADMIN"]), adminListItems);
 
-// ✅ Valider / rejeter un item soumis
-router.post("/admin/items/:id/validate", authorize(["ADMIN"]), adminValidateItem);
+/**
+ * POST /api/marketplace/admin/items/:id/validate
+ * ▶️ Valider / rejeter un item
+ */
+router.post(
+  "/admin/items/:id/validate",
+  authorize(["ADMIN"]),
+  param("id").isString().isLength({ min: 5 }),
+  handleValidationErrors,
+  adminValidateItem
+);
 
-// ✅ Supprimer un item (modération)
-router.delete("/admin/items/:id", authorize(["ADMIN"]), adminDeleteItem);
+/**
+ * DELETE /api/marketplace/admin/items/:id
+ * ▶️ Supprimer un item (modération)
+ */
+router.delete(
+  "/admin/items/:id",
+  authorize(["ADMIN"]),
+  param("id").isString().isLength({ min: 5 }),
+  handleValidationErrors,
+  adminDeleteItem
+);
 
 export default router;
