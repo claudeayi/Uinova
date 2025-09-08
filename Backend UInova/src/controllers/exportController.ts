@@ -14,7 +14,7 @@ try {
 // ---- Config
 const EXPORT_TYPES = ["react", "html", "flutter", "pwa"] as const;
 const STATUS = ["pending", "ready", "failed"] as const;
-const MAX_CONTENT_BYTES = 30 * 1024 * 1024;
+const MAX_CONTENT_BYTES = 30 * 1024 * 1024; // 30MB
 
 // ---- Validation
 const SaveExportSchema = z.object({
@@ -31,11 +31,15 @@ const ListQuerySchema = z.object({
   status: z.enum(STATUS as any).optional(),
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(20),
-  sort: z.enum(["createdAt:desc", "createdAt:asc"]).default("createdAt:desc"),
+  sort: z.enum(["createdAt:desc","createdAt:asc"]).default("createdAt:desc"),
 });
 
 // ---- Helpers
-const toId = (v: any) => (v === undefined || v === null ? undefined : isNaN(Number(v)) ? String(v) : Number(v));
+const toId = (v: any) => {
+  if (v === undefined || v === null) return undefined;
+  const n = Number(v);
+  return Number.isFinite(n) && String(n) === String(v) ? n : String(v);
+};
 
 const exportSelect = {
   id: true,
@@ -45,7 +49,7 @@ const exportSelect = {
   createdAt: true,
   projectId: true,
   pageId: true,
-  meta: true,
+  meta: true as const,
 };
 
 function dto(e: any) {
@@ -69,7 +73,10 @@ async function ensureCanEditProject(req: Request, projectId: string | number) {
     const ok = await policy.canAccessProject(userId, projectId, "EDIT");
     if (!ok) throw Object.assign(new Error("Forbidden"), { status: 403 });
   } else {
-    const project = await prisma.project.findUnique({ where: { id: projectId as any }, select: { ownerId: true } });
+    const project = await prisma.project.findUnique({
+      where: { id: projectId as any },
+      select: { ownerId: true },
+    });
     if (!project || project.ownerId !== userId) throw Object.assign(new Error("Forbidden"), { status: 403 });
   }
 }
@@ -78,7 +85,7 @@ async function ensureCanEditProject(req: Request, projectId: string | number) {
  *  CONTROLLERS
  * ========================================================================== */
 
-// ✅ Sauvegarder un export
+// ✅ POST /api/exports/:projectId (ou /:projectId/:pageId)
 export const saveExport = async (req: Request, res: Response) => {
   try {
     const projectId = toId(req.params.projectId);
@@ -106,7 +113,7 @@ export const saveExport = async (req: Request, res: Response) => {
           projectId,
           pageId: pageId ?? null,
           type,
-          userId: (req as any)?.user?.sub || null,
+          userId: (req as any)?.user?.id || null,
         });
       }
 
@@ -117,12 +124,10 @@ export const saveExport = async (req: Request, res: Response) => {
     }
 
     // ⚡ Mode direct
-    if (!content) return res.status(400).json({ success: false, error: "Content requis en mode direct" });
+    if (!content) return res.status(400).json({ success: false, error: "Content requis en mode 'direct'" });
 
     const bytesApprox = Buffer.byteLength(content, "utf8");
-    if (bytesApprox > MAX_CONTENT_BYTES) {
-      return res.status(413).json({ success: false, error: "Contenu trop volumineux" });
-    }
+    if (bytesApprox > MAX_CONTENT_BYTES) return res.status(413).json({ success: false, error: "Contenu trop volumineux" });
 
     let bundleUrl: string | null = null;
     const isDataUrl = /^data:.*;base64,/.test(content);
@@ -157,7 +162,7 @@ export const saveExport = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ Lister les exports
+// ✅ GET /api/exports
 export const list = async (req: Request, res: Response) => {
   try {
     const q = ListQuerySchema.safeParse(req.query);
@@ -199,7 +204,7 @@ export const list = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ Récupérer un export
+// ✅ GET /api/exports/:id
 export const getOne = async (req: Request, res: Response) => {
   try {
     const id = toId(req.params.id);
@@ -220,7 +225,7 @@ export const getOne = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ Marquer un export échoué
+// ✅ POST /api/exports/:id/mark-failed
 export const markFailed = async (req: Request, res: Response) => {
   try {
     const id = toId(req.params.id);
@@ -242,7 +247,7 @@ export const markFailed = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ Marquer un export prêt
+// ✅ POST /api/exports/:id/mark-ready
 export const markReady = async (req: Request, res: Response) => {
   try {
     const id = toId(req.params.id);
