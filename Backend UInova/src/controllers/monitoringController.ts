@@ -1,3 +1,4 @@
+// src/controllers/monitoringController.ts
 import { Request, Response } from "express";
 import { prisma } from "../utils/prisma";
 import os from "os";
@@ -12,25 +13,32 @@ export async function getMetrics(_req: Request, res: Response) {
     const totalMem = os.totalmem();
     const freeMem = os.freemem();
     const usedMem = totalMem - freeMem;
+    const cpuUsage = os.loadavg();
 
     const usersCount = await prisma.user.count();
     const projectsCount = await prisma.project.count();
+    const orgsCount = await prisma.organization.count();
 
     const metrics = {
-      uptime: process.uptime(),
+      uptime: {
+        seconds: process.uptime(),
+        human: new Date(process.uptime() * 1000).toISOString().substr(11, 8),
+      },
       memory: {
         total: totalMem,
         free: freeMem,
         used: usedMem,
-        usagePercent: ((usedMem / totalMem) * 100).toFixed(2) + "%",
+        usagePercent: Number(((usedMem / totalMem) * 100).toFixed(2)),
       },
       cpu: {
-        loadAvg: os.loadavg(), // 1, 5, 15 minutes
+        loadAvg: cpuUsage, // [1,5,15m]
         cores: os.cpus().length,
+        model: os.cpus()[0]?.model,
       },
       db: {
         usersCount,
         projectsCount,
+        orgsCount,
       },
       platform: os.platform(),
       arch: os.arch(),
@@ -65,13 +73,13 @@ export async function getPrometheusMetrics(_req: Request, res: Response) {
       `# TYPE nodejs_memory_total_bytes gauge`,
       `nodejs_memory_total_bytes ${totalMem}`,
 
-      `# HELP nodejs_memory_free_bytes Mémoire libre`,
-      `# TYPE nodejs_memory_free_bytes gauge`,
-      `nodejs_memory_free_bytes ${freeMem}`,
-
       `# HELP nodejs_memory_used_bytes Mémoire utilisée`,
       `# TYPE nodejs_memory_used_bytes gauge`,
       `nodejs_memory_used_bytes ${usedMem}`,
+
+      `# HELP nodejs_memory_free_bytes Mémoire libre`,
+      `# TYPE nodejs_memory_free_bytes gauge`,
+      `nodejs_memory_free_bytes ${freeMem}`,
 
       `# HELP nodejs_load1 Charge CPU 1m`,
       `# TYPE nodejs_load1 gauge`,
@@ -92,9 +100,13 @@ export async function getPrometheusMetrics(_req: Request, res: Response) {
       `# HELP app_projects_total Nombre total de projets`,
       `# TYPE app_projects_total gauge`,
       `app_projects_total ${projectsCount}`,
+
+      `# HELP app_build_info Informations build`,
+      `# TYPE app_build_info gauge`,
+      `app_build_info{env="${process.env.NODE_ENV}",version="${process.env.APP_VERSION || "1.0.0"}"} 1`,
     ];
 
-    res.setHeader("Content-Type", "text/plain");
+    res.setHeader("Content-Type", "text/plain; version=0.0.4");
     res.send(lines.join("\n"));
   } catch (err) {
     console.error("❌ getPrometheusMetrics error:", err);
@@ -103,17 +115,35 @@ export async function getPrometheusMetrics(_req: Request, res: Response) {
 }
 
 // ✅ Logs → /monitoring/logs
-export async function getLogs(_req: Request, res: Response) {
+export async function getLogs(req: Request, res: Response) {
   try {
-    const logs = await prisma.auditLog.findMany({
-      take: 100,
-      orderBy: { createdAt: "desc" },
-      include: {
-        user: { select: { id: true, email: true } },
-      },
-    });
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+    const skip = (page - 1) * limit;
 
-    res.json({ success: true, data: logs });
+    const userId = req.query.userId as string | undefined;
+    const action = req.query.action as string | undefined;
+
+    const where: any = {};
+    if (userId) where.userId = userId;
+    if (action) where.action = action;
+
+    const [logs, total] = await Promise.all([
+      prisma.auditLog.findMany({
+        where,
+        skip,
+        take: limit,
+        orderBy: { createdAt: "desc" },
+        include: { user: { select: { id: true, email: true } } },
+      }),
+      prisma.auditLog.count({ where }),
+    ]);
+
+    res.json({
+      success: true,
+      data: logs,
+      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    });
   } catch (err) {
     console.error("❌ getLogs error:", err);
     res.status(500).json({ success: false, message: "Erreur récupération logs" });
@@ -123,13 +153,15 @@ export async function getLogs(_req: Request, res: Response) {
 // ✅ Health → /monitoring/health
 export async function getHealth(_req: Request, res: Response) {
   try {
-    const dbOk = await prisma.$queryRaw`SELECT 1`; // test rapide DB
+    const start = Date.now();
+    const dbOk = await prisma.$queryRaw`SELECT 1`;
+    const duration = Date.now() - start;
 
     res.json({
       success: true,
       data: {
         ok: true,
-        db: !!dbOk,
+        db: { ok: !!dbOk, latencyMs: duration },
         env: process.env.NODE_ENV || "development",
         version: process.env.APP_VERSION || "1.0.0",
         uptime: process.uptime(),
@@ -142,19 +174,25 @@ export async function getHealth(_req: Request, res: Response) {
   }
 }
 
-// ✅ Admin → /monitoring/overview (métriques + logs en un seul appel)
+// ✅ Admin → /monitoring/overview
 export async function getOverview(_req: Request, res: Response) {
   try {
-    const metrics = await prisma.auditLog.count();
-    const usersCount = await prisma.user.count();
-    const projectsCount = await prisma.project.count();
+    const [logsCount, usersCount, projectsCount, orgsCount, replaysCount] = await Promise.all([
+      prisma.auditLog.count(),
+      prisma.user.count(),
+      prisma.project.count(),
+      prisma.organization.count(),
+      prisma.replaySession.count(),
+    ]);
 
     res.json({
       success: true,
       data: {
-        logsCount: metrics,
+        logsCount,
         usersCount,
         projectsCount,
+        orgsCount,
+        replaysCount,
         uptime: process.uptime(),
         timestamp: Date.now(),
       },
