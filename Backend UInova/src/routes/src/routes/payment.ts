@@ -22,74 +22,133 @@ const router = Router();
  *  STRIPE
  * ========================================================================== */
 
-// ✅ Créer un PaymentIntent
+/**
+ * POST /api/payments/stripe
+ * Crée un PaymentIntent Stripe
+ */
 router.post(
   "/stripe",
   requireAuth,
-  body("amount").isInt({ min: 50 }).withMessage("Montant invalide"),
+  body("amount")
+    .isInt({ min: 50, max: 2_000_000 })
+    .withMessage("Montant invalide (min 50 centimes, max 20 000€)."),
+  body("currency")
+    .optional()
+    .isString()
+    .isLength({ min: 3, max: 3 })
+    .withMessage("Devise invalide (ISO 4217)."),
   handleValidationErrors,
   stripeIntent
 );
 
-// ✅ Lister les plans (PricingPage)
+/**
+ * GET /api/payments/stripe/prices
+ * Liste les produits / plans Stripe (Pricing Page)
+ */
 router.get("/stripe/prices", listStripePrices);
 
-// ✅ Vérifier statut d’un paiement
+/**
+ * GET /api/payments/stripe/status/:paymentIntentId
+ * Vérifie le statut d’un PaymentIntent
+ */
 router.get(
   "/stripe/status/:paymentIntentId",
   requireAuth,
-  param("paymentIntentId").isString().notEmpty(),
+  param("paymentIntentId")
+    .isString()
+    .isLength({ min: 8 })
+    .withMessage("paymentIntentId invalide."),
   handleValidationErrors,
   getStripePaymentStatus
 );
 
-// ✅ Webhook Stripe (⚠️ public, appelé par Stripe)
+/**
+ * POST /api/payments/stripe/webhook
+ * Webhook Stripe (⚠️ public)
+ */
 router.post("/stripe/webhook", stripeWebhook);
 
 /* ============================================================================
  *  PAYPAL
  * ========================================================================== */
 
-// ✅ Créer une commande PayPal
+/**
+ * POST /api/payments/paypal/create
+ * Crée une commande PayPal
+ */
 router.post(
   "/paypal/create",
   requireAuth,
-  body("amount").isFloat({ min: 1 }).withMessage("Montant invalide"),
+  body("amount")
+    .isFloat({ min: 1 })
+    .withMessage("Montant invalide (≥ 1)."),
+  body("currency")
+    .optional()
+    .isString()
+    .isLength({ min: 3, max: 3 })
+    .withMessage("Devise invalide."),
   handleValidationErrors,
   paypalCreateOrder
 );
 
-// ✅ Capturer une commande PayPal
+/**
+ * POST /api/payments/paypal/capture
+ * Capture une commande PayPal
+ */
 router.post(
   "/paypal/capture",
   requireAuth,
-  body("orderId").isString().notEmpty().withMessage("orderId requis"),
+  body("orderId")
+    .isString()
+    .isLength({ min: 6 })
+    .withMessage("orderId requis."),
   handleValidationErrors,
   paypalCaptureOrder
 );
 
-// ✅ Webhook PayPal (⚠️ public)
+/**
+ * POST /api/payments/paypal/webhook
+ * Webhook PayPal (⚠️ public)
+ */
 router.post("/paypal/webhook", paypalWebhook);
 
 /* ============================================================================
  *  CINETPAY
  * ========================================================================== */
 
-// ✅ Initialiser un paiement CinetPay
+/**
+ * POST /api/payments/cinetpay/init
+ * Initialise un paiement via CinetPay
+ */
 router.post(
   "/cinetpay/init",
   requireAuth,
-  body("amount").isFloat({ min: 1 }).withMessage("Montant invalide"),
-  body("currency").isString().isLength({ min: 3, max: 3 }).withMessage("Devise invalide"),
+  body("amount")
+    .isFloat({ min: 1 })
+    .withMessage("Montant invalide (≥ 1)."),
+  body("currency")
+    .isString()
+    .isLength({ min: 3, max: 3 })
+    .withMessage("Devise invalide."),
+  body("transactionId")
+    .optional()
+    .isString()
+    .withMessage("transactionId invalide."),
   handleValidationErrors,
   cinetpayInitPayment
 );
 
-// ✅ Vérifier un paiement CinetPay
+/**
+ * GET /api/payments/cinetpay/check/:transactionId
+ * Vérifie un paiement CinetPay
+ */
 router.get(
   "/cinetpay/check/:transactionId",
   requireAuth,
-  param("transactionId").isString().notEmpty(),
+  param("transactionId")
+    .isString()
+    .isLength({ min: 6 })
+    .withMessage("transactionId invalide."),
   handleValidationErrors,
   cinetpayCheckPayment
 );
@@ -98,11 +157,16 @@ router.get(
  *  MOCK (DEV & TEST)
  * ========================================================================== */
 
-// ✅ Paiement simulé (dev/test)
+/**
+ * POST /api/payments/mock
+ * Paiement simulé (dev/test uniquement)
+ */
 router.post(
   "/mock",
   requireAuth,
-  body("amount").isFloat({ min: 1 }).withMessage("Montant invalide"),
+  body("amount")
+    .isFloat({ min: 1 })
+    .withMessage("Montant invalide."),
   handleValidationErrors,
   mockPayment
 );
