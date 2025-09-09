@@ -77,6 +77,26 @@ enum PurchaseStatus {
   FAILED
 }
 
+enum JobStatus {
+  PENDING
+  RUNNING
+  SUCCESS
+  FAILED
+  RETRY
+}
+
+enum WebhookStatus {
+  SUCCESS
+  FAILED
+}
+
+enum AIJobStatus {
+  PENDING
+  RUNNING
+  COMPLETED
+  FAILED
+}
+
 /* ============================================================================
  * CORE MODELS
  * ========================================================================== */
@@ -106,18 +126,16 @@ model User {
   emailLogs     EmailLog[]
   usageRecords  UsageRecord[]
   usageHistory  UsageHistory[]
-
-  // ⚡ Monitoring & sécurité
   sessions      UserSession[]
   apiKeys       ApiKey[]
-
-  // ⚡ Multi-tenant
   memberships   Membership[]
   orgInvites    OrgInvite[]      @relation("Invitee")
+  transactions  Transaction[]
+  aiJobs        AIJob[]
 }
 
 /* ============================================================================
- * ORGANIZATIONS (Multi-tenant)
+ * ORGANIZATIONS
  * ========================================================================== */
 model Organization {
   id          String        @id @default(cuid())
@@ -135,25 +153,24 @@ model Organization {
 }
 
 model Membership {
-  id          String        @id @default(cuid())
-  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId      String
-  org         Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
-  orgId       String
-  role        OrgRole       @default(MEMBER)
-  createdAt   DateTime      @default(now())
+  id        String        @id @default(cuid())
+  userId    String
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  orgId     String
+  org       Organization  @relation(fields: [orgId], references: [id], onDelete: Cascade)
+  role      OrgRole       @default(MEMBER)
+  createdAt DateTime      @default(now())
 
   @@unique([userId, orgId])
-  @@index([orgId])
 }
 
 model OrgInvite {
   id          String        @id @default(cuid())
-  org         Organization  @relation("OrgInvites", fields: [orgId], references: [id], onDelete: Cascade)
   orgId       String
+  org         Organization  @relation("OrgInvites", fields: [orgId], references: [id], onDelete: Cascade)
   email       String
-  invitedBy   User          @relation("Invitee", fields: [invitedById], references: [id], onDelete: Cascade)
   invitedById String
+  invitedBy   User          @relation("Invitee", fields: [invitedById], references: [id])
   role        OrgRole       @default(MEMBER)
   accepted    Boolean       @default(false)
   createdAt   DateTime      @default(now())
@@ -167,10 +184,10 @@ model Project {
   name         String
   description  String?
   status       ProjectStatus  @default(PLANIFIE)
-  owner        User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerId      String
-  org          Organization?  @relation(fields: [orgId], references: [id], onDelete: SetNull)
+  owner        User           @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   orgId        String?
+  org          Organization?  @relation(fields: [orgId], references: [id], onDelete: SetNull)
   pages        Page[]
   exports      ExportJob[]
   shareLinks   ShareLink[]
@@ -179,33 +196,31 @@ model Project {
   replays      ReplaySession[]
   usageRecords UsageRecord[]
   favorites    Favorite[]
+  payments     Payment[]
   createdAt    DateTime       @default(now())
   updatedAt    DateTime       @updatedAt
 
   @@index([ownerId])
   @@index([orgId])
-  @@index([status])
 }
 
 model Page {
   id          String    @id @default(cuid())
   name        String
-  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId   String
+  project     Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
   schemaJSON  Json
   editors     User[]    @relation("PageEditors")
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
-
-  @@index([projectId])
 }
 
 model ExportJob {
   id          String        @id @default(cuid())
-  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId   String
+  project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
   target      ExportTarget
-  status      String        @default("PENDING")
+  status      JobStatus     @default(PENDING)
   resultUrl   String?
   error       String?
   createdAt   DateTime      @default(now())
@@ -217,12 +232,12 @@ model ExportJob {
 }
 
 /* ============================================================================
- * BILLING / SUBSCRIPTION
+ * BILLING / PAYMENTS
  * ========================================================================== */
 model Subscription {
   id               String             @id @default(cuid())
-  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId           String
+  user             User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   plan             SubscriptionPlan   @default(FREE)
   status           SubscriptionStatus @default(TRIAL)
   currentPeriodEnd DateTime?
@@ -232,9 +247,6 @@ model Subscription {
 
   payments         Payment[]
   usageRecords     UsageRecord[]
-
-  @@index([userId])
-  @@index([plan, status])
 }
 
 model Payment {
@@ -246,45 +258,24 @@ model Payment {
   status         PaymentStatus    @default(CREATED)
   rawPayload     Json?
   createdAt      DateTime         @default(now())
-
-  user           User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
   userId         String?
-  subscription   Subscription?    @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
+  user           User?            @relation(fields: [userId], references: [id], onDelete: SetNull)
   subscriptionId String?
-  project        Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  subscription   Subscription?    @relation(fields: [subscriptionId], references: [id], onDelete: SetNull)
   projectId      String?
-
-  @@index([provider, status])
-  @@index([userId])
-  @@index([subscriptionId])
-  @@index([projectId])
+  project        Project?         @relation(fields: [projectId], references: [id], onDelete: SetNull)
 }
 
-model UsageRecord {
+model Transaction {
   id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
-  project   Project? @relation(fields: [projectId], references: [id], onDelete: SetNull)
-  projectId String?
-  type      String   // api_call | ai_tokens | export_job | storage
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider  PaymentProvider
   amount    Int
-  meta      Json?
+  currency  String   @default("EUR")
+  status    PaymentStatus
+  reference String?
   createdAt DateTime @default(now())
-
-  @@index([userId, type, createdAt])
-  @@index([projectId])
-}
-
-model UsageHistory {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId    String
-  date      DateTime @default(now())
-  api       Int      @default(0)
-  storageMB Float    @default(0)
-  projects  Int      @default(0)
-
-  @@unique([userId, date])
 }
 
 /* ============================================================================
@@ -292,18 +283,16 @@ model UsageHistory {
  * ========================================================================== */
 model Notification {
   id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   type      String   @default("info")
   title     String
   body      String?
+  channel   String   @default("IN_APP") // IN_APP | EMAIL | PUSH
   actionUrl String?
   meta      Json?
   read      Boolean  @default(false)
   createdAt DateTime @default(now())
-
-  @@index([userId, read])
-  @@index([type])
 }
 
 model EmailTemplate {
@@ -316,25 +305,21 @@ model EmailTemplate {
   lang      String   @default("fr")
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
   logs      EmailLog[]
 }
 
 model EmailLog {
-  id          String         @id @default(cuid())
-  template    EmailTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  id          String   @id @default(cuid())
   templateId  String?
-  user        User?          @relation(fields: [userId], references: [id], onDelete: SetNull)
+  template    EmailTemplate? @relation(fields: [templateId], references: [id], onDelete: SetNull)
   userId      String?
+  user        User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   to          String
   subject     String
   body        String
-  status      String         // SUCCESS | FAILED
+  status      String
   error       String?
   createdAt   DateTime @default(now())
-
-  @@index([userId])
-  @@index([status])
 }
 
 /* ============================================================================
@@ -346,22 +331,17 @@ model Badge {
   label     String
   icon      String?
   createdAt DateTime    @default(now())
-
   users     UserBadge[]
 }
 
 model UserBadge {
   id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
-  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   badgeId   String
+  badge     Badge    @relation(fields: [badgeId], references: [id], onDelete: Cascade)
   earnedAt  DateTime @default(now())
   meta      Json?
-
-  @@unique([userId, badgeId])
-  @@index([userId])
-  @@index([badgeId])
 }
 
 model MarketplaceItem {
@@ -371,48 +351,42 @@ model MarketplaceItem {
   priceCents  Int      @default(0)
   currency    String   @default("EUR")
   published   Boolean  @default(true)
-  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   ownerId     String
+  owner       User     @relation(fields: [ownerId], references: [id], onDelete: Cascade)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-
   purchases   Purchase[]
   favorites   Favorite[]
 }
 
 model Purchase {
-  id          String           @id @default(cuid())
-  item        MarketplaceItem  @relation(fields: [itemId], references: [id], onDelete: Cascade)
-  itemId      String
-  buyer       User             @relation(fields: [buyerId], references: [id], onDelete: Cascade)
-  buyerId     String
-  status      PurchaseStatus   @default(PENDING)
-  createdAt   DateTime         @default(now())
-
-  @@index([buyerId, status])
-  @@index([itemId])
+  id        String           @id @default(cuid())
+  itemId    String
+  item      MarketplaceItem  @relation(fields: [itemId], references: [id], onDelete: Cascade)
+  buyerId   String
+  buyer     User             @relation(fields: [buyerId], references: [id], onDelete: Cascade)
+  status    PurchaseStatus   @default(PENDING)
+  createdAt DateTime         @default(now())
 }
 
 model Favorite {
-  id        String           @id @default(cuid())
-  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
-  userId    String
-  project   Project?         @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId String?
-  template  MarketplaceItem? @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  id         String           @id @default(cuid())
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectId  String?
+  project    Project?         @relation(fields: [projectId], references: [id], onDelete: Cascade)
   templateId String?
-  createdAt DateTime         @default(now())
-
-  @@unique([userId, projectId, templateId])
+  template   MarketplaceItem? @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  createdAt  DateTime         @default(now())
 }
 
 /* ============================================================================
- * DEPLOYMENTS & REPLAYS
+ * DEPLOY / REPLAY / COLLAB
  * ========================================================================== */
 model Deployment {
   id          String           @id @default(cuid())
-  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   projectId   String
+  project     Project          @relation(fields: [projectId], references: [id], onDelete: Cascade)
   status      DeploymentStatus @default(PENDING)
   logs        String?
   targetUrl   String?
@@ -421,21 +395,27 @@ model Deployment {
 }
 
 model ReplaySession {
-  id              String   @id @default(cuid())
-  project         Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  projectId       String
-  user            User     @relation(fields: [userId], references: [id])
-  userId          String
-  dataUrl         String
-  snapshot        Json?
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  dataUrl   String
+  snapshot  Json?
   stepsCompressed Bytes?
-  meta            Json?
-  startedAt       DateTime @default(now())
-  endedAt         DateTime?
+  meta      Json?
+  startedAt DateTime @default(now())
+  endedAt   DateTime?
+}
 
-  @@index([projectId])
-  @@index([userId])
-  @@index([startedAt])
+model CollabHistory {
+  id        String   @id @default(cuid())
+  projectId String
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  changes   Json
+  createdAt DateTime @default(now())
 }
 
 /* ============================================================================
@@ -459,20 +439,10 @@ model ShareLink {
   createdAt DateTime @default(now())
 }
 
-model CollabHistory {
-  id        String   @id @default(cuid())
-  projectId String
-  project   Project  @relation(fields: [projectId], references: [id])
-  userId    String
-  user      User     @relation(fields: [userId], references: [id])
-  changes   Json
-  createdAt DateTime @default(now())
-}
-
 model UserSession {
   id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   ip        String?
   userAgent String?
   createdAt DateTime @default(now())
@@ -481,9 +451,54 @@ model UserSession {
 
 model ApiKey {
   id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   key       String   @unique
   active    Boolean  @default(true)
   createdAt DateTime @default(now())
+}
+
+/* ============================================================================
+ * INTEGRATIONS / JOBS / AI
+ * ========================================================================== */
+model Webhook {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url       String
+  event     String
+  createdAt DateTime @default(now())
+  deliveries WebhookDelivery[]
+}
+
+model WebhookDelivery {
+  id        String        @id @default(cuid())
+  webhookId String
+  webhook   Webhook       @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+  status    WebhookStatus
+  payload   Json
+  response  String?
+  createdAt DateTime @default(now())
+}
+
+model JobLog {
+  id        String   @id @default(cuid())
+  queue     String
+  jobId     String
+  status    JobStatus
+  payload   Json?
+  result    Json?
+  createdAt DateTime @default(now())
+}
+
+model AIJob {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String     // ex: generateUI, optimizeUX
+  status    AIJobStatus @default(PENDING)
+  input     Json
+  output    Json?
+  createdAt DateTime   @default(now())
+  completedAt DateTime?
 }
