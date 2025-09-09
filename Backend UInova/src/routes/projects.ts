@@ -7,7 +7,7 @@ import {
   validateProjectUpdate,
   handleValidationErrors,
 } from "../middlewares/validate";
-import { param, query } from "express-validator";
+import { param, query, body } from "express-validator";
 import {
   listProjects,
   getProject,
@@ -22,19 +22,21 @@ import {
   listFavoriteProjects,
   addCollaborator,
   removeCollaborator,
+  listTrendingProjects,
+  getProjectActivity,
 } from "../controllers/projectController";
 
 const router = Router();
 
 /* ============================================================================
- *  PROJECT ROUTES – nécessite authentification
+ *  PROJECT ROUTES – User Auth Required
  * ========================================================================== */
 router.use(authenticate);
 
 /**
  * GET /api/projects
  * ▶️ Liste tous les projets de l'utilisateur connecté (paginés + filtres)
- * Query: ?q=&status=&page=&pageSize=
+ * Query: ?q=&status=&page=&pageSize=&tags=&orgId=&sort=&dateFrom=&dateTo=
  */
 router.get("/", listProjects);
 
@@ -49,6 +51,12 @@ router.get("/recent", listRecentProjects);
  * ▶️ Liste des projets marqués comme favoris
  */
 router.get("/favorites", listFavoriteProjects);
+
+/**
+ * GET /api/projects/trending
+ * ▶️ Projets populaires (basés sur activité, likes, partages)
+ */
+router.get("/trending", listTrendingProjects);
 
 /**
  * GET /api/projects/:id
@@ -81,7 +89,7 @@ router.patch(
 router.delete("/:id", validateProjectIdParam, handleValidationErrors, removeProject);
 
 /* ============================================================================
- *  EXTENDED ROUTES – pour actions spécifiques
+ *  EXTENDED ROUTES – Actions spécifiques
  * ========================================================================== */
 
 /**
@@ -114,13 +122,31 @@ router.get(
 );
 
 /**
+ * GET /api/projects/:id/activity
+ * ▶️ Historique d’activité du projet (audit trail)
+ */
+router.get(
+  "/:id/activity",
+  param("id").isString().isLength({ min: 5 }),
+  handleValidationErrors,
+  getProjectActivity
+);
+
+/* ============================================================================
+ *  COLLABORATION ROUTES
+ * ========================================================================== */
+
+/**
  * POST /api/projects/:id/collaborators
  * ▶️ Ajouter un collaborateur (par email ou userId)
+ * Body: { userId?: string, email?: string, role?: "VIEWER"|"EDITOR" }
  */
 router.post(
   "/:id/collaborators",
   param("id").isString().isLength({ min: 5 }),
-  query("userId").isString().notEmpty().withMessage("userId requis"),
+  body("userId").optional().isString(),
+  body("email").optional().isEmail(),
+  body("role").optional().isIn(["VIEWER", "EDITOR"]),
   handleValidationErrors,
   addCollaborator
 );
@@ -138,13 +164,20 @@ router.delete(
 );
 
 /* ============================================================================
- *  ADMIN ROUTES – gestion globale des projets
+ *  ADMIN ROUTES – Gestion globale des projets
  * ========================================================================== */
 
 /**
  * GET /api/projects/admin/all
- * ▶️ Lister tous les projets (admin only)
+ * ▶️ Lister tous les projets (admin only, avec filtres avancés)
  */
-router.get("/admin/all", authorize(["ADMIN"]), listProjects);
+router.get(
+  "/admin/all",
+  authorize(["ADMIN"]),
+  query("q").optional().isString(),
+  query("status").optional().isIn(["EN_COURS", "TERMINE", "PLANIFIE"]),
+  handleValidationErrors,
+  listProjects
+);
 
 export default router;
