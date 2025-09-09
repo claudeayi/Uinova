@@ -1,13 +1,15 @@
+// src/routes/webhooks.ts
 import { Router } from "express";
 import { authenticate } from "../middlewares/security";
 import { registerWebhook, listWebhooks, removeWebhook } from "../services/eventBus";
-import { body, param } from "express-validator";
+import { body, param, query } from "express-validator";
 import { handleValidationErrors } from "../middlewares/validate";
+import { prisma } from "../utils/prisma";
 
 const router = Router();
 
 /* ============================================================================
- * WEBHOOK ROUTES – nécessite authentification
+ * WEBHOOK ROUTES – Auth Required
  * ============================================================================
  */
 router.use(authenticate);
@@ -23,14 +25,25 @@ router.post(
     .isString()
     .isLength({ min: 3, max: 50 })
     .withMessage("Événement requis"),
+  body("secret")
+    .optional()
+    .isString()
+    .isLength({ min: 10, max: 100 })
+    .withMessage("Secret invalide"),
   handleValidationErrors,
   async (req, res) => {
     try {
       const user = (req as any).user;
-      const { url, event } = req.body;
+      const { url, event, secret } = req.body;
 
-      const webhook = await registerWebhook(user.id, url, event);
-      res.status(201).json({ success: true, data: webhook });
+      const webhook = await registerWebhook(user.id, url, event, secret);
+
+      // Audit log
+      await prisma.auditLog.create({
+        data: { userId: user.id, action: "WEBHOOK_REGISTER", metadata: { url, event } },
+      });
+
+      res.status(201).json({ success: true, message: "Webhook enregistré", data: webhook });
     } catch (err: any) {
       console.error("❌ registerWebhook error:", err);
       res.status(500).json({ success: false, message: "Erreur enregistrement webhook" });
@@ -40,18 +53,40 @@ router.post(
 
 /**
  * GET /api/webhooks
- * ➝ Lister mes webhooks
+ * ➝ Lister mes webhooks (paginé)
+ * Query: ?page=1&pageSize=20&event=payment.succeeded
  */
-router.get("/", async (req, res) => {
-  try {
-    const user = (req as any).user;
-    const hooks = await listWebhooks(user.id);
-    res.json({ success: true, data: hooks });
-  } catch (err: any) {
-    console.error("❌ listWebhooks error:", err);
-    res.status(500).json({ success: false, message: "Erreur récupération webhooks" });
+router.get(
+  "/",
+  query("page").optional().isInt({ min: 1 }).toInt(),
+  query("pageSize").optional().isInt({ min: 1, max: 100 }).toInt(),
+  query("event").optional().isString(),
+  handleValidationErrors,
+  async (req, res) => {
+    try {
+      const user = (req as any).user;
+      const page = Number(req.query.page) || 1;
+      const pageSize = Number(req.query.pageSize) || 20;
+      const event = req.query.event as string | undefined;
+
+      const [total, hooks] = await Promise.all([
+        prisma.webhook.count({
+          where: { userId: user.id, ...(event ? { event } : {}) },
+        }),
+        listWebhooks(user.id, { page, pageSize, event }),
+      ]);
+
+      res.json({
+        success: true,
+        data: hooks,
+        pagination: { page, pageSize, total, totalPages: Math.ceil(total / pageSize) },
+      });
+    } catch (err: any) {
+      console.error("❌ listWebhooks error:", err);
+      res.status(500).json({ success: false, message: "Erreur récupération webhooks" });
+    }
   }
-});
+);
 
 /**
  * DELETE /api/webhooks/:id
@@ -70,6 +105,11 @@ router.delete(
       if (!removed) {
         return res.status(404).json({ success: false, message: "Webhook introuvable" });
       }
+
+      // Audit log
+      await prisma.auditLog.create({
+        data: { userId: user.id, action: "WEBHOOK_DELETE", metadata: { webhookId: id } },
+      });
 
       res.json({ success: true, message: "Webhook supprimé" });
     } catch (err: any) {
