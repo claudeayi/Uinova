@@ -5,6 +5,8 @@ import { prisma } from "../utils/prisma";
 import { exportProject } from "./exportService";
 import { randomUUID } from "crypto";
 import { emitEvent } from "./eventBus";
+import { logger } from "../utils/logger";
+import client from "prom-client";
 
 export type DeployTarget = "local" | "s3" | "netlify" | "vercel";
 
@@ -14,7 +16,27 @@ export interface DeployOptions {
   format?: "html" | "flutter" | "json"; // par défaut "html"
   target?: DeployTarget;                // cible déploiement
   meta?: Record<string, any>;           // metadata libre (env, branch, commitId, etc.)
+  ip?: string;                          // IP de l’utilisateur (pour audit)
 }
+
+/* ============================================================================
+ * 📊 Prometheus Metrics
+ * ========================================================================== */
+const counterDeploySuccess = new client.Counter({
+  name: "uinova_deploy_success_total",
+  help: "Nombre de déploiements réussis",
+});
+
+const counterDeployFail = new client.Counter({
+  name: "uinova_deploy_fail_total",
+  help: "Nombre de déploiements échoués",
+});
+
+const histogramDeployDuration = new client.Histogram({
+  name: "uinova_deploy_duration_seconds",
+  help: "Durée des déploiements",
+  buckets: [1, 5, 10, 30, 60, 120, 300],
+});
 
 /* ============================================================================
  * Helpers
@@ -32,6 +54,7 @@ export async function deployProject({
   format = "html",
   target = "local",
   meta = {},
+  ip,
 }: DeployOptions): Promise<{
   deploymentId: string;
   url: string;
@@ -43,6 +66,8 @@ export async function deployProject({
 
   const deployDir = path.join(baseDir, deployId);
   ensureDir(deployDir);
+
+  const start = Date.now();
 
   // Persister en état "PENDING"
   const deployment = await prisma.deployment.create({
@@ -58,6 +83,8 @@ export async function deployProject({
   });
 
   try {
+    logger.info(`🚀 Déploiement démarré`, { deployId, projectId, userId, target, format });
+
     // 1. Générer export
     await prisma.deployment.update({
       where: { id: deployId },
@@ -79,15 +106,15 @@ export async function deployProject({
         break;
       case "netlify":
         url = `https://your-netlify-site.netlify.app/${deployId}/`;
-        // 👉 TODO: push via API Netlify
+        // ⚡ TODO: push via API Netlify
         break;
       case "vercel":
         url = `https://your-vercel-site.vercel.app/${deployId}/`;
-        // 👉 TODO: push via API Vercel
+        // ⚡ TODO: push via API Vercel
         break;
       case "s3":
         url = `https://your-bucket.s3.amazonaws.com/${deployId}/index.html`;
-        // 👉 TODO: upload vers AWS S3
+        // ⚡ TODO: upload vers AWS S3
         break;
     }
 
@@ -97,12 +124,17 @@ export async function deployProject({
       data: { status: "SUCCESS", url },
     });
 
+    const duration = (Date.now() - start) / 1000;
+    counterDeploySuccess.inc();
+    histogramDeployDuration.observe(duration);
+
     // 4. Audit + Event
     await prisma.auditLog.create({
       data: {
         userId,
         action: "DEPLOY_PROJECT",
-        metadata: { projectId, deployId, target, url },
+        details: `Déploiement ${deployId} → ${target}`,
+        metadata: { projectId, deployId, target, url, format, ip, meta },
       },
     });
 
@@ -114,13 +146,17 @@ export async function deployProject({
       url,
     });
 
+    logger.info(`✅ Déploiement réussi`, { deployId, url, duration });
+
     return {
       deploymentId: updated.id,
       url: updated.url!,
       target: updated.target as DeployTarget,
     };
   } catch (err: any) {
-    // Échec
+    const duration = (Date.now() - start) / 1000;
+    counterDeployFail.inc();
+
     await prisma.deployment.update({
       where: { id: deployId },
       data: { status: "ERROR", meta: { ...meta, error: err.message } },
@@ -130,9 +166,12 @@ export async function deployProject({
       data: {
         userId,
         action: "DEPLOY_ERROR",
-        metadata: { projectId, deployId, target, error: err.message },
+        details: `Échec déploiement ${deployId}`,
+        metadata: { projectId, deployId, target, error: err.message, ip, meta },
       },
     });
+
+    logger.error(`❌ Déploiement échoué`, { deployId, error: err.message, duration });
 
     throw err;
   }
