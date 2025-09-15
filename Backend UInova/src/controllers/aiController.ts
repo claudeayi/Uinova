@@ -8,18 +8,21 @@ import {
   listAvailableModels,
 } from "../services/aiService";
 import { moderatePrompt } from "../utils/aiModeration";
+import { logger } from "../utils/logger";
 
 /* ============================================================================
- *  QUOTA & AUDIT MOCKS (à brancher sur ton vrai service)
+ *  QUOTA & AUDIT (branchable sur billingService)
  * ========================================================================== */
 const quota = {
   async ensureAndDebit(userId: string, kind: "ai", cost = 1) {
-    console.log(`💳 Quota debit [${kind}] user=${userId}, cost=${cost}`);
+    logger.info(`💳 Quota debit [${kind}] user=${userId}, cost=${cost}`);
+    // TODO: brancher sur billingService
   },
 };
 const audit = {
   async log(data: any) {
-    console.log("📝 Audit log:", data);
+    logger.info("📝 Audit log", data);
+    // TODO: envoyer vers base ou eventBus
   },
 };
 
@@ -35,6 +38,7 @@ const ChatSchema = z.object({
         content: z.string().min(1).max(4000),
       })
     )
+    .max(50)
     .optional(),
   system: z.string().max(2000).optional(),
   model: z.string().optional(),
@@ -68,6 +72,7 @@ function truncateHistory(
  * → Génération classique (réponse complète)
  */
 export const chat = async (req: Request, res: Response) => {
+  const start = Date.now();
   try {
     const userId = (req as any)?.user?.id || "anonymous";
     const parsed = ChatSchema.safeParse(req.body);
@@ -104,18 +109,17 @@ export const chat = async (req: Request, res: Response) => {
     });
 
     // 📜 Audit (sans stocker le prompt complet)
-    audit
-      .log({
-        type: "AI_CHAT",
-        userId,
-        promptHash: crypto.createHash("sha256").update(prompt).digest("hex"),
-        model: result?.model,
-        tokens: result?.usage?.totalTokens,
-        ip: req.ip,
-        ua: req.headers["user-agent"],
-        ts: Date.now(),
-      })
-      .catch(() => {});
+    audit.log({
+      type: "AI_CHAT",
+      userId,
+      promptHash: crypto.createHash("sha256").update(prompt).digest("hex"),
+      model: result?.model,
+      tokens: result?.usage?.totalTokens,
+      latency: Date.now() - start,
+      ip: req.ip,
+      ua: req.headers["user-agent"],
+      ts: Date.now(),
+    }).catch(() => {});
 
     return res.json({
       success: true,
@@ -125,7 +129,7 @@ export const chat = async (req: Request, res: Response) => {
       mode: json ? "json" : "text",
     });
   } catch (e: any) {
-    console.error("❌ [AI] chat error:", e?.response?.data || e?.message || e);
+    logger.error("❌ [AI] chat error", e?.response?.data || e?.message || e);
     const msg =
       e?.response?.data?.error?.message ||
       e?.message ||
@@ -139,6 +143,7 @@ export const chat = async (req: Request, res: Response) => {
  * → Réponse en streaming SSE
  */
 export const chatStream = async (req: Request, res: Response) => {
+  const start = Date.now();
   const method = req.method.toUpperCase();
   const input = method === "POST" ? req.body : req.query;
 
@@ -191,16 +196,29 @@ export const chatStream = async (req: Request, res: Response) => {
       {
         onToken: (t: string) => send("message", t),
         onStart: (info) => send("start", info),
-        onEnd: (info) => send("end", info),
-        onError: (err: any) =>
-          send("error", err?.message || "Erreur streaming AI"),
+        onEnd: (info) => {
+          send("end", info);
+          audit.log({
+            type: "AI_STREAM",
+            userId,
+            promptHash: crypto.createHash("sha256").update(prompt).digest("hex"),
+            model: info?.model,
+            latency: Date.now() - start,
+            ip: req.ip,
+            ua: req.headers["user-agent"],
+            ts: Date.now(),
+          }).catch(() => {});
+        },
+        onError: (err: any) => send("error", err?.message || "Erreur streaming AI"),
       }
     );
-
-    res.end();
   } catch (e: any) {
-    console.error("❌ [AI] chatStream error:", e?.response?.data || e?.message);
+    logger.error("❌ [AI] chatStream error", e?.response?.data || e?.message);
     send("error", e?.message || "Erreur lors du streaming AI.");
+  } finally {
+    // Heartbeat pour éviter timeouts côté client
+    const heartbeat = setInterval(() => send("heartbeat", Date.now()), 15000);
+    res.on("close", () => clearInterval(heartbeat));
     res.end();
   }
 };
@@ -214,7 +232,7 @@ export const getModels = async (_req: Request, res: Response) => {
     const models = await listAvailableModels();
     res.json({ success: true, data: models });
   } catch (e: any) {
-    console.error("❌ [AI] getModels error:", e?.message);
+    logger.error("❌ [AI] getModels error", e?.message);
     res
       .status(500)
       .json({ success: false, error: "Impossible de charger les modèles" });
