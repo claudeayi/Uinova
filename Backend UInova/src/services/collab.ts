@@ -2,6 +2,8 @@
 import { Server, Socket } from "socket.io";
 import { verifyToken, JWTPayload } from "../utils/jwt";
 import { prisma } from "../utils/prisma";
+import { logger } from "../utils/logger";
+import client from "prom-client";
 
 type AppRole = "user" | "premium" | "admin";
 type AuthedUser = { id: string; email?: string; role: AppRole };
@@ -23,9 +25,22 @@ const CORS_ORIGINS = (process.env.CORS_ORIGINS || "*")
 const roomKey = (projectId: string | number, pageId?: string | number) =>
   pageId === undefined ? `project:${projectId}` : `project:${projectId}:page:${pageId}`;
 
-/* -----------------------------
- * Rate limiting simple par socket
- * ----------------------------- */
+/* ============================================================================
+ * 📊 METRICS Prometheus
+ * ========================================================================== */
+const gaugeUsersConnected = new client.Gauge({
+  name: "uinova_collab_users_connected",
+  help: "Nombre d’utilisateurs connectés au collab",
+});
+
+const gaugeRoomsActive = new client.Gauge({
+  name: "uinova_collab_rooms_active",
+  help: "Nombre de rooms actives (projets/pages)",
+});
+
+/* ============================================================================
+ * ⏳ Rate limiting simple par socket
+ * ========================================================================== */
 function makeRateLimit(perSec = 30, burst = 60) {
   let tokens = burst;
   let last = Date.now();
@@ -39,9 +54,9 @@ function makeRateLimit(perSec = 30, burst = 60) {
   };
 }
 
-/* -----------------------------
- * Auth JWT au handshake
- * ----------------------------- */
+/* ============================================================================
+ * 🔐 Auth JWT au handshake
+ * ========================================================================== */
 function authMiddleware(socket: Socket, next: (err?: any) => void) {
   try {
     const raw =
@@ -67,25 +82,25 @@ function authMiddleware(socket: Socket, next: (err?: any) => void) {
   }
 }
 
-/* -----------------------------
+/* ============================================================================
  * (Optionnel) RBAC projet
- * ----------------------------- */
+ * ========================================================================== */
 async function ensureAccess(_userId: string, _projectId: string | number, _need: "VIEW" | "EDIT") {
-  // Ici tu peux brancher ta vraie logique RBAC si nécessaire
+  // ⚡ Hook RBAC : tu peux brancher une vraie logique (organisation, rôles)
   return;
 }
 
-/* -----------------------------
+/* ============================================================================
  * Présence : liste des users connectés par room
- * ----------------------------- */
+ * ========================================================================== */
 async function getUsersInRoom(room: string) {
   const sockets = await io!.in(room).fetchSockets();
   return sockets.map((s) => s.user);
 }
 
-/* -----------------------------
- * Setup Socket.io
- * ----------------------------- */
+/* ============================================================================
+ * 🚀 Setup Socket.io
+ * ========================================================================== */
 export function setupCollabSocket(server: any) {
   io = new Server(server, {
     cors: {
@@ -107,6 +122,11 @@ export function setupCollabSocket(server: any) {
     async function emitUsersCount(room: string) {
       const users = await getUsersInRoom(room);
       io!.to(room).emit("usersUpdate", { count: users.length, users });
+
+      // Metrics
+      gaugeUsersConnected.set(io!.engine.clientsCount);
+      const rooms = await io!.allSockets();
+      gaugeRoomsActive.set(rooms.size);
     }
 
     /* -----------------------------
@@ -118,11 +138,13 @@ export function setupCollabSocket(server: any) {
         if (!projectId) throw new Error("BAD_REQUEST");
         await ensureAccess(socket.user.id, projectId, "VIEW");
 
+        // Quitter rooms précédentes
         for (const r of socket.rooms) if (r.startsWith("project:")) socket.leave(r);
 
         const pRoom = roomKey(projectId);
         const pgRoom = pageId !== undefined ? roomKey(projectId, pageId) : null;
 
+        // Check room size
         if (pgRoom) {
           const socketsInPage = await io!.in(pgRoom).fetchSockets();
           if (socketsInPage.length >= MAX_ROOM_SIZE) {
@@ -147,7 +169,7 @@ export function setupCollabSocket(server: any) {
           },
         });
 
-        console.log(`👥 User ${socket.user.id} joined ${pRoom}${pgRoom ? " / " + pgRoom : ""}`);
+        logger.info(`👥 User ${socket.user.id} joined ${pRoom}${pgRoom ? " / " + pgRoom : ""}`);
       } catch (e: any) {
         socket.emit("errorMessage", { code: e?.message || "JOIN_FAILED" });
       }
@@ -174,7 +196,7 @@ export function setupCollabSocket(server: any) {
           },
         });
       } catch (e) {
-        console.error("❌ leaveRoom error:", e);
+        logger.error("❌ leaveRoom error:", e);
       }
     });
 
@@ -236,7 +258,11 @@ export function setupCollabSocket(server: any) {
       try {
         const rooms = [...socket.rooms].filter((r) => r.startsWith("project:"));
         for (const r of rooms) await emitUsersCount(r);
-        console.log(`⚡ User ${socket.user?.id} disconnected (${socket.id})`);
+
+        logger.info(`⚡ User ${socket.user?.id} disconnected (${socket.id})`);
+
+        // Update metrics
+        gaugeUsersConnected.set(io!.engine.clientsCount);
       } catch { /* ignore */ }
     });
   });
@@ -244,9 +270,9 @@ export function setupCollabSocket(server: any) {
   return io;
 }
 
-/* -----------------------------
+/* ============================================================================
  * Helpers externes
- * ----------------------------- */
+ * ========================================================================== */
 export function emitToProject(projectId: string | number, event: string, payload: any) {
   io?.to(roomKey(projectId)).emit(event, payload);
 }
@@ -259,13 +285,13 @@ export function emitToUser(userId: string, event: string, payload: any) {
   });
 }
 
-/* -----------------------------
+/* ============================================================================
  * Graceful shutdown
- * ----------------------------- */
+ * ========================================================================== */
 export async function shutdownCollab() {
   if (io) {
     await io.close();
     io = null;
-    console.log("🛑 Collab service stopped");
+    logger.info("🛑 Collab service stopped");
   }
 }
