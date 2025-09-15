@@ -1,5 +1,6 @@
 import { EventEmitter } from "events";
 import axios from "axios";
+import crypto from "crypto";
 import { prisma } from "../utils/prisma";
 
 const bus = new EventEmitter();
@@ -7,13 +8,11 @@ const bus = new EventEmitter();
 /* ============================================================================
  *  EMISSION & ABONNEMENT INTERNE
  * ========================================================================== */
-
-// ⚡ Émettre un événement global
 export function emitEvent(event: string, payload: any) {
-  bus.emit(event, payload);
+  // ⚡ Emission non bloquante
+  setImmediate(() => bus.emit(event, payload));
 }
 
-// ⚡ S’abonner à un événement (interne)
 export function onEvent(event: string, handler: (data: any) => void) {
   bus.on(event, handler);
 }
@@ -21,15 +20,10 @@ export function onEvent(event: string, handler: (data: any) => void) {
 /* ============================================================================
  *  WEBHOOKS – CRUD
  * ========================================================================== */
-
-// ✅ Enregistrer un webhook pour un utilisateur
 export async function registerWebhook(userId: string, url: string, event: string) {
-  return prisma.webhook.create({
-    data: { userId, url, event, active: true },
-  });
+  return prisma.webhook.create({ data: { userId, url, event, active: true } });
 }
 
-// ✅ Lister les webhooks d’un utilisateur
 export async function listWebhooks(userId: string) {
   return prisma.webhook.findMany({
     where: { userId },
@@ -37,12 +31,21 @@ export async function listWebhooks(userId: string) {
   });
 }
 
-// ✅ Supprimer un webhook
 export async function removeWebhook(userId: string, id: string) {
   const hook = await prisma.webhook.findUnique({ where: { id } });
   if (!hook || hook.userId !== userId) return null;
   await prisma.webhook.delete({ where: { id } });
   return hook;
+}
+
+/* ============================================================================
+ *  SIGNATURE HMAC (sécurité)
+ * ========================================================================== */
+function signPayload(payload: any, secret: string) {
+  return crypto
+    .createHmac("sha256", secret)
+    .update(JSON.stringify(payload))
+    .digest("hex");
 }
 
 /* ============================================================================
@@ -54,38 +57,52 @@ async function dispatchEvent(event: string, data: any) {
   });
 
   for (const hook of hooks) {
-    try {
-      const res = await axios.post(hook.url, { event, data }, { timeout: 5000 });
+    // HMAC avec clé secrète par webhook (ou fallback env)
+    const secret = hook.secret || process.env.WEBHOOK_SECRET || "uinova-secret";
+    const signature = signPayload({ event, data }, secret);
 
-      await prisma.webhookDelivery.create({
-        data: {
-          webhookId: hook.id,
-          status: res.status >= 200 && res.status < 300 ? "SUCCESS" : "FAILED",
-          payload: data,
-          response: res.statusText,
-        },
-      });
-    } catch (err: any) {
-      console.error("❌ Webhook error:", hook.url, err.message);
+    // Envoi + retry exponentiel
+    const attemptDelivery = async (retry = 0): Promise<void> => {
+      const start = Date.now();
+      try {
+        const res = await axios.post(
+          hook.url,
+          { event, data, signature },
+          { timeout: 5000, headers: { "X-UInova-Signature": signature } }
+        );
 
-      await prisma.webhookDelivery.create({
-        data: {
-          webhookId: hook.id,
-          status: "FAILED",
-          payload: data,
-          response: String(err.message).slice(0, 500),
-        },
-      });
+        await prisma.webhookDelivery.create({
+          data: {
+            webhookId: hook.id,
+            status: res.status >= 200 && res.status < 300 ? "SUCCESS" : "FAILED",
+            payload: data,
+            response: res.statusText,
+            latencyMs: Date.now() - start,
+          },
+        });
+      } catch (err: any) {
+        console.error(`❌ Webhook error [${hook.url}] (${err.message})`);
 
-      // 🔁 Retry simple (1 tentative après 5s)
-      setTimeout(async () => {
-        try {
-          await axios.post(hook.url, { event, data }, { timeout: 5000 });
-        } catch (retryErr: any) {
-          console.error("❌ Webhook retry failed:", hook.url, retryErr.message);
+        await prisma.webhookDelivery.create({
+          data: {
+            webhookId: hook.id,
+            status: "FAILED",
+            payload: data,
+            response: String(err.message).slice(0, 500),
+            latencyMs: Date.now() - start,
+          },
+        });
+
+        // 🔁 Retry exponentiel max 3 fois
+        if (retry < 3) {
+          const delay = Math.pow(2, retry) * 5000; // 5s → 10s → 20s
+          console.log(`🔁 Retry #${retry + 1} dans ${delay / 1000}s`);
+          setTimeout(() => attemptDelivery(retry + 1), delay);
         }
-      }, 5000);
-    }
+      }
+    };
+
+    attemptDelivery();
   }
 }
 
