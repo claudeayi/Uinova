@@ -1,4 +1,3 @@
-// src/services/exportService.ts
 import fs from "fs";
 import path from "path";
 import { prisma } from "../utils/prisma";
@@ -6,7 +5,7 @@ import { prisma } from "../utils/prisma";
 /* ============================================================================
  *  Types & Helpers
  * ========================================================================== */
-export type ExportFormat = "html" | "flutter" | "json";
+export type ExportFormat = "html" | "flutter" | "json" | "react" | "vue" | "pdf";
 
 interface ExportOptions {
   format: ExportFormat;
@@ -19,8 +18,13 @@ function ensureDir(p: string) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 }
 
+function safeName(name: string, ext: string, id: string) {
+  const n = name?.replace(/[^a-z0-9_-]+/gi, "_").toLowerCase() || "uinova_project";
+  return `${n}_${id}.${ext}`;
+}
+
 /* ============================================================================
- *  Générateurs
+ *  Générateurs inline (peuvent être extraits plus tard)
  * ========================================================================== */
 function generateHTML(project: any): string {
   const head = `
@@ -33,20 +37,15 @@ function generateHTML(project: any): string {
       h1 { margin: 0 0 .5rem; }
     </style>
   `;
-
   return `<!DOCTYPE html>
 <html lang="fr">
 <head>${head}</head>
 <body>
-  ${project.pages
-    .map(
-      (p: any) =>
-        `<section id="${p.id}">
-          <h1>${p.name}</h1>
-          <div>${p.content || ""}</div>
-        </section>`
-    )
-    .join("\n")}
+  ${project.pages.map((p: any) =>
+    `<section id="${p.id}">
+      <h1>${p.name}</h1>
+      <div>${p.content || ""}</div>
+    </section>`).join("\n")}
 </body>
 </html>`;
 }
@@ -68,12 +67,9 @@ class UInovaApp extends StatelessWidget {
         appBar: AppBar(title: const Text('${project.name}')),
         body: ListView(
           children: <Widget>[
-            ${project.pages
-              .map(
-                (p: any) =>
-                  `ListTile(title: Text("${p.name}"), subtitle: Text("${p.content || ""}"))`
-              )
-              .join(",\n            ")}
+            ${project.pages.map((p: any) =>
+              `ListTile(title: Text("${p.name}"), subtitle: Text("${p.content || ""}"))`
+            ).join(",\n            ")}
           ],
         ),
       ),
@@ -86,6 +82,56 @@ function generateJSON(project: any): string {
   return JSON.stringify(project, null, 2);
 }
 
+function generateReact(project: any): string {
+  return `import React from "react";
+
+export default function ${project.name.replace(/[^a-zA-Z0-9]/g, "")}() {
+  return (
+    <div>
+      ${project.pages.map((p: any) =>
+        `<section key="${p.id}">
+          <h1>${p.name}</h1>
+          <p>${p.content || ""}</p>
+        </section>`
+      ).join("\n      ")}
+    </div>
+  );
+}`;
+}
+
+function generateVue(project: any): string {
+  return `<template>
+  <div>
+    ${project.pages.map((p: any) =>
+      `<section id="${p.id}">
+        <h1>${p.name}</h1>
+        <p>${p.content || ""}</p>
+      </section>`
+    ).join("\n    ")}
+  </div>
+</template>
+
+<script setup>
+</script>`;
+}
+
+async function generatePDF(project: any, filePath: string) {
+  const { PDFDocument, StandardFonts, rgb } = await import("pdf-lib");
+  const pdfDoc = await PDFDocument.create();
+  const page = pdfDoc.addPage([600, 800]);
+  const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
+
+  page.drawText(project.name, { x: 50, y: 750, size: 20, font, color: rgb(0, 0, 0) });
+  let y = 720;
+  for (const p of project.pages) {
+    page.drawText(`${p.name}: ${p.content || ""}`, { x: 50, y, size: 12, font });
+    y -= 20;
+  }
+
+  const pdfBytes = await pdfDoc.save();
+  fs.writeFileSync(filePath, pdfBytes);
+}
+
 /* ============================================================================
  *  Export principal
  * ========================================================================== */
@@ -96,45 +142,63 @@ export async function exportProject({
   userId,
 }: ExportOptions): Promise<{ path?: string; content: string }> {
   try {
-    // 1. Récupérer projet + pages
+    // 1. Charger projet + pages
     const project = await prisma.project.findUnique({
       where: { id: projectId },
       include: { pages: true },
     });
     if (!project) throw new Error(`Project not found: ${projectId}`);
-    if (!project.pages || project.pages.length === 0) {
-      throw new Error(`Project ${projectId} has no pages to export`);
-    }
+    if (!project.pages?.length) throw new Error(`Project ${projectId} has no pages to export`);
 
-    // 2. Générer le contenu
+    // 2. Préparer répertoire
+    const out = outputDir || path.join(process.cwd(), "exports");
+    ensureDir(out);
+
+    // 3. Générer contenu
     let content = "";
-    if (format === "html") content = generateHTML(project);
-    else if (format === "flutter") content = generateFlutter(project);
-    else content = generateJSON(project);
-
-    // 3. Sauvegarde éventuelle
     let filePath: string | undefined;
-    const safeOutput = outputDir || path.join(process.cwd(), "exports");
-    if (safeOutput) {
-      ensureDir(safeOutput);
-      const ext = format === "json" ? "json" : format === "flutter" ? "dart" : "html";
-      const safeName = project.name?.replace(/[^a-z0-9_-]+/gi, "_") || "uinova_project";
-      filePath = path.join(safeOutput, `${safeName}_${projectId}.${ext}`);
-      fs.writeFileSync(filePath, content, "utf-8");
+
+    switch (format) {
+      case "html":
+        content = generateHTML(project);
+        filePath = path.join(out, safeName(project.name, "html", projectId));
+        fs.writeFileSync(filePath, content, "utf-8");
+        break;
+      case "flutter":
+        content = generateFlutter(project);
+        filePath = path.join(out, safeName(project.name, "dart", projectId));
+        fs.writeFileSync(filePath, content, "utf-8");
+        break;
+      case "json":
+        content = generateJSON(project);
+        filePath = path.join(out, safeName(project.name, "json", projectId));
+        fs.writeFileSync(filePath, content, "utf-8");
+        break;
+      case "react":
+        content = generateReact(project);
+        filePath = path.join(out, safeName(project.name, "tsx", projectId));
+        fs.writeFileSync(filePath, content, "utf-8");
+        break;
+      case "vue":
+        content = generateVue(project);
+        filePath = path.join(out, safeName(project.name, "vue", projectId));
+        fs.writeFileSync(filePath, content, "utf-8");
+        break;
+      case "pdf":
+        filePath = path.join(out, safeName(project.name, "pdf", projectId));
+        await generatePDF(project, filePath);
+        content = fs.readFileSync(filePath).toString("base64");
+        break;
+      default:
+        throw new Error(`Unsupported format: ${format}`);
     }
 
-    // 4. Audit log
+    // 4. Audit enrichi
     await prisma.auditLog.create({
       data: {
         userId: userId || null,
         action: "EXPORT_PROJECT",
-        details: JSON.stringify({
-          projectId,
-          format,
-          pages: project.pages.length,
-          filePath: filePath || "in-memory",
-          ts: new Date().toISOString(),
-        }),
+        metadata: { projectId, format, pages: project.pages.length, filePath, ts: new Date().toISOString() },
       },
     });
 
