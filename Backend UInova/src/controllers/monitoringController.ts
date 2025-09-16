@@ -2,9 +2,11 @@
 import { Request, Response } from "express";
 import { prisma } from "../utils/prisma";
 import os from "os";
+import fs from "fs";
+import path from "path";
 
 /* ============================================================================
- *  MONITORING CONTROLLER – métriques, logs, santé
+ *  MONITORING CONTROLLER – métriques, logs, santé, profilage
  * ========================================================================== */
 
 // ✅ JSON → /monitoring/metrics
@@ -14,10 +16,20 @@ export async function getMetrics(_req: Request, res: Response) {
     const freeMem = os.freemem();
     const usedMem = totalMem - freeMem;
     const cpuUsage = os.loadavg();
+    const cores = os.cpus().length;
 
     const usersCount = await prisma.user.count();
     const projectsCount = await prisma.project.count();
     const orgsCount = await prisma.organization.count();
+
+    // disque
+    let diskTotal = 0;
+    let diskFree = 0;
+    try {
+      const stat = fs.statSync(path.resolve("/"));
+      diskTotal = stat.blksize || 0;
+      diskFree = stat.blocks || 0;
+    } catch {}
 
     const metrics = {
       uptime: {
@@ -32,16 +44,26 @@ export async function getMetrics(_req: Request, res: Response) {
       },
       cpu: {
         loadAvg: cpuUsage, // [1,5,15m]
-        cores: os.cpus().length,
+        cores,
         model: os.cpus()[0]?.model,
+      },
+      disk: {
+        total: diskTotal,
+        free: diskFree,
       },
       db: {
         usersCount,
         projectsCount,
         orgsCount,
       },
+      alerts: {
+        highMem: usedMem / totalMem > 0.9,
+        highLoad: cpuUsage[0] > 2 * cores,
+      },
       platform: os.platform(),
       arch: os.arch(),
+      pid: process.pid,
+      hostname: os.hostname(),
       timestamp: Date.now(),
     };
 
@@ -68,41 +90,26 @@ export async function getPrometheusMetrics(_req: Request, res: Response) {
       `# HELP nodejs_uptime_seconds Uptime du processus Node.js`,
       `# TYPE nodejs_uptime_seconds counter`,
       `nodejs_uptime_seconds ${uptime.toFixed(2)}`,
-
+      ``,
       `# HELP nodejs_memory_total_bytes Mémoire totale`,
       `# TYPE nodejs_memory_total_bytes gauge`,
       `nodejs_memory_total_bytes ${totalMem}`,
-
-      `# HELP nodejs_memory_used_bytes Mémoire utilisée`,
-      `# TYPE nodejs_memory_used_bytes gauge`,
       `nodejs_memory_used_bytes ${usedMem}`,
-
-      `# HELP nodejs_memory_free_bytes Mémoire libre`,
-      `# TYPE nodejs_memory_free_bytes gauge`,
       `nodejs_memory_free_bytes ${freeMem}`,
-
+      ``,
       `# HELP nodejs_load1 Charge CPU 1m`,
-      `# TYPE nodejs_load1 gauge`,
       `nodejs_load1 ${load1}`,
-
       `# HELP nodejs_load5 Charge CPU 5m`,
-      `# TYPE nodejs_load5 gauge`,
       `nodejs_load5 ${load5}`,
-
       `# HELP nodejs_load15 Charge CPU 15m`,
-      `# TYPE nodejs_load15 gauge`,
       `nodejs_load15 ${load15}`,
-
+      ``,
       `# HELP app_users_total Nombre total d’utilisateurs`,
-      `# TYPE app_users_total gauge`,
       `app_users_total ${usersCount}`,
-
       `# HELP app_projects_total Nombre total de projets`,
-      `# TYPE app_projects_total gauge`,
       `app_projects_total ${projectsCount}`,
-
+      ``,
       `# HELP app_build_info Informations build`,
-      `# TYPE app_build_info gauge`,
       `app_build_info{env="${process.env.NODE_ENV}",version="${process.env.APP_VERSION || "1.0.0"}"} 1`,
     ];
 
@@ -121,12 +128,16 @@ export async function getLogs(req: Request, res: Response) {
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
     const skip = (page - 1) * limit;
 
-    const userId = req.query.userId as string | undefined;
-    const action = req.query.action as string | undefined;
+    const { userId, action, from, to } = req.query;
 
     const where: any = {};
-    if (userId) where.userId = userId;
-    if (action) where.action = action;
+    if (userId) where.userId = String(userId);
+    if (action) where.action = String(action);
+    if (from || to) {
+      where.createdAt = {};
+      if (from) where.createdAt.gte = new Date(String(from));
+      if (to) where.createdAt.lte = new Date(String(to));
+    }
 
     const [logs, total] = await Promise.all([
       prisma.auditLog.findMany({
@@ -147,6 +158,33 @@ export async function getLogs(req: Request, res: Response) {
   } catch (err) {
     console.error("❌ getLogs error:", err);
     res.status(500).json({ success: false, message: "Erreur récupération logs" });
+  }
+}
+
+// ✅ Export logs JSON/CSV → /monitoring/logs/export
+export async function exportLogs(req: Request, res: Response) {
+  try {
+    const format = (req.query.format as string) || "json";
+    const logs = await prisma.auditLog.findMany({ orderBy: { createdAt: "desc" }, take: 1000 });
+
+    if (format === "csv") {
+      const csv = [
+        "id,userId,action,details,createdAt",
+        ...logs.map((l) =>
+          [l.id, l.userId, l.action, (l.details || "").replace(/,/g, ";"), l.createdAt.toISOString()].join(",")
+        ),
+      ].join("\n");
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=logs.csv");
+      res.send(csv);
+    } else {
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Disposition", "attachment; filename=logs.json");
+      res.send(JSON.stringify(logs, null, 2));
+    }
+  } catch (err) {
+    console.error("❌ exportLogs error:", err);
+    res.status(500).json({ success: false, message: "Erreur export logs" });
   }
 }
 
@@ -194,11 +232,35 @@ export async function getOverview(_req: Request, res: Response) {
         orgsCount,
         replaysCount,
         uptime: process.uptime(),
+        alerts: {
+          highMem: os.freemem() / os.totalmem() < 0.1,
+          highLoad: os.loadavg()[0] > 2 * os.cpus().length,
+        },
         timestamp: Date.now(),
       },
     });
   } catch (err) {
     console.error("❌ getOverview error:", err);
     res.status(500).json({ success: false, message: "Erreur récupération overview" });
+  }
+}
+
+// ✅ Profilage serveur → /monitoring/profile
+export async function getProfile(_req: Request, res: Response) {
+  try {
+    const mem = process.memoryUsage();
+    const cpu = process.cpuUsage();
+    res.json({
+      success: true,
+      data: {
+        memory: mem,
+        cpu,
+        pid: process.pid,
+        uptime: process.uptime(),
+      },
+    });
+  } catch (err) {
+    console.error("❌ getProfile error:", err);
+    res.status(500).json({ success: false, message: "Erreur récupération profil" });
   }
 }
