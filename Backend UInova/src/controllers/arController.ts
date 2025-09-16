@@ -1,19 +1,41 @@
-// src/controllers/arController.ts
 import { Request, Response } from "express";
 import { z } from "zod";
 import * as arService from "../services/arService";
 import { prisma } from "../utils/prisma";
+import { emitEvent } from "../services/eventBus";
+import { logger } from "../utils/logger";
+import client from "prom-client";
 
 /* ============================================================================
- *  Validation Schemas
+ * 📊 Prometheus Metrics
+ * ========================================================================== */
+const counterPreview = new client.Counter({
+  name: "uinova_ar_preview_total",
+  help: "Nombre de previews AR générés",
+});
+const counterGenerate = new client.Counter({
+  name: "uinova_ar_generate_total",
+  help: "Nombre de modèles AR générés",
+});
+const counterStream = new client.Counter({
+  name: "uinova_ar_stream_total",
+  help: "Nombre de streams AR lancés",
+});
+const counterError = new client.Counter({
+  name: "uinova_ar_error_total",
+  help: "Nombre d'erreurs AR",
+});
+
+/* ============================================================================
+ * Validation Schemas
  * ========================================================================== */
 const PreviewQuerySchema = z.object({
   mode: z.enum(["mock", "live", "asset"]).default("mock"),
   format: z.enum(["glb", "usdz", "gltf", "image", "video"]).optional(),
   quality: z.enum(["low", "medium", "high"]).default("medium"),
-  device: z.string().optional(), // iOS, Android, WebXR, etc.
+  device: z.string().optional(),
   sceneId: z.string().optional(),
-  userInput: z.string().optional(), // prompt IA
+  userInput: z.string().optional(),
 });
 
 const GenerateSchema = z.object({
@@ -23,7 +45,7 @@ const GenerateSchema = z.object({
 });
 
 /* ============================================================================
- *  Helpers
+ * Helpers
  * ========================================================================== */
 function getUser(req: Request) {
   return (req as any).user || { id: "anonymous", role: "GUEST" };
@@ -35,17 +57,19 @@ async function logAction(userId: string, action: string, details?: string, metad
       data: { userId, action, details, metadata },
     });
   } catch (err) {
-    console.error("⚠️ Audit log error:", err);
+    logger.warn("⚠️ Audit log error", err);
   }
 }
 
 /* ============================================================================
- *  GET /api/ar/preview
+ * GET /api/ar/preview
  * ========================================================================== */
 export async function getARPreview(req: Request, res: Response) {
+  const start = Date.now();
   try {
     const parsed = PreviewQuerySchema.safeParse(req.query);
     if (!parsed.success) {
+      counterError.inc();
       return res.status(400).json({ success: false, error: parsed.error.flatten() });
     }
 
@@ -71,21 +95,36 @@ export async function getARPreview(req: Request, res: Response) {
         break;
     }
 
-    await logAction(user.id, "AR_PREVIEW", `Mode: ${mode}`, { format, quality, device, sceneId, userInput });
+    await logAction(user.id, "AR_PREVIEW", `Mode: ${mode}`, {
+      format,
+      quality,
+      device,
+      sceneId,
+      userInput,
+      latency: Date.now() - start,
+      ip: req.ip,
+    });
+
+    emitEvent("ar.preview", { userId: user.id, mode, format, sceneId });
+    counterPreview.inc();
+
     return res.json({ success: true, mode, format, quality, device, data });
   } catch (err: any) {
-    console.error("❌ getARPreview error:", err);
+    counterError.inc();
+    logger.error("❌ getARPreview error", err);
     return res.status(500).json({ success: false, error: "Erreur génération AR", details: err.message });
   }
 }
 
 /* ============================================================================
- *  POST /api/ar/generate
+ * POST /api/ar/generate
  * ========================================================================== */
 export async function generateARModel(req: Request, res: Response) {
+  const start = Date.now();
   try {
     const parsed = GenerateSchema.safeParse(req.body);
     if (!parsed.success) {
+      counterError.inc();
       return res.status(400).json({ success: false, error: parsed.error.flatten() });
     }
 
@@ -104,16 +143,27 @@ export async function generateARModel(req: Request, res: Response) {
       },
     });
 
-    await logAction(user.id, "AR_GENERATE_MODEL", prompt, { format, quality, url: result?.url });
+    await logAction(user.id, "AR_GENERATE_MODEL", prompt, {
+      format,
+      quality,
+      url: result?.url,
+      latency: Date.now() - start,
+      ip: req.ip,
+    });
+
+    emitEvent("ar.generate", { userId: user.id, prompt, format });
+    counterGenerate.inc();
+
     return res.status(201).json({ success: true, data: result });
   } catch (err: any) {
-    console.error("❌ generateARModel error:", err);
+    counterError.inc();
+    logger.error("❌ generateARModel error", err);
     return res.status(500).json({ success: false, error: "Erreur génération modèle AR", details: err.message });
   }
 }
 
 /* ============================================================================
- *  GET /api/ar/assets
+ * GET /api/ar/assets
  * ========================================================================== */
 export async function listARAssets(req: Request, res: Response) {
   try {
@@ -124,13 +174,14 @@ export async function listARAssets(req: Request, res: Response) {
     });
     return res.json({ success: true, data: assets });
   } catch (err: any) {
-    console.error("❌ listARAssets error:", err);
+    counterError.inc();
+    logger.error("❌ listARAssets error", err);
     return res.status(500).json({ success: false, error: "Erreur récupération assets AR", details: err.message });
   }
 }
 
 /* ============================================================================
- *  GET /api/ar/stream → SSE temps réel (rendu AR)
+ * GET /api/ar/stream → SSE temps réel
  * ========================================================================== */
 export async function streamARRender(req: Request, res: Response) {
   try {
@@ -140,8 +191,9 @@ export async function streamARRender(req: Request, res: Response) {
 
     const user = getUser(req);
     await logAction(user.id, "AR_STREAM_START");
+    emitEvent("ar.stream", { userId: user.id });
+    counterStream.inc();
 
-    // Simulation de rendu temps réel
     let step = 0;
     const interval = setInterval(() => {
       step++;
@@ -154,8 +206,20 @@ export async function streamARRender(req: Request, res: Response) {
         logAction(user.id, "AR_STREAM_END", undefined, { steps: step });
       }
     }, 800);
+
+    // Heartbeat pour éviter timeouts
+    const heartbeat = setInterval(() => {
+      res.write(`event: heartbeat\ndata: ${Date.now()}\n\n`);
+    }, 15000);
+
+    res.on("close", () => {
+      clearInterval(interval);
+      clearInterval(heartbeat);
+      logger.info(`👋 streamARRender closed for user=${user.id}`);
+    });
   } catch (err: any) {
-    console.error("❌ streamARRender error:", err);
+    counterError.inc();
+    logger.error("❌ streamARRender error", err);
     return res.status(500).json({ success: false, error: "Erreur stream AR", details: err.message });
   }
 }
