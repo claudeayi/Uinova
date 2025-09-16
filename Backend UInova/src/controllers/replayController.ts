@@ -3,6 +3,7 @@ import { Request, Response } from "express";
 import { prisma } from "../utils/prisma";
 import { getReplaySession, saveReplaySession } from "../services/replayService";
 import { v4 as uuidv4, validate as isUuid } from "uuid";
+import zlib from "zlib";
 
 /* ============================================================================
  *  REPLAY CONTROLLER – gestion des replays collaboratifs
@@ -175,7 +176,7 @@ export async function deleteReplay(req: Request, res: Response) {
 
     await prisma.replaySession.update({
       where: { id: replayId },
-      data: { status: "DELETED", deletedAt: new Date() }, // soft delete
+      data: { status: "DELETED", deletedAt: new Date() },
     });
 
     await prisma.auditLog.create({
@@ -218,24 +219,106 @@ export async function restoreReplay(req: Request, res: Response) {
   }
 }
 
-// ✅ Exporter un replay en JSON
+// ✅ Exporter un replay (JSON ou ZIP compressé)
 export async function exportReplay(req: Request, res: Response) {
   try {
     const { replayId } = req.params;
     const replay = await getReplaySession(replayId);
     if (!replay) return res.status(404).json({ success: false, message: "Replay introuvable" });
 
-    res.setHeader("Content-Type", "application/json");
-    res.setHeader("Content-Disposition", `attachment; filename=replay-${replayId}.json`);
-    res.send(JSON.stringify(replay, null, 2));
+    const accept = req.query.format || "json";
+    if (accept === "zip") {
+      const compressed = zlib.gzipSync(JSON.stringify(replay, null, 2));
+      res.setHeader("Content-Type", "application/zip");
+      res.setHeader("Content-Disposition", `attachment; filename=replay-${replayId}.zip`);
+      res.send(compressed);
+    } else {
+      res.setHeader("Content-Type", "application/json");
+      res.setHeader("Content-Disposition", `attachment; filename=replay-${replayId}.json`);
+      res.send(JSON.stringify(replay, null, 2));
+    }
   } catch (err: any) {
     console.error("❌ exportReplay error:", err);
     res.status(500).json({ success: false, message: err.message || "Erreur serveur" });
   }
 }
 
+// ✅ SSE → rejouer un replay en streaming
+export async function streamReplay(req: Request, res: Response) {
+  try {
+    const { replayId } = req.params;
+    const replay = await getReplaySession(replayId);
+    if (!replay) return res.status(404).json({ success: false, message: "Replay introuvable" });
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    replay.steps.forEach((s, i) => {
+      setTimeout(() => {
+        res.write(`data: ${JSON.stringify(s)}\n\n`);
+        if (i === replay.steps.length - 1) res.end();
+      }, i * 500);
+    });
+  } catch (err: any) {
+    console.error("❌ streamReplay error:", err);
+    res.status(500).json({ success: false, message: err.message || "Erreur serveur" });
+  }
+}
+
+// ✅ Analyse d’un replay
+export async function analyzeReplay(req: Request, res: Response) {
+  try {
+    const { replayId } = req.params;
+    const replay = await getReplaySession(replayId);
+    if (!replay) return res.status(404).json({ success: false, message: "Replay introuvable" });
+
+    const stats = {
+      steps: replay.steps.length,
+      users: replay.meta.users.length,
+      durationMs: replay.meta.durationMs,
+      avgStepTime: replay.meta.durationMs && replay.steps.length > 1
+        ? replay.meta.durationMs / replay.steps.length
+        : null,
+    };
+
+    res.json({ success: true, data: stats });
+  } catch (err: any) {
+    console.error("❌ analyzeReplay error:", err);
+    res.status(500).json({ success: false, message: err.message || "Erreur serveur" });
+  }
+}
+
+// ✅ Comparer deux replays
+export async function compareReplays(req: Request, res: Response) {
+  try {
+    const { replayA, replayB } = req.query;
+    if (!replayA || !replayB) return res.status(400).json({ success: false, message: "Deux replays requis" });
+
+    const r1 = await getReplaySession(String(replayA));
+    const r2 = await getReplaySession(String(replayB));
+    if (!r1 || !r2) return res.status(404).json({ success: false, message: "Replay introuvable" });
+
+    const diffSteps = Math.abs(r1.steps.length - r2.steps.length);
+    const diffDuration = (r1.meta.durationMs || 0) - (r2.meta.durationMs || 0);
+
+    res.json({
+      success: true,
+      data: {
+        replayA: r1.meta,
+        replayB: r2.meta,
+        diffSteps,
+        diffDuration,
+      },
+    });
+  } catch (err: any) {
+    console.error("❌ compareReplays error:", err);
+    res.status(500).json({ success: false, message: err.message || "Erreur serveur" });
+  }
+}
+
 /* ============================================================================
- *  ADMIN ENDPOINTS – pour ReplaysAdmin.tsx
+ *  ADMIN ENDPOINTS
  * ========================================================================== */
 export async function listAllReplays(req: Request, res: Response) {
   try {
