@@ -3,29 +3,30 @@ import { Request, Response } from "express";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "../utils/prisma";
+import { emitEvent } from "../services/eventBus";
 
 /* ============================================================================
  * VALIDATION SCHEMAS
  * ========================================================================== */
 const CreateUserSchema = z.object({
   email: z.string().email(),
-  password: z.string().min(6),
+  password: z.string().min(8, "Mot de passe trop court (min 8 caractères)"),
   displayName: z.string().min(2).max(80).optional(),
-  role: z.enum(["USER", "ADMIN"]).optional().default("USER"),
+  role: z.enum(["USER", "ADMIN", "SUPERADMIN"]).optional().default("USER"),
 });
 
 const UpdateUserSchema = z.object({
   email: z.string().email().optional(),
   displayName: z.string().min(2).max(80).optional(),
-  role: z.enum(["USER", "ADMIN"]).optional(),
-  password: z.string().min(6).optional(),
+  role: z.enum(["USER", "ADMIN", "SUPERADMIN"]).optional(),
+  password: z.string().min(8).optional(),
 });
 
 const ListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(200).default(20),
   q: z.string().trim().optional(),
-  role: z.enum(["USER", "ADMIN"]).optional(),
+  role: z.enum(["USER", "ADMIN", "SUPERADMIN"]).optional(),
   sort: z
     .enum(["createdAt:asc", "createdAt:desc", "email:asc", "email:desc"])
     .default("createdAt:desc"),
@@ -36,17 +37,25 @@ const ListQuerySchema = z.object({
  * ========================================================================== */
 function ensureAdmin(req: Request) {
   const role = (req as any)?.user?.role;
-  if (role !== "ADMIN") {
+  if (!role || !["ADMIN", "SUPERADMIN"].includes(role)) {
     const err: any = new Error("Forbidden");
     err.status = 403;
     throw err;
   }
 }
 
-async function auditLog(userId: string, action: string, metadata: any = {}) {
+async function auditLog(userId: string, action: string, metadata: any = {}, req?: Request) {
   try {
     await prisma.auditLog.create({
-      data: { userId, action, metadata },
+      data: {
+        userId,
+        action,
+        metadata: {
+          ...metadata,
+          ip: req?.ip,
+          ua: req?.headers["user-agent"],
+        },
+      },
     });
   } catch (err) {
     console.warn("⚠️ Audit log failed:", err);
@@ -120,7 +129,7 @@ export const createUser = async (req: Request, res: Response) => {
   const exists = await prisma.user.findUnique({ where: { email: body.email } });
   if (exists) return res.status(409).json({ success: false, error: "Email already in use" });
 
-  const passwordHash = await bcrypt.hash(body.password, 10);
+  const passwordHash = await bcrypt.hash(body.password, 12);
 
   const user = await prisma.user.create({
     data: {
@@ -132,7 +141,8 @@ export const createUser = async (req: Request, res: Response) => {
     select: { id: true, email: true, displayName: true, role: true, createdAt: true, updatedAt: true },
   });
 
-  await auditLog((req as any).user?.id, "ADMIN_USER_CREATE", { targetUserId: user.id });
+  await auditLog((req as any).user?.id, "ADMIN_USER_CREATE", { targetUserId: user.id }, req);
+  emitEvent("admin.user.created", { user });
 
   return res.status(201).json({ success: true, data: user });
 };
@@ -147,7 +157,7 @@ export const updateUser = async (req: Request, res: Response) => {
   if (body.email) data.email = body.email;
   if (body.displayName !== undefined) data.displayName = body.displayName;
   if (body.role) data.role = body.role;
-  if (body.password) data.passwordHash = await bcrypt.hash(body.password, 10);
+  if (body.password) data.passwordHash = await bcrypt.hash(body.password, 12);
 
   try {
     const updated = await prisma.user.update({
@@ -156,7 +166,9 @@ export const updateUser = async (req: Request, res: Response) => {
       select: { id: true, email: true, displayName: true, role: true, createdAt: true, updatedAt: true },
     });
 
-    await auditLog((req as any).user?.id, "ADMIN_USER_UPDATE", { targetUserId: id });
+    await auditLog((req as any).user?.id, "ADMIN_USER_UPDATE", { targetUserId: id }, req);
+    emitEvent("admin.user.updated", { userId: id });
+
     return res.json({ success: true, data: updated });
   } catch (e: any) {
     if (e?.code === "P2002") return res.status(409).json({ success: false, error: "Email already in use" });
@@ -171,9 +183,16 @@ export const deleteUser = async (req: Request, res: Response) => {
   const { id } = req.params;
 
   try {
-    await prisma.user.delete({ where: { id } });
-    await auditLog((req as any).user?.id, "ADMIN_USER_DELETE", { targetUserId: id });
-    return res.json({ success: true, message: "User deleted" });
+    // Soft delete : marquer comme "DISABLED"
+    const deleted = await prisma.user.update({
+      where: { id },
+      data: { active: false },
+    });
+
+    await auditLog((req as any).user?.id, "ADMIN_USER_DELETE", { targetUserId: id }, req);
+    emitEvent("admin.user.deleted", { userId: id });
+
+    return res.json({ success: true, message: "User disabled", data: deleted });
   } catch (e: any) {
     if (e?.code === "P2025") return res.status(404).json({ success: false, error: "User not found" });
     throw e;
@@ -198,6 +217,11 @@ export const userStats = async (req: Request, res: Response) => {
     `),
   ]);
 
+  const growthRate =
+    perDay.length > 1
+      ? ((perDay[perDay.length - 1].count - perDay[0].count) / perDay[0].count) * 100
+      : 0;
+
   return res.json({
     success: true,
     data: {
@@ -205,6 +229,7 @@ export const userStats = async (req: Request, res: Response) => {
       byRole: { ADMIN: admins, USER: users },
       newLast7d: last7d,
       trend30d: perDay,
+      growthRate,
     },
   });
 };
