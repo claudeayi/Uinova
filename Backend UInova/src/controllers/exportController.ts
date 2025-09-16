@@ -2,29 +2,43 @@
 import { Request, Response } from "express";
 import { z } from "zod";
 import { prisma } from "../utils/prisma";
+import { emitEvent } from "../services/eventBus";
+import { logger } from "../utils/logger";
+import client from "prom-client";
 
-// (optionnels) services — garde les stubs si non branchés
-import * as policy from "../services/policy";          // policy.canAccessProject(userId, projectId, "EDIT"|"VIEW")
-import * as cloud from "../services/cloud";            // cloud.putObjectFromBase64(key, base64) -> url
-import { emitEvent } from "../services/eventBus";      // ✅ events bus centralisé
+// (optionnels) services
+import * as policy from "../services/policy";
+import * as cloud from "../services/cloud";
 
 let exportQueue: any = null;
 try {
-  // @ts-ignore: optional import if you have BullMQ
-  exportQueue = require("../services/exportQueue").exportQueue;
+  exportQueue = require("../queues/exportQueue").exportQueue;
 } catch { /* ok si absent */ }
 
-// ---- Config
+/* ============================================================================
+ * 📊 Prometheus metrics
+ * ========================================================================== */
+const counterExportSuccess = new client.Counter({
+  name: "uinova_exports_success_total",
+  help: "Nombre d'exports réussis",
+});
+const counterExportFail = new client.Counter({
+  name: "uinova_exports_failed_total",
+  help: "Nombre d'exports échoués",
+});
+
+/* ============================================================================
+ * Config & Validation
+ * ========================================================================== */
 const EXPORT_TYPES = ["react", "html", "flutter", "pwa"] as const;
 const STATUS = ["pending", "ready", "failed"] as const;
-const MAX_CONTENT_BYTES = 30 * 1024 * 1024; // 30 MB (base64 compris)
+const MAX_CONTENT_BYTES = 30 * 1024 * 1024; // 30 MB
 
-// ---- Validation
 const SaveExportSchema = z.object({
   type: z.enum(EXPORT_TYPES),
-  content: z.string().optional(),  // base64 zip, html, etc. (optionnel si mode enqueue)
+  content: z.string().optional(),
   strategy: z.enum(["direct", "enqueue"]).optional().default("direct"),
-  meta: z.record(z.any()).optional(), // métadonnées facultatives
+  meta: z.record(z.any()).optional(),
 });
 
 const ListQuerySchema = z.object({
@@ -37,7 +51,9 @@ const ListQuerySchema = z.object({
   sort: z.enum(["createdAt:desc","createdAt:asc"]).default("createdAt:desc"),
 });
 
-// ---- Helpers
+/* ============================================================================
+ * Helpers
+ * ========================================================================== */
 const toId = (v: any) => {
   if (v === undefined || v === null) return undefined;
   const n = Number(v);
@@ -70,36 +86,29 @@ function dto(e: any) {
 
 async function ensureCanEditProject(req: Request, projectId: string | number) {
   const userId = (req as any)?.user?.sub || (req as any)?.user?.id;
-  if (!userId) {
-    const err: any = new Error("Unauthorized");
-    err.status = 401;
-    throw err;
-  }
+  if (!userId) throw Object.assign(new Error("Unauthorized"), { status: 401 });
+
   if (policy?.canAccessProject) {
     const ok = await policy.canAccessProject(userId, projectId, "EDIT");
-    if (!ok) {
-      const err: any = new Error("Forbidden");
-      err.status = 403;
-      throw err;
-    }
+    if (!ok) throw Object.assign(new Error("Forbidden"), { status: 403 });
   } else {
-    // Fallback simple: propriétaire = éditeur
     const project = await prisma.project.findUnique({
       where: { id: projectId as any },
       select: { ownerId: true },
     });
     if (!project || project.ownerId !== userId) {
-      const err: any = new Error("Forbidden");
-      err.status = 403;
-      throw err;
+      throw Object.assign(new Error("Forbidden"), { status: 403 });
     }
   }
 }
 
-// ==========================
-// POST /api/exports/:projectId (ou /:projectId/:pageId)
-// ==========================
+/* ============================================================================
+ * Controllers
+ * ========================================================================== */
+
+// ✅ POST /api/exports/:projectId
 export const saveExport = async (req: Request, res: Response) => {
+  const start = Date.now();
   try {
     const projectId = toId(req.params.projectId);
     const pageId = req.params.pageId ? toId(req.params.pageId) : undefined;
@@ -116,13 +125,7 @@ export const saveExport = async (req: Request, res: Response) => {
     // Mode enqueue
     if (strategy === "enqueue") {
       const rec = await prisma.export.create({
-        data: {
-          type,
-          status: "pending",
-          projectId: projectId as any,
-          pageId: pageId as any,
-          meta: meta ?? {},
-        },
+        data: { type, status: "pending", projectId: projectId as any, pageId: pageId as any, meta: meta ?? {} },
         select: exportSelect,
       });
 
@@ -137,6 +140,7 @@ export const saveExport = async (req: Request, res: Response) => {
       }
 
       emitEvent("export.enqueued", { exportId: rec.id, projectId, type });
+      logger.info("📦 Export enqueued", { exportId: rec.id, projectId, type });
       return res.status(202).json(dto(rec));
     }
 
@@ -168,38 +172,31 @@ export const saveExport = async (req: Request, res: Response) => {
         status: "ready",
         projectId: projectId as any,
         pageId: pageId as any,
-        bundleUrl: bundleUrl,
-        meta: {
-          ...(meta ?? {}),
-          inline: bundleUrl ? false : true,
-          content: bundleUrl ? undefined : content,
-        },
+        bundleUrl,
+        meta: { ...(meta ?? {}), inline: bundleUrl ? false : true, content: bundleUrl ? undefined : content },
       },
       select: exportSelect,
     });
 
     emitEvent("export.saved", { exportId: rec.id, projectId, type });
+    counterExportSuccess.inc();
+    logger.info("✅ Export saved", { exportId: rec.id, projectId, type, duration: Date.now() - start });
     return res.status(201).json(dto(rec));
   } catch (e: any) {
-    console.error("❌ saveExport error:", e);
+    counterExportFail.inc();
+    logger.error("❌ saveExport error", { error: e?.message });
     return res.status(500).json({ error: "Internal server error" });
   }
 };
 
-// ==========================
-// GET /api/exports
-// ==========================
+// ✅ GET /api/exports
 export const list = async (req: Request, res: Response) => {
   try {
     const q = ListQuerySchema.safeParse(req.query);
-    if (!q.success) {
-      return res.status(400).json({ error: "Invalid query", details: q.error.flatten() });
-    }
+    if (!q.success) return res.status(400).json({ error: "Invalid query", details: q.error.flatten() });
     const { projectId, pageId, type, status, page, pageSize, sort } = q.data;
 
-    if (!projectId && !pageId) {
-      return res.status(400).json({ error: "projectId ou pageId requis" });
-    }
+    if (!projectId && !pageId) return res.status(400).json({ error: "projectId ou pageId requis" });
 
     const pid = toId(projectId || req.params.projectId);
     if (pid) {
@@ -222,13 +219,7 @@ export const list = async (req: Request, res: Response) => {
 
     const [total, items] = await Promise.all([
       prisma.export.count({ where }),
-      prisma.export.findMany({
-        where,
-        orderBy,
-        skip: (page - 1) * pageSize,
-        take: pageSize,
-        select: exportSelect,
-      }),
+      prisma.export.findMany({ where, orderBy, skip: (page - 1) * pageSize, take: pageSize, select: exportSelect }),
     ]);
 
     res.json({
@@ -239,14 +230,12 @@ export const list = async (req: Request, res: Response) => {
       totalPages: Math.max(1, Math.ceil(total / pageSize)),
     });
   } catch (e: any) {
-    console.error("❌ listExports error:", e);
+    logger.error("❌ listExports error", { error: e?.message });
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
-// ==========================
-// GET /api/exports/:id
-// ==========================
+// ✅ GET /api/exports/:id
 export const getOne = async (req: Request, res: Response) => {
   try {
     const id = toId(req.params.id);
@@ -262,14 +251,12 @@ export const getOne = async (req: Request, res: Response) => {
 
     res.json(dto(rec));
   } catch (e: any) {
-    console.error("❌ getOneExport error:", e);
+    logger.error("❌ getOneExport error", { error: e?.message });
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
-// ==========================
-// POST /api/exports/:id/mark-failed
-// ==========================
+// ✅ POST /api/exports/:id/mark-failed
 export const markFailed = async (req: Request, res: Response) => {
   try {
     const id = toId(req.params.id);
@@ -280,16 +267,15 @@ export const markFailed = async (req: Request, res: Response) => {
       select: exportSelect,
     });
     emitEvent("export.failed", { exportId: rec.id, error });
+    counterExportFail.inc();
     res.json(dto(rec));
   } catch (e: any) {
-    console.error("❌ markFailed error:", e);
+    logger.error("❌ markFailed error", { error: e?.message });
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
-// ==========================
-// POST /api/exports/:id/mark-ready
-// ==========================
+// ✅ POST /api/exports/:id/mark-ready
 export const markReady = async (req: Request, res: Response) => {
   try {
     const id = toId(req.params.id);
@@ -302,9 +288,47 @@ export const markReady = async (req: Request, res: Response) => {
       select: exportSelect,
     });
     emitEvent("export.ready", { exportId: rec.id, bundleUrl });
+    counterExportSuccess.inc();
     res.json(dto(rec));
   } catch (e: any) {
-    console.error("❌ markReady error:", e);
+    logger.error("❌ markReady error", { error: e?.message });
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+/* ============================================================================
+ * ✅ GET /api/exports/:id/stream → SSE progression export
+ * ========================================================================== */
+export const streamExport = async (req: Request, res: Response) => {
+  try {
+    const id = toId(req.params.id);
+    const exportItem = await prisma.export.findUnique({ where: { id } as any });
+    if (!exportItem) return res.status(404).json({ error: "Export not found" });
+
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    let step = 0;
+    const interval = setInterval(() => {
+      step++;
+      const progress = Math.min(100, step * 20);
+      res.write(`data: ${JSON.stringify({ progress, status: progress === 100 ? "done" : "processing" })}\n\n`);
+
+      if (progress === 100) {
+        clearInterval(interval);
+        res.end();
+        emitEvent("export.stream.done", { exportId: id });
+        logger.info("📡 Export stream finished", { exportId: id });
+      }
+    }, 1000);
+
+    req.on("close", () => {
+      clearInterval(interval);
+      logger.warn("⚠️ SSE client disconnected", { exportId: id });
+    });
+  } catch (e: any) {
+    logger.error("❌ streamExport error", { error: e?.message });
     res.status(500).json({ error: "Internal server error" });
   }
 };
