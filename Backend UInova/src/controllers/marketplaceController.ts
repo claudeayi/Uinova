@@ -1,12 +1,64 @@
 // src/controllers/marketplaceController.ts
 import { Request, Response } from "express";
 import { prisma } from "../utils/prisma";
+import { z } from "zod";
+import { emitEvent } from "../services/eventBus";
+import { logger } from "../utils/logger";
+import client from "prom-client";
 
 /* ============================================================================
- *  MARKETPLACE CONTROLLER – CRUD + PURCHASES
+ * 📊 Prometheus metrics
+ * ========================================================================== */
+const counterItemsPublished = new client.Counter({
+  name: "uinova_marketplace_items_published_total",
+  help: "Nombre total d’items publiés sur le marketplace",
+});
+const counterItemsDeleted = new client.Counter({
+  name: "uinova_marketplace_items_deleted_total",
+  help: "Nombre total d’items supprimés",
+});
+const counterPurchases = new client.Counter({
+  name: "uinova_marketplace_purchases_total",
+  help: "Nombre total d’achats réalisés",
+});
+const gaugeRevenue = new client.Gauge({
+  name: "uinova_marketplace_revenue_cents",
+  help: "Revenus cumulés (cents)",
+});
+const gaugeActiveSellers = new client.Gauge({
+  name: "uinova_marketplace_active_sellers",
+  help: "Nombre de vendeurs ayant publié au moins 1 item",
+});
+
+/* ============================================================================
+ * Validation Schemas
+ * ========================================================================== */
+const PublishSchema = z.object({
+  title: z.string().min(3),
+  description: z.string().optional(),
+  priceCents: z.number().int().nonnegative().optional(),
+  currency: z.string().length(3).default("EUR"),
+  contentUrl: z.string().url(),
+});
+const UpdateSchema = PublishSchema.extend({
+  published: z.boolean().optional(),
+});
+const PurchaseSchema = z.object({
+  itemId: z.string().min(1),
+});
+
+/* ============================================================================
+ * Helpers
+ * ========================================================================== */
+function getUser(req: Request) {
+  return (req as any).user || {};
+}
+
+/* ============================================================================
+ * Controllers CRUD Marketplace
  * ========================================================================== */
 
-// ✅ GET /marketplace/items → liste publique
+// ✅ GET /marketplace/items
 export async function listItems(req: Request, res: Response) {
   try {
     const page = Math.max(1, Number(req.query.page) || 1);
@@ -20,10 +72,7 @@ export async function listItems(req: Request, res: Response) {
     const [items, total] = await Promise.all([
       prisma.marketplaceItem.findMany({
         where,
-        include: {
-          owner: { select: { id: true, email: true, name: true } },
-          _count: { select: { purchases: true } },
-        },
+        include: { owner: { select: { id: true, email: true, name: true } }, _count: { select: { purchases: true } } },
         orderBy: { createdAt: "desc" },
         skip,
         take: limit,
@@ -31,219 +80,173 @@ export async function listItems(req: Request, res: Response) {
       prisma.marketplaceItem.count({ where }),
     ]);
 
-    res.json({
-      success: true,
-      data: items,
-      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
-    });
+    res.json({ success: true, data: items, pagination: { total, page, limit, totalPages: Math.ceil(total / limit) } });
   } catch (err) {
-    console.error("❌ listItems error:", err);
+    logger.error("❌ listItems error", err);
     res.status(500).json({ success: false, error: "SERVER_ERROR" });
   }
 }
 
-// ✅ GET /marketplace/admin/items → liste complète
-export async function listAllItems(req: Request, res: Response) {
-  try {
-    const role = (req as any).user?.role;
-    if (role !== "ADMIN") {
-      return res.status(403).json({ success: false, error: "FORBIDDEN" });
-    }
-
-    const items = await prisma.marketplaceItem.findMany({
-      include: {
-        owner: { select: { id: true, email: true, name: true } },
-        _count: { select: { purchases: true } },
-      },
-      orderBy: { createdAt: "desc" },
-    });
-    res.json({ success: true, data: items });
-  } catch (err) {
-    console.error("❌ listAllItems error:", err);
-    res.status(500).json({ success: false, error: "SERVER_ERROR" });
-  }
-}
-
-// ✅ GET /marketplace/items/:id → détail
-export async function getItem(req: Request, res: Response) {
-  try {
-    const { id } = req.params;
-    const item = await prisma.marketplaceItem.findUnique({
-      where: { id },
-      include: {
-        owner: { select: { id: true, email: true, name: true } },
-        _count: { select: { purchases: true } },
-      },
-    });
-    if (!item) return res.status(404).json({ success: false, error: "NOT_FOUND" });
-    res.json({ success: true, data: item });
-  } catch (err) {
-    console.error("❌ getItem error:", err);
-    res.status(500).json({ success: false, error: "SERVER_ERROR" });
-  }
-}
-
-// ✅ POST /marketplace/items → publier
+// ✅ POST /marketplace/items
 export async function publishItem(req: Request, res: Response) {
   try {
-    const userId = (req as any).user?.id;
-    const role = (req as any).user?.role;
-    if (!userId) return res.status(401).json({ success: false, error: "UNAUTHORIZED" });
+    const user = getUser(req);
+    if (!user.id) return res.status(401).json({ success: false, error: "UNAUTHORIZED" });
+    if (!["PREMIUM", "ADMIN"].includes(user.role)) return res.status(403).json({ success: false, error: "FORBIDDEN" });
 
-    if (!["PREMIUM", "ADMIN"].includes(role)) {
-      return res.status(403).json({ success: false, error: "FORBIDDEN" });
-    }
-
-    const { title, description, priceCents, currency, contentUrl } = req.body;
-    if (!title || !contentUrl) {
-      return res.status(400).json({ success: false, error: "BAD_REQUEST", message: "Titre et contenu requis" });
-    }
+    const parsed = PublishSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ success: false, error: "INVALID_BODY", details: parsed.error.flatten() });
 
     const item = await prisma.marketplaceItem.create({
-      data: {
-        title,
-        description,
-        priceCents: priceCents || 0,
-        currency: currency || "EUR",
-        ownerId: userId,
-        published: true,
-        contentUrl,
-      },
+      data: { ...parsed.data, ownerId: user.id, published: true },
     });
 
     await prisma.auditLog.create({
-      data: { userId, action: "MARKETPLACE_PUBLISH", details: `Item ${item.id} publié` },
+      data: { userId: user.id, action: "MARKETPLACE_PUBLISH", metadata: { itemId: item.id } },
     });
+    emitEvent("marketplace.item.published", { itemId: item.id, userId: user.id });
+    counterItemsPublished.inc();
 
     res.status(201).json({ success: true, data: item });
   } catch (err) {
-    console.error("❌ publishItem error:", err);
+    logger.error("❌ publishItem error", err);
     res.status(500).json({ success: false, error: "SERVER_ERROR" });
   }
 }
 
-// ✅ PUT /marketplace/items/:id → mise à jour
-export async function updateItem(req: Request, res: Response) {
-  try {
-    const userId = (req as any).user?.id;
-    const role = (req as any).user?.role;
-    const { id } = req.params;
-
-    const item = await prisma.marketplaceItem.findUnique({ where: { id } });
-    if (!item) return res.status(404).json({ success: false, error: "NOT_FOUND" });
-
-    if (item.ownerId !== userId && role !== "ADMIN") {
-      return res.status(403).json({ success: false, error: "FORBIDDEN" });
-    }
-
-    const { title, description, priceCents, currency, published } = req.body;
-    const updated = await prisma.marketplaceItem.update({
-      where: { id },
-      data: { title, description, priceCents, currency, published },
-    });
-
-    await prisma.auditLog.create({
-      data: { userId, action: "MARKETPLACE_UPDATE", details: `Item ${id} mis à jour` },
-    });
-
-    res.json({ success: true, data: updated });
-  } catch (err) {
-    console.error("❌ updateItem error:", err);
-    res.status(500).json({ success: false, error: "SERVER_ERROR" });
-  }
-}
-
-// ✅ DELETE /marketplace/items/:id
-export async function deleteItem(req: Request, res: Response) {
-  try {
-    const userId = (req as any).user?.id;
-    const role = (req as any).user?.role;
-    const { id } = req.params;
-
-    const item = await prisma.marketplaceItem.findUnique({ where: { id } });
-    if (!item) return res.status(404).json({ success: false, error: "NOT_FOUND" });
-
-    if (item.ownerId !== userId && role !== "ADMIN") {
-      return res.status(403).json({ success: false, error: "FORBIDDEN" });
-    }
-
-    await prisma.marketplaceItem.delete({ where: { id } });
-
-    await prisma.auditLog.create({
-      data: { userId, action: "MARKETPLACE_DELETE", details: `Item ${id} supprimé` },
-    });
-
-    res.json({ success: true, message: "Item supprimé" });
-  } catch (err) {
-    console.error("❌ deleteItem error:", err);
-    res.status(500).json({ success: false, error: "SERVER_ERROR" });
-  }
-}
-
-// ✅ POST /marketplace/purchase → achat
+// ✅ POST /marketplace/purchase
 export async function purchaseItem(req: Request, res: Response) {
   try {
-    const userId = (req as any).user?.id;
-    if (!userId) return res.status(401).json({ success: false, error: "UNAUTHORIZED" });
+    const user = getUser(req);
+    if (!user.id) return res.status(401).json({ success: false, error: "UNAUTHORIZED" });
 
-    const { itemId } = req.body;
-    if (!itemId) return res.status(400).json({ success: false, error: "MISSING_ITEM" });
+    const parsed = PurchaseSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ success: false, error: "INVALID_BODY", details: parsed.error.flatten() });
 
+    const { itemId } = parsed.data;
     const item = await prisma.marketplaceItem.findUnique({ where: { id: itemId } });
     if (!item) return res.status(404).json({ success: false, error: "NOT_FOUND" });
 
-    const existing = await prisma.purchase.findFirst({ where: { itemId, buyerId: userId } });
-    if (existing) {
-      return res.json({ success: true, message: "Déjà acheté", downloadUrl: item.contentUrl });
-    }
+    const existing = await prisma.purchase.findFirst({ where: { itemId, buyerId: user.id } });
+    if (existing) return res.json({ success: true, message: "Déjà acheté", downloadUrl: item.contentUrl });
 
-    const purchase = await prisma.purchase.create({ data: { itemId, buyerId: userId, status: "paid" } });
+    const purchase = await prisma.purchase.create({ data: { itemId, buyerId: user.id, status: "paid" } });
 
-    await prisma.auditLog.create({
-      data: { userId, action: "MARKETPLACE_PURCHASE", details: `Item ${itemId} acheté` },
-    });
+    await prisma.auditLog.create({ data: { userId: user.id, action: "MARKETPLACE_PURCHASE", metadata: { itemId } } });
+    emitEvent("marketplace.item.purchased", { itemId, userId: user.id, purchaseId: purchase.id });
+    counterPurchases.inc();
 
-    res.json({
-      success: true,
-      message: "Achat réussi",
-      item,
-      downloadUrl: item.contentUrl,
-      purchase,
-    });
+    // 💰 Mise à jour métriques financières
+    const totalRevenue = await prisma.purchase.aggregate({ _sum: { item: { priceCents: true } } });
+    gaugeRevenue.set(totalRevenue._sum?.item?.priceCents || 0);
+
+    res.json({ success: true, message: "Achat réussi", item, downloadUrl: item.contentUrl, purchase });
   } catch (err) {
-    console.error("❌ purchaseItem error:", err);
+    logger.error("❌ purchaseItem error", err);
     res.status(500).json({ success: false, error: "SERVER_ERROR" });
   }
 }
 
-// ✅ GET /marketplace/purchases → mes achats
-export async function listPurchases(req: Request, res: Response) {
+/* ============================================================================
+ * 👑 ADMIN: Analytics & Stats
+ * ========================================================================== */
+
+// ✅ GET /marketplace/stats
+export async function marketplaceStats(req: Request, res: Response) {
   try {
-    const userId = (req as any).user?.id;
-    if (!userId) return res.status(401).json({ success: false, error: "UNAUTHORIZED" });
+    const role = getUser(req).role;
+    if (role !== "ADMIN") return res.status(403).json({ success: false, error: "FORBIDDEN" });
 
-    const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = Math.min(50, Math.max(1, Number(req.query.limit) || 20));
-    const skip = (page - 1) * limit;
-
-    const [purchases, total] = await Promise.all([
-      prisma.purchase.findMany({
-        where: { buyerId: userId },
-        include: { item: true },
-        orderBy: { createdAt: "desc" },
-        skip,
-        take: limit,
+    const [totalItems, totalPurchases, totalRevenue, topSellers, topBuyers] = await Promise.all([
+      prisma.marketplaceItem.count(),
+      prisma.purchase.count(),
+      prisma.purchase.aggregate({ _sum: { item: { priceCents: true } } }),
+      prisma.purchase.groupBy({
+        by: ["itemId"],
+        _count: { itemId: true },
+        orderBy: { _count: { itemId: "desc" } },
+        take: 5,
       }),
-      prisma.purchase.count({ where: { buyerId: userId } }),
+      prisma.purchase.groupBy({
+        by: ["buyerId"],
+        _count: { buyerId: true },
+        orderBy: { _count: { buyerId: "desc" } },
+        take: 5,
+      }),
     ]);
+
+    gaugeActiveSellers.set(await prisma.marketplaceItem.groupBy({ by: ["ownerId"], _count: true }).then(r => r.length));
 
     res.json({
       success: true,
-      data: purchases,
-      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      data: {
+        totalItems,
+        totalPurchases,
+        totalRevenueCents: totalRevenue._sum?.item?.priceCents || 0,
+        topSellers,
+        topBuyers,
+      },
     });
   } catch (err) {
-    console.error("❌ listPurchases error:", err);
+    logger.error("❌ marketplaceStats error", err);
+    res.status(500).json({ success: false, error: "SERVER_ERROR" });
+  }
+}
+
+// ✅ GET /marketplace/stats/export → CSV
+export async function exportMarketplaceStats(req: Request, res: Response) {
+  try {
+    const role = getUser(req).role;
+    if (role !== "ADMIN") return res.status(403).json({ success: false, error: "FORBIDDEN" });
+
+    const purchases = await prisma.purchase.findMany({ include: { item: true, buyer: true } });
+
+    const rows = purchases.map(p => [
+      p.id,
+      p.item.title,
+      p.item.priceCents,
+      p.item.currency,
+      p.buyer?.email,
+      p.createdAt.toISOString(),
+    ]);
+    const header = "id,title,price,currency,buyer,createdAt";
+    const csv = [header, ...rows.map(r => r.join(","))].join("\n");
+
+    res.setHeader("Content-Type", "text/csv");
+    res.setHeader("Content-Disposition", "attachment; filename=marketplace_stats.csv");
+    res.send(csv);
+  } catch (err) {
+    logger.error("❌ exportMarketplaceStats error", err);
+    res.status(500).json({ success: false, error: "SERVER_ERROR" });
+  }
+}
+
+/* ============================================================================
+ * 🔴 SSE Live Streaming (events)
+ * ========================================================================== */
+export async function streamMarketplaceEvents(req: Request, res: Response) {
+  try {
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+
+    const send = (event: string, data: any) => {
+      res.write(`event: ${event}\n`);
+      res.write(`data: ${JSON.stringify(data)}\n\n`);
+    };
+
+    // Exemple: notifier achat/publication
+    emitEvent("marketplace.stream.connected", { ts: Date.now() });
+    send("connected", { ts: Date.now(), status: "ready" });
+
+    const interval = setInterval(() => send("heartbeat", { ts: Date.now() }), 15000);
+
+    req.on("close", () => {
+      clearInterval(interval);
+      logger.info("🔌 SSE client disconnected");
+    });
+  } catch (err) {
+    logger.error("❌ streamMarketplaceEvents error", err);
     res.status(500).json({ success: false, error: "SERVER_ERROR" });
   }
 }
