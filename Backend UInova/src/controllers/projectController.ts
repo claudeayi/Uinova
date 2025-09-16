@@ -21,7 +21,9 @@ const metrics = {
   published: new client.Counter({ name: "uinova_projects_published_total", help: "Projets publiés" }),
   exported: new client.Counter({ name: "uinova_projects_exported_total", help: "Projets exportés" }),
   rollback: new client.Counter({ name: "uinova_projects_rollback_total", help: "Projets rollbackés" }),
-  versions: new client.Counter({ name: "uinova_projects_versions_total", help: "Versions sauvegardées" }),
+  viewed: new client.Counter({ name: "uinova_projects_viewed_total", help: "Projets consultés" }),
+  reactions: new client.Counter({ name: "uinova_projects_reactions_total", help: "Réactions sur projets" }),
+  comments: new client.Counter({ name: "uinova_projects_comments_total", help: "Commentaires sur projets" }),
 };
 
 /* ============================================================================
@@ -64,26 +66,6 @@ async function logAction(userId: string, action: string, metadata?: any) {
 }
 
 /* ============================================================================
- * VERSIONING HELPERS
- * ========================================================================== */
-async function createProjectVersion(projectId: string, userId: string, tag?: string) {
-  const project = await prisma.project.findUnique({ where: { id: projectId } });
-  if (!project) throw new Error("Project not found");
-
-  const hash = crypto.createHash("sha256").update(JSON.stringify(project.json)).digest("hex");
-
-  const version = await prisma.projectVersion.create({
-    data: { projectId, userId, snapshot: project.json, hash, tag },
-  });
-
-  metrics.versions.inc();
-  emitEvent("project.versioned", { projectId, versionId: version.id, tag });
-  await logAction(userId, "PROJECT_VERSION_CREATED", { projectId, versionId: version.id, tag });
-
-  return version;
-}
-
-/* ============================================================================
  * VALIDATION
  * ========================================================================== */
 const CreateSchema = z.object({ name: z.string().min(1).max(120), tagline: z.string().max(200).optional(), icon: z.string().max(120).optional(), schema: z.any().optional() });
@@ -91,66 +73,177 @@ const UpdateSchema = z.object({ name: z.string().min(1).max(120).optional(), tag
 const AutosaveSchema = z.object({ schema: z.any() });
 
 /* ============================================================================
- * CONTROLLERS – Versions
+ * EXPORT HELPERS
+ * ========================================================================== */
+function generateReactCode(project: any) {
+  return `import React from "react";
+export default function App() {
+  return (
+    <div>
+      <h1>${project.name}</h1>
+      ${project.pages.map((p: any) => `<section><h2>${p.name}</h2><p>${p.content || ""}</p></section>`).join("\n")}
+    </div>
+  );
+}`;
+}
+
+function generateFlutterCode(project: any) {
+  return `import 'package:flutter/material.dart';
+void main() => runApp(const UInovaApp());
+class UInovaApp extends StatelessWidget {
+  const UInovaApp({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return MaterialApp(
+      title: '${project.name}',
+      home: Scaffold(
+        appBar: AppBar(title: const Text('${project.name}')),
+        body: ListView(
+          children: [
+            ${project.pages.map((p: any) => `ListTile(title: Text("${p.name}"), subtitle: Text("${p.content || ""}"))`).join(",")}
+          ],
+        ),
+      ),
+    );
+  }
+}`;
+}
+
+/* ============================================================================
+ * CONTROLLERS
  * ========================================================================== */
 
-// ✅ Sauvegarde une version manuelle
-export const saveVersion = async (req: Request, res: Response) => {
+// ✅ Lister projets
+export const listProjects = async (req: Request, res: Response) => {
   try {
     const user = ensureAuth(req);
-    await ensureCanAccessProject(user.id, req.params.id, "EDIT");
-
-    const { tag } = req.body;
-    const version = await createProjectVersion(req.params.id, user.id, tag);
-
-    res.status(201).json({ success: true, data: version });
+    const projects = await prisma.project.findMany({
+      where: { ownerId: user.id, deletedAt: null },
+      orderBy: { updatedAt: "desc" },
+      select: { id: true, name: true, tagline: true, icon: true, status: true, updatedAt: true, published: true, lastSavedAt: true },
+    });
+    res.json({ success: true, data: projects.map(toProjectCardDTO) });
   } catch (err: any) {
-    logger.error("❌ saveVersion", err);
-    res.status(500).json({ success: false, error: "Erreur sauvegarde version" });
+    logger.error("❌ listProjects", err);
+    res.status(500).json({ success: false, error: "Erreur récupération projets" });
   }
 };
 
-// ✅ Lister toutes les versions d’un projet
-export const listVersions = async (req: Request, res: Response) => {
+// ✅ Créer projet
+export const createProject = async (req: Request, res: Response) => {
+  try {
+    const user = ensureAuth(req);
+    const body = CreateSchema.parse(req.body);
+
+    const project = await prisma.project.create({
+      data: { ownerId: user.id, name: body.name, tagline: body.tagline ?? null, icon: body.icon ?? null, status: "DRAFT", json: body.schema ?? {} },
+    });
+
+    metrics.created.inc();
+    emitEvent("project.created", { projectId: project.id, userId: user.id });
+    await logAction(user.id, "PROJECT_CREATE", { projectId: project.id });
+
+    res.status(201).json({ success: true, data: toProjectCardDTO(project) });
+  } catch (err: any) {
+    logger.error("❌ createProject", err);
+    res.status(500).json({ success: false, error: "Erreur création projet" });
+  }
+};
+
+// ✅ Export projet (JSON | HTML | React | Flutter)
+export const exportProject = async (req: Request, res: Response) => {
   try {
     const user = ensureAuth(req);
     await ensureCanAccessProject(user.id, req.params.id, "VIEW");
 
-    const versions = await prisma.projectVersion.findMany({
-      where: { projectId: req.params.id },
-      orderBy: { createdAt: "desc" },
-    });
+    const { format = "json" } = req.query;
+    const project = await prisma.project.findUnique({ where: { id: req.params.id }, include: { pages: true } });
+    if (!project) return res.status(404).json({ success: false, error: "Not found" });
 
-    res.json({ success: true, data: versions });
+    let payload: any;
+    switch (format) {
+      case "json": payload = { success: true, data: project.json }; break;
+      case "html": res.type("html"); payload = `<!DOCTYPE html><html><body><h1>${project.name}</h1><script>window.project=${JSON.stringify(project.json)}</script></body></html>`; break;
+      case "react": payload = { success: true, code: generateReactCode(project) }; break;
+      case "flutter": payload = { success: true, code: generateFlutterCode(project) }; break;
+      default: return res.status(400).json({ success: false, error: "Format non supporté" });
+    }
+
+    metrics.exported.inc();
+    emitEvent("project.exported", { projectId: project.id, format, userId: user.id });
+    await logAction(user.id, "PROJECT_EXPORT", { projectId: project.id, format });
+
+    if (typeof payload === "string") res.send(payload);
+    else res.json(payload);
   } catch (err: any) {
-    logger.error("❌ listVersions", err);
-    res.status(500).json({ success: false, error: "Erreur récupération versions" });
+    logger.error("❌ exportProject", err);
+    res.status(500).json({ success: false, error: "Erreur export projet" });
   }
 };
 
-// ✅ Rollback vers une version
-export const rollbackToVersion = async (req: Request, res: Response) => {
+// ✅ Vue publique (shareLink)
+export const viewSharedProject = async (req: Request, res: Response) => {
+  try {
+    const { token } = req.params;
+    const link = await prisma.shareLink.findUnique({ where: { token }, include: { project: { include: { pages: true } } } });
+    if (!link || link.expiresAt < new Date()) {
+      return res.status(404).json({ success: false, error: "Lien expiré ou invalide" });
+    }
+    metrics.viewed.inc();
+    emitEvent("project.viewed", { projectId: link.projectId, token });
+    await logAction("anonymous", "PROJECT_VIEW_SHARED", { projectId: link.projectId, token });
+
+    res.json({ success: true, data: link.project });
+  } catch (err: any) {
+    logger.error("❌ viewSharedProject", err);
+    res.status(500).json({ success: false, error: "Erreur vue partagée" });
+  }
+};
+
+// ✅ Réagir à un projet
+export const reactToProject = async (req: Request, res: Response) => {
   try {
     const user = ensureAuth(req);
-    await ensureCanAccessProject(user.id, req.params.id, "EDIT");
+    const { type } = req.body; // "like" | "star" | "dislike"
+    if (!["like", "star", "dislike"].includes(type)) {
+      return res.status(400).json({ success: false, error: "Type de réaction invalide" });
+    }
 
-    const { versionId } = req.params;
-    const version = await prisma.projectVersion.findUnique({ where: { id: versionId } });
-    if (!version) return res.status(404).json({ success: false, error: "Version introuvable" });
-
-    const rollback = await prisma.project.update({
-      where: { id: req.params.id },
-      data: { json: version.snapshot, updatedAt: new Date() },
+    const reaction = await prisma.projectReaction.upsert({
+      where: { userId_projectId: { userId: user.id, projectId: req.params.id } },
+      update: { type },
+      create: { userId: user.id, projectId: req.params.id, type },
     });
 
-    await createProjectVersion(req.params.id, user.id, `rollback_from_${versionId}`);
-    metrics.rollback.inc();
-    emitEvent("project.rollback", { projectId: req.params.id, versionId });
-    await logAction(user.id, "PROJECT_ROLLBACK", { projectId: req.params.id, versionId });
+    metrics.reactions.inc();
+    emitEvent("project.reacted", { projectId: req.params.id, type, userId: user.id });
+    await logAction(user.id, "PROJECT_REACT", { projectId: req.params.id, type });
 
-    res.json({ success: true, data: rollback });
+    res.json({ success: true, data: reaction });
   } catch (err: any) {
-    logger.error("❌ rollbackToVersion", err);
-    res.status(500).json({ success: false, error: "Erreur rollback projet" });
+    logger.error("❌ reactToProject", err);
+    res.status(500).json({ success: false, error: "Erreur réaction projet" });
+  }
+};
+
+// ✅ Commentaires
+export const commentOnProject = async (req: Request, res: Response) => {
+  try {
+    const user = ensureAuth(req);
+    const { content, parentId } = req.body;
+    if (!content) return res.status(400).json({ success: false, error: "Message requis" });
+
+    const comment = await prisma.projectComment.create({
+      data: { projectId: req.params.id, userId: user.id, content, parentId: parentId || null },
+    });
+
+    metrics.comments.inc();
+    emitEvent("project.commented", { projectId: req.params.id, commentId: comment.id, userId: user.id });
+    await logAction(user.id, "PROJECT_COMMENT", { projectId: req.params.id, commentId: comment.id });
+
+    res.status(201).json({ success: true, data: comment });
+  } catch (err: any) {
+    logger.error("❌ commentOnProject", err);
+    res.status(500).json({ success: false, error: "Erreur commentaire" });
   }
 };
