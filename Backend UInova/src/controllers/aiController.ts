@@ -1,7 +1,8 @@
-// src/controllers/aiController.ts
 import { Request, Response } from "express";
 import { z } from "zod";
 import crypto from "crypto";
+import { v4 as uuid } from "uuid";
+import client from "prom-client";
 import {
   generateAssistantResponse,
   generateAssistantStream,
@@ -9,25 +10,27 @@ import {
 } from "../services/aiService";
 import { moderatePrompt } from "../utils/aiModeration";
 import { logger } from "../utils/logger";
+import { billingService } from "../services/billingService";
 
 /* ============================================================================
- *  QUOTA & AUDIT (branchable sur billingService)
+ * 📊 Prometheus Metrics
  * ========================================================================== */
-const quota = {
-  async ensureAndDebit(userId: string, kind: "ai", cost = 1) {
-    logger.info(`💳 Quota debit [${kind}] user=${userId}, cost=${cost}`);
-    // TODO: brancher sur billingService
-  },
-};
-const audit = {
-  async log(data: any) {
-    logger.info("📝 Audit log", data);
-    // TODO: envoyer vers base ou eventBus
-  },
-};
+const counterRequests = new client.Counter({
+  name: "uinova_ai_requests_total",
+  help: "Total des requêtes AI",
+});
+const counterErrors = new client.Counter({
+  name: "uinova_ai_errors_total",
+  help: "Erreurs AI",
+});
+const histogramLatency = new client.Histogram({
+  name: "uinova_ai_request_duration_seconds",
+  help: "Durée des requêtes AI",
+  buckets: [0.1, 0.5, 1, 2, 5, 10],
+});
 
 /* ============================================================================
- *  VALIDATION
+ * VALIDATION SCHEMA
  * ========================================================================== */
 const ChatSchema = z.object({
   prompt: z.string().min(1).max(4000),
@@ -47,6 +50,9 @@ const ChatSchema = z.object({
   json: z.boolean().optional(),
 });
 
+/* ============================================================================
+ * Utils
+ * ========================================================================== */
 function truncateHistory(
   history: { role: "system" | "user" | "assistant"; content: string }[] = [],
   maxChars = 8000
@@ -64,7 +70,7 @@ function truncateHistory(
 }
 
 /* ============================================================================
- *  CONTROLLERS
+ * CONTROLLERS
  * ========================================================================== */
 
 /**
@@ -73,14 +79,19 @@ function truncateHistory(
  */
 export const chat = async (req: Request, res: Response) => {
   const start = Date.now();
+  const requestId = uuid();
+  counterRequests.inc();
+
   try {
     const userId = (req as any)?.user?.id || "anonymous";
     const parsed = ChatSchema.safeParse(req.body);
     if (!parsed.success) {
+      counterErrors.inc();
       return res.status(400).json({
         success: false,
         error: "INVALID_BODY",
         details: parsed.error.flatten(),
+        requestId,
       });
     }
 
@@ -89,13 +100,27 @@ export const chat = async (req: Request, res: Response) => {
 
     // 🔒 Sécurité : modération
     if (!moderatePrompt(prompt)) {
-      return res
-        .status(403)
-        .json({ success: false, error: "Prompt interdit par la politique UInova." });
+      counterErrors.inc();
+      return res.status(403).json({
+        success: false,
+        error: "Prompt interdit par la politique UInova.",
+        requestId,
+      });
+    }
+
+    // 💳 Quota réel
+    const quotaCheck = await billingService.checkQuota(userId, "ai_tokens");
+    if (!quotaCheck.ok) {
+      return res.status(402).json({
+        success: false,
+        error: "QUOTA_EXCEEDED",
+        limit: quotaCheck.limit,
+        used: quotaCheck.used,
+        requestId,
+      });
     }
 
     const safeHistory = truncateHistory(history);
-    await quota.ensureAndDebit(userId, "ai", 1);
 
     const result = await generateAssistantResponse({
       prompt,
@@ -108,33 +133,39 @@ export const chat = async (req: Request, res: Response) => {
       userId,
     });
 
-    // 📜 Audit (sans stocker le prompt complet)
-    audit.log({
-      type: "AI_CHAT",
+    await billingService.recordUsage(userId, "ai_tokens", result?.usage?.totalTokens || 0);
+
+    histogramLatency.observe((Date.now() - start) / 1000);
+
+    // 📜 Audit enrichi
+    logger.info("📝 AI_CHAT_AUDIT", {
+      requestId,
       userId,
       promptHash: crypto.createHash("sha256").update(prompt).digest("hex"),
       model: result?.model,
       tokens: result?.usage?.totalTokens,
-      latency: Date.now() - start,
+      promptLength: prompt.length,
+      latencyMs: Date.now() - start,
       ip: req.ip,
       ua: req.headers["user-agent"],
-      ts: Date.now(),
-    }).catch(() => {});
+    });
 
     return res.json({
       success: true,
+      requestId,
       answer: result.answer,
       usage: result.usage,
       model: result.model,
       mode: json ? "json" : "text",
     });
   } catch (e: any) {
+    counterErrors.inc();
     logger.error("❌ [AI] chat error", e?.response?.data || e?.message || e);
-    const msg =
-      e?.response?.data?.error?.message ||
-      e?.message ||
-      "Erreur lors de la génération AI.";
-    return res.status(500).json({ success: false, error: msg });
+    return res.status(500).json({
+      success: false,
+      error: e?.message || "Erreur lors de la génération AI.",
+      requestId,
+    });
   }
 };
 
@@ -144,15 +175,16 @@ export const chat = async (req: Request, res: Response) => {
  */
 export const chatStream = async (req: Request, res: Response) => {
   const start = Date.now();
+  const requestId = uuid();
   const method = req.method.toUpperCase();
   const input = method === "POST" ? req.body : req.query;
 
   const parsed = ChatSchema.safeParse(input);
   if (!parsed.success) {
-    res
+    counterErrors.inc();
+    return res
       .status(400)
-      .json({ success: false, error: "INVALID_BODY", details: parsed.error.flatten() });
-    return;
+      .json({ success: false, error: "INVALID_BODY", details: parsed.error.flatten(), requestId });
   }
 
   const userId = (req as any)?.user?.id || "anonymous";
@@ -160,8 +192,8 @@ export const chatStream = async (req: Request, res: Response) => {
     parsed.data;
 
   if (!moderatePrompt(prompt)) {
-    res.status(403).json({ success: false, error: "Prompt interdit." });
-    return;
+    counterErrors.inc();
+    return res.status(403).json({ success: false, error: "Prompt interdit.", requestId });
   }
 
   res.set({
@@ -173,14 +205,12 @@ export const chatStream = async (req: Request, res: Response) => {
 
   const send = (event: string, data: any) => {
     res.write(`event: ${event}\n`);
-    res.write(
-      `data: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`
-    );
+    res.write(`data: ${typeof data === "string" ? data : JSON.stringify(data)}\n\n`);
   };
 
   try {
     const safeHistory = truncateHistory(history);
-    await quota.ensureAndDebit(userId, "ai", 1);
+    await billingService.checkQuota(userId, "ai_tokens");
 
     await generateAssistantStream(
       {
@@ -195,30 +225,31 @@ export const chatStream = async (req: Request, res: Response) => {
       },
       {
         onToken: (t: string) => send("message", t),
-        onStart: (info) => send("start", info),
+        onStart: (info) => send("start", { requestId, ...info }),
         onEnd: (info) => {
-          send("end", info);
-          audit.log({
-            type: "AI_STREAM",
+          send("end", { requestId, ...info });
+          logger.info("📝 AI_STREAM_AUDIT", {
+            requestId,
             userId,
             promptHash: crypto.createHash("sha256").update(prompt).digest("hex"),
             model: info?.model,
-            latency: Date.now() - start,
+            latencyMs: Date.now() - start,
             ip: req.ip,
             ua: req.headers["user-agent"],
-            ts: Date.now(),
-          }).catch(() => {});
+          });
         },
         onError: (err: any) => send("error", err?.message || "Erreur streaming AI"),
       }
     );
+
+    // Heartbeat pour éviter timeout côté client
+    const heartbeat = setInterval(() => send("heartbeat", Date.now()), 15000);
+    res.on("close", () => clearInterval(heartbeat));
   } catch (e: any) {
+    counterErrors.inc();
     logger.error("❌ [AI] chatStream error", e?.response?.data || e?.message);
     send("error", e?.message || "Erreur lors du streaming AI.");
   } finally {
-    // Heartbeat pour éviter timeouts côté client
-    const heartbeat = setInterval(() => send("heartbeat", Date.now()), 15000);
-    res.on("close", () => clearInterval(heartbeat));
     res.end();
   }
 };
@@ -233,8 +264,6 @@ export const getModels = async (_req: Request, res: Response) => {
     res.json({ success: true, data: models });
   } catch (e: any) {
     logger.error("❌ [AI] getModels error", e?.message);
-    res
-      .status(500)
-      .json({ success: false, error: "Impossible de charger les modèles" });
+    res.status(500).json({ success: false, error: "Impossible de charger les modèles" });
   }
 };
