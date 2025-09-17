@@ -8,6 +8,18 @@ import { z } from "zod";
  * ========================================================================== */
 const IdSchema = z.string().min(1, "id requis");
 const ValidateSchema = z.object({ validated: z.boolean() });
+const BulkSchema = z.object({ ids: z.array(z.string().min(1)).min(1) });
+
+const ListQuerySchema = z.object({
+  page: z.coerce.number().min(1).default(1),
+  pageSize: z.coerce.number().min(1).max(100).default(20),
+  ownerId: z.string().optional(),
+  validated: z.coerce.boolean().optional(),
+  published: z.coerce.boolean().optional(),
+  since: z.coerce.date().optional(),
+  until: z.coerce.date().optional(),
+  sort: z.enum(["createdAt:desc", "createdAt:asc"]).default("createdAt:desc"),
+});
 
 /* ============================================================================
  * HELPERS
@@ -20,12 +32,11 @@ function ensureAdmin(req: Request) {
     throw err;
   }
 }
-
 async function auditLog(userId: string, action: string, metadata: any = {}) {
   try {
     await prisma.auditLog.create({ data: { userId, action, metadata } });
-  } catch (err) {
-    console.warn("⚠️ auditLog failed:", err);
+  } catch {
+    /* ignore */
   }
 }
 
@@ -33,21 +44,41 @@ async function auditLog(userId: string, action: string, metadata: any = {}) {
  * CONTROLLERS
  * ========================================================================== */
 
-// 📋 Liste de tous les projets
+// 📋 Liste des projets avec pagination + filtres
 export async function listProjects(req: Request, res: Response) {
   try {
     ensureAdmin(req);
+    const q = ListQuerySchema.parse(req.query);
+    const { page, pageSize, ownerId, validated, published, since, until, sort } = q;
 
-    const projects = await prisma.project.findMany({
-      include: {
-        owner: { select: { id: true, email: true } },
-        _count: { select: { pages: true } },
-      },
-      orderBy: { createdAt: "desc" },
-      take: 200,
-    });
+    const where: any = {};
+    if (ownerId) where.ownerId = ownerId;
+    if (validated !== undefined) where.validated = validated;
+    if (published !== undefined) where.published = published;
+    if (since || until) {
+      where.createdAt = {};
+      if (since) where.createdAt.gte = since;
+      if (until) where.createdAt.lte = until;
+    }
 
-    res.json({ success: true, total: projects.length, data: projects });
+    const [field, dir] = sort.split(":") as ["createdAt", "asc" | "desc"];
+    const orderBy: any = { [field]: dir };
+
+    const [total, projects] = await Promise.all([
+      prisma.project.count({ where }),
+      prisma.project.findMany({
+        where,
+        include: {
+          owner: { select: { id: true, email: true } },
+          _count: { select: { pages: true } },
+        },
+        orderBy,
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+
+    res.json({ success: true, data: projects, pagination: { total, page, pageSize } });
   } catch (err) {
     console.error("❌ listProjects error:", err);
     res.status(500).json({ success: false, message: "Erreur récupération projets" });
@@ -67,7 +98,6 @@ export async function getProjectById(req: Request, res: Response) {
         pages: { select: { id: true, name: true, type: true, createdAt: true } },
       },
     });
-
     if (!project) return res.status(404).json({ success: false, message: "Projet introuvable" });
 
     await auditLog((req as any).user?.id, "ADMIN_PROJECT_VIEW", { projectId: id });
@@ -75,34 +105,51 @@ export async function getProjectById(req: Request, res: Response) {
     res.json({ success: true, data: project });
   } catch (err: any) {
     console.error("❌ getProjectById error:", err);
-    if (err?.code === "P2025") return res.status(404).json({ success: false, message: "Projet introuvable" });
     res.status(500).json({ success: false, message: "Erreur récupération projet" });
   }
 }
 
-// 🗑️ Suppression d’un projet
+// 🗑️ Suppression (soft delete)
 export async function deleteProject(req: Request, res: Response) {
   try {
     ensureAdmin(req);
     const { id } = IdSchema.parse(req.params.id);
 
-    // Supprimer d'abord les pages et entités liées
-    await prisma.page.deleteMany({ where: { projectId: id } });
-    await prisma.deployment.deleteMany({ where: { projectId: id } }).catch(() => null);
-
-    await prisma.project.delete({ where: { id } });
+    const project = await prisma.project.update({
+      where: { id },
+      data: { deletedAt: new Date(), status: "ARCHIVED" },
+    });
 
     await auditLog((req as any).user?.id, "ADMIN_PROJECT_DELETE", { projectId: id });
 
-    res.json({ success: true, message: `Projet ${id} supprimé` });
+    res.json({ success: true, message: `Projet ${id} archivé`, data: project });
   } catch (err: any) {
     console.error("❌ deleteProject error:", err);
-    if (err?.code === "P2025") return res.status(404).json({ success: false, message: "Projet introuvable" });
     res.status(500).json({ success: false, message: "Erreur suppression projet" });
   }
 }
 
-// ✅ Validation d’un projet (ex: projet public avant publication)
+// 🔙 Restaurer un projet
+export async function restoreProject(req: Request, res: Response) {
+  try {
+    ensureAdmin(req);
+    const { id } = IdSchema.parse(req.params.id);
+
+    const restored = await prisma.project.update({
+      where: { id },
+      data: { deletedAt: null, status: "DRAFT" },
+    });
+
+    await auditLog((req as any).user?.id, "ADMIN_PROJECT_RESTORE", { projectId: id });
+
+    res.json({ success: true, data: restored });
+  } catch (err) {
+    console.error("❌ restoreProject error:", err);
+    res.status(500).json({ success: false, message: "Erreur restauration projet" });
+  }
+}
+
+// ✅ Validation
 export async function validateProject(req: Request, res: Response) {
   try {
     ensureAdmin(req);
@@ -119,20 +166,52 @@ export async function validateProject(req: Request, res: Response) {
     res.json({ success: true, data: project });
   } catch (err: any) {
     console.error("❌ validateProject error:", err);
-    if (err?.code === "P2025") return res.status(404).json({ success: false, message: "Projet introuvable" });
     res.status(500).json({ success: false, message: "Erreur validation projet" });
   }
 }
 
-// 📊 Stats des projets
+// 📤 Export projets (json / csv / md)
+export async function exportProjects(req: Request, res: Response) {
+  try {
+    ensureAdmin(req);
+    const format = (req.query.format as string) || "json";
+    const projects = await prisma.project.findMany({
+      include: { owner: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (format === "json") return res.json({ success: true, data: projects });
+    if (format === "csv") {
+      res.setHeader("Content-Type", "text/csv");
+      res.send(
+        projects.map(p => `${p.id},${p.name},${p.ownerId},${p.status},${p.createdAt}`).join("\n")
+      );
+      return;
+    }
+    if (format === "md") {
+      res.type("markdown").send(
+        projects.map(p => `- **${p.name}** (id: ${p.id}, status: ${p.status})`).join("\n")
+      );
+      return;
+    }
+    res.status(400).json({ success: false, message: "Format non supporté" });
+  } catch (err) {
+    console.error("❌ exportProjects error:", err);
+    res.status(500).json({ success: false, message: "Erreur export projets" });
+  }
+}
+
+// 📊 Stats enrichies
 export async function projectStats(req: Request, res: Response) {
   try {
     ensureAdmin(req);
 
-    const [total, validated, published, last7d] = await Promise.all([
+    const [total, validated, published, archived, byOwner, last7d] = await Promise.all([
       prisma.project.count(),
       prisma.project.count({ where: { validated: true } }),
       prisma.project.count({ where: { published: true } }),
+      prisma.project.count({ where: { status: "ARCHIVED" } }),
+      prisma.project.groupBy({ by: ["ownerId"], _count: { ownerId: true } }),
       prisma.project.count({
         where: { createdAt: { gte: new Date(Date.now() - 7 * 24 * 3600 * 1000) } },
       }),
@@ -144,11 +223,52 @@ export async function projectStats(req: Request, res: Response) {
         total,
         validated,
         published,
+        archived,
+        byOwner,
         newLast7d: last7d,
       },
     });
   } catch (err) {
     console.error("❌ projectStats error:", err);
     res.status(500).json({ success: false, message: "Erreur récupération stats projets" });
+  }
+}
+
+// 🛠️ Bulk delete / restore
+export async function bulkDeleteProjects(req: Request, res: Response) {
+  try {
+    ensureAdmin(req);
+    const { ids } = BulkSchema.parse(req.body);
+
+    const result = await prisma.project.updateMany({
+      where: { id: { in: ids } },
+      data: { deletedAt: new Date(), status: "ARCHIVED" },
+    });
+
+    await auditLog((req as any).user?.id, "ADMIN_PROJECT_BULK_DELETE", { ids });
+
+    res.json({ success: true, count: result.count });
+  } catch (err) {
+    console.error("❌ bulkDeleteProjects error:", err);
+    res.status(500).json({ success: false, message: "Erreur bulk delete" });
+  }
+}
+
+export async function bulkRestoreProjects(req: Request, res: Response) {
+  try {
+    ensureAdmin(req);
+    const { ids } = BulkSchema.parse(req.body);
+
+    const result = await prisma.project.updateMany({
+      where: { id: { in: ids } },
+      data: { deletedAt: null, status: "DRAFT" },
+    });
+
+    await auditLog((req as any).user?.id, "ADMIN_PROJECT_BULK_RESTORE", { ids });
+
+    res.json({ success: true, count: result.count });
+  } catch (err) {
+    console.error("❌ bulkRestoreProjects error:", err);
+    res.status(500).json({ success: false, message: "Erreur bulk restore" });
   }
 }
