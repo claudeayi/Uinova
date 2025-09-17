@@ -4,6 +4,7 @@ import Stripe from "stripe";
 import { z } from "zod";
 import crypto from "node:crypto";
 import { prisma } from "../utils/prisma";
+import { Parser as Json2csvParser } from "json2csv";
 
 const STRIPE_SECRET = process.env.STRIPE_SECRET || process.env.STRIPE_KEY;
 if (!STRIPE_SECRET) {
@@ -15,7 +16,7 @@ export const stripe = new Stripe(STRIPE_SECRET, {
 });
 
 /* ============================================================================
- *  SCHEMAS VALIDATION
+ *  VALIDATION
  * ========================================================================== */
 const PaymentIntentSchema = z.object({
   priceId: z.string().trim().optional(),
@@ -109,6 +110,8 @@ export const createPaymentIntent = async (req: Request, res: Response) => {
         action: "PAYMENT_INTENT_CREATED",
         userId,
         details: `Intent ${pi.id} for ${pi.amount} ${pi.currency}`,
+        ip: req.ip,
+        ua: req.headers["user-agent"],
       },
     });
 
@@ -144,7 +147,7 @@ export const getPaymentStatus = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ Lister les prix
+// ✅ Lister les prix Stripe
 export const listPrices = async (_req: Request, res: Response) => {
   try {
     const prices = await stripe.prices.list({ active: true, expand: ["data.product"] });
@@ -161,7 +164,7 @@ export const refundPayment = async (req: Request, res: Response) => {
     const { id } = req.params;
     const refund = await stripe.refunds.create({ payment_intent: id });
     await prisma.auditLog.create({
-      data: { action: "PAYMENT_REFUND", userId: (req as any).user?.id, details: `Refund ${id}` },
+      data: { action: "PAYMENT_REFUND", userId: (req as any).user?.id, details: `Refund ${id}`, ip: req.ip },
     });
     res.json({ success: true, data: refund });
   } catch (e: any) {
@@ -176,7 +179,7 @@ export const cancelPayment = async (req: Request, res: Response) => {
     const { id } = req.params;
     const canceled = await stripe.paymentIntents.cancel(id);
     await prisma.auditLog.create({
-      data: { action: "PAYMENT_CANCELLED", userId: (req as any).user?.id, details: `Cancel ${id}` },
+      data: { action: "PAYMENT_CANCELLED", userId: (req as any).user?.id, details: `Cancel ${id}`, ip: req.ip },
     });
     res.json({ success: true, data: canceled });
   } catch (e: any) {
@@ -236,10 +239,12 @@ export const stripeWebhook = async (req: Request, res: Response) => {
         console.log("↩️ Payment refunded:", charge.id);
         break;
       }
-      case "invoice.paid": {
+      case "invoice.paid":
         console.log("💳 Subscription invoice paid");
         break;
-      }
+      case "invoice.payment_failed":
+        console.warn("⚠️ Subscription invoice failed");
+        break;
       default:
         console.log(`ℹ️ Stripe event: ${event.type}`);
     }
@@ -250,3 +255,80 @@ export const stripeWebhook = async (req: Request, res: Response) => {
     res.status(500).json({ success: false, error: "Erreur webhook Stripe" });
   }
 };
+
+/* ============================================================================
+ *  ADMIN / EXTRA ENDPOINTS
+ * ========================================================================== */
+
+// 🔎 Lister tous les paiements
+export async function listPayments(req: Request, res: Response) {
+  try {
+    if ((req as any).user?.role !== "ADMIN") return res.status(403).json({ success: false, error: "FORBIDDEN" });
+
+    const page = Math.max(1, Number(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
+    const skip = (page - 1) * limit;
+
+    const [payments, total] = await Promise.all([
+      prisma.payment.findMany({
+        include: { user: { select: { id: true, email: true } }, project: true },
+        orderBy: { createdAt: "desc" },
+        skip,
+        take: limit,
+      }),
+      prisma.payment.count(),
+    ]);
+
+    res.json({
+      success: true,
+      data: payments,
+      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
+    });
+  } catch (e: any) {
+    console.error("❌ listPayments error:", e);
+    res.status(500).json({ success: false, error: "SERVER_ERROR" });
+  }
+}
+
+// 📑 Détail d’un paiement
+export async function getPayment(req: Request, res: Response) {
+  try {
+    if ((req as any).user?.role !== "ADMIN") return res.status(403).json({ success: false, error: "FORBIDDEN" });
+
+    const payment = await prisma.payment.findUnique({
+      where: { id: req.params.id },
+      include: { user: true, project: true },
+    });
+    if (!payment) return res.status(404).json({ success: false, error: "PAYMENT_NOT_FOUND" });
+
+    res.json({ success: true, data: payment });
+  } catch (e: any) {
+    console.error("❌ getPayment error:", e);
+    res.status(500).json({ success: false, error: "SERVER_ERROR" });
+  }
+}
+
+// 📤 Exporter paiements (CSV/JSON)
+export async function exportPayments(req: Request, res: Response) {
+  try {
+    if ((req as any).user?.role !== "ADMIN") return res.status(403).json({ success: false, error: "FORBIDDEN" });
+
+    const format = (req.query.format as string) || "json";
+    const payments = await prisma.payment.findMany({
+      include: { user: { select: { id: true, email: true } }, project: true },
+    });
+
+    if (format === "csv") {
+      const parser = new Json2csvParser({ fields: ["id", "user.email", "amount", "currency", "status", "createdAt"] });
+      const csv = parser.parse(payments);
+      res.setHeader("Content-Type", "text/csv");
+      res.setHeader("Content-Disposition", "attachment; filename=payments.csv");
+      res.send(csv);
+    } else {
+      res.json({ success: true, data: payments });
+    }
+  } catch (e: any) {
+    console.error("❌ exportPayments error:", e);
+    res.status(500).json({ success: false, error: "SERVER_ERROR" });
+  }
+}
