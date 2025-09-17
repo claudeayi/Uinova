@@ -1,334 +1,282 @@
-// src/controllers/paymentController.ts
+// src/controllers/pageController.ts
 import { Request, Response } from "express";
-import Stripe from "stripe";
-import { z } from "zod";
-import crypto from "node:crypto";
 import { prisma } from "../utils/prisma";
-import { Parser as Json2csvParser } from "json2csv";
+import { z } from "zod";
 
-const STRIPE_SECRET = process.env.STRIPE_SECRET || process.env.STRIPE_KEY;
-if (!STRIPE_SECRET) {
-  throw new Error("❌ Missing STRIPE_SECRET (or STRIPE_KEY) in environment.");
-}
+/* ============================================================================
+ *  Schemas Validation (Zod)
+ * ========================================================================== */
+const PageCreateSchema = z.object({
+  projectId: z.string().uuid(),
+  name: z.string().min(2).max(100),
+  content: z.string().optional().default(""),
+  type: z.enum(["landing", "editor", "custom"]).default("custom"),
+});
 
-export const stripe = new Stripe(STRIPE_SECRET, {
-  apiVersion: "2024-06-20" as any,
+const PageUpdateSchema = z.object({
+  name: z.string().min(2).max(100).optional(),
+  content: z.string().optional(),
+  type: z.enum(["landing", "editor", "custom"]).optional(),
+  status: z.enum(["draft", "published", "archived"]).optional(),
 });
 
 /* ============================================================================
- *  VALIDATION
+ *  CRUD Pages
  * ========================================================================== */
-const PaymentIntentSchema = z.object({
-  priceId: z.string().trim().optional(),
-  quantity: z.coerce.number().int().min(1).max(100).optional(),
-  amount: z.coerce.number().int().min(100).max(2_000_000).optional(),
-  currency: z.string().default("eur"),
-  description: z.string().max(200).optional(),
-  orgId: z.string().optional(),
-  projectId: z.string().optional(),
-  idempotencyKey: z.string().uuid().optional(),
-});
-
-function getUser(req: Request) {
-  const u = (req as any).user;
-  if (!u?.sub && !u?.id) {
-    const err: any = new Error("Unauthorized");
-    err.status = 401;
-    throw err;
-  }
-  return { id: u.sub || u.id, email: u.email || undefined };
-}
-
-async function getOrCreateCustomer(email?: string, userId?: string) {
-  if (!email) return undefined;
-  const customers = await stripe.customers.list({ email, limit: 1 });
-  if (customers.data.length > 0) return customers.data[0];
-  return stripe.customers.create({
-    email,
-    metadata: userId ? { userId } : undefined,
-  });
-}
-
-/* ============================================================================
- *  CONTROLLERS
- * ========================================================================== */
-
-// ✅ Créer un PaymentIntent
-export const createPaymentIntent = async (req: Request, res: Response) => {
+export async function listPages(req: Request, res: Response) {
   try {
-    const { id: userId, email } = getUser(req);
+    const { projectId } = req.params;
+    const pages = await prisma.page.findMany({
+      where: { projectId, deletedAt: null },
+      orderBy: { order: "asc" },
+    });
+    return res.json({ success: true, data: pages });
+  } catch (err) {
+    console.error("❌ listPages error:", err);
+    return res.status(500).json({ message: "Erreur serveur" });
+  }
+}
 
-    const parsed = PaymentIntentSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({ success: false, error: "Invalid body", details: parsed.error.flatten() });
-    }
-    const { priceId, quantity = 1, amount, currency, description, orgId, projectId, idempotencyKey } =
-      parsed.data;
+export async function getPage(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const page = await prisma.page.findUnique({ where: { id } });
+    if (!page || page.deletedAt) return res.status(404).json({ message: "Page introuvable" });
+    return res.json({ success: true, data: page });
+  } catch (err) {
+    console.error("❌ getPage error:", err);
+    return res.status(500).json({ message: "Erreur serveur" });
+  }
+}
 
-    const key = idempotencyKey || crypto.randomUUID();
-    const customer = await getOrCreateCustomer(email, userId);
+export async function createPage(req: Request, res: Response) {
+  try {
+    const data = PageCreateSchema.parse(req.body);
+    const order = await prisma.page.count({ where: { projectId: data.projectId } });
 
-    let finalAmount = amount;
-    let finalDescription = description;
-
-    if (priceId) {
-      const price = await stripe.prices.retrieve(priceId);
-      if (!price.active || price.currency !== currency) {
-        return res.status(400).json({ success: false, error: "Invalid or inactive priceId/currency mismatch" });
-      }
-      if (!price.unit_amount) {
-        return res.status(400).json({ success: false, error: "Unsupported price (no unit_amount)" });
-      }
-      finalAmount = price.unit_amount * quantity;
-      finalDescription = description || `UInova purchase (${price.nickname || priceId}) x${quantity}`;
-    }
-
-    if (!finalAmount) {
-      return res.status(400).json({ success: false, error: "Missing amount (provide priceId or amount in cents)" });
-    }
-
-    const pi = await stripe.paymentIntents.create(
-      {
-        amount: finalAmount,
-        currency,
-        customer: customer?.id,
-        description: finalDescription || "UInova purchase",
-        automatic_payment_methods: { enabled: true },
-        metadata: {
-          userId,
-          orgId: orgId || "",
-          projectId: projectId || "",
-          source: "uinova",
-          mode: priceId ? "priceId" : "amount",
-        },
-      },
-      { idempotencyKey: key }
-    );
+    const page = await prisma.page.create({ data: { ...data, order } });
 
     await prisma.auditLog.create({
+      data: { action: "PAGE_CREATED", userId: (req as any).user?.id, details: `Page ${page.id} créée` },
+    });
+
+    return res.status(201).json({ success: true, data: page });
+  } catch (err: any) {
+    console.error("❌ createPage error:", err);
+    return res.status(400).json({ message: err.message || "Erreur validation" });
+  }
+}
+
+export async function updatePage(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const data = PageUpdateSchema.parse(req.body);
+
+    const existing = await prisma.page.findUnique({ where: { id } });
+    if (!existing) return res.status(404).json({ message: "Page introuvable" });
+
+    await prisma.pageVersion.create({
       data: {
-        action: "PAYMENT_INTENT_CREATED",
-        userId,
-        details: `Intent ${pi.id} for ${pi.amount} ${pi.currency}`,
-        ip: req.ip,
-        ua: req.headers["user-agent"],
+        pageId: id,
+        name: existing.name,
+        content: existing.content,
+        type: existing.type,
+        status: existing.status,
       },
     });
 
-    return res.status(201).json({
-      success: true,
-      clientSecret: pi.client_secret,
-      paymentIntentId: pi.id,
-      amount: pi.amount,
-      currency: pi.currency,
-    });
-  } catch (e: any) {
-    console.error("❌ [Stripe] createPaymentIntent error:", e?.message || e);
-    const status = (e as any)?.statusCode || 500;
-    return res.status(status).json({ success: false, error: "Stripe error", details: e?.message || "unknown_error" });
-  }
-};
+    const page = await prisma.page.update({ where: { id }, data });
 
-// ✅ Vérifier le statut d’un paiement
-export const getPaymentStatus = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const pi = await stripe.paymentIntents.retrieve(id);
-    res.json({
-      success: true,
-      id: pi.id,
-      status: pi.status,
-      amount: pi.amount,
-      currency: pi.currency,
-    });
-  } catch (e: any) {
-    console.error("❌ getPaymentStatus error:", e?.message);
-    res.status(500).json({ success: false, error: e?.message || "Erreur récupération paiement" });
-  }
-};
-
-// ✅ Lister les prix Stripe
-export const listPrices = async (_req: Request, res: Response) => {
-  try {
-    const prices = await stripe.prices.list({ active: true, expand: ["data.product"] });
-    res.json({ success: true, data: prices.data });
-  } catch (e: any) {
-    console.error("❌ listPrices error:", e?.message);
-    res.status(500).json({ success: false, error: "Erreur récupération tarifs" });
-  }
-};
-
-// ✅ Rembourser un paiement
-export const refundPayment = async (req: Request, res: Response) => {
-  try {
-    const { id } = req.params;
-    const refund = await stripe.refunds.create({ payment_intent: id });
     await prisma.auditLog.create({
-      data: { action: "PAYMENT_REFUND", userId: (req as any).user?.id, details: `Refund ${id}`, ip: req.ip },
+      data: { action: "PAGE_UPDATED", userId: (req as any).user?.id, details: `Page ${id} mise à jour` },
     });
-    res.json({ success: true, data: refund });
-  } catch (e: any) {
-    console.error("❌ refundPayment error:", e?.message);
-    res.status(500).json({ success: false, error: "Erreur remboursement paiement" });
-  }
-};
 
-// ✅ Annuler un PaymentIntent
-export const cancelPayment = async (req: Request, res: Response) => {
+    return res.json({ success: true, data: page });
+  } catch (err: any) {
+    console.error("❌ updatePage error:", err);
+    return res.status(400).json({ message: err.message || "Erreur mise à jour" });
+  }
+}
+
+export async function deletePage(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const canceled = await stripe.paymentIntents.cancel(id);
+    await prisma.page.update({ where: { id }, data: { deletedAt: new Date(), status: "archived" } });
+
     await prisma.auditLog.create({
-      data: { action: "PAYMENT_CANCELLED", userId: (req as any).user?.id, details: `Cancel ${id}`, ip: req.ip },
+      data: { action: "PAGE_DELETED", userId: (req as any).user?.id, details: `Page ${id} supprimée` },
     });
-    res.json({ success: true, data: canceled });
-  } catch (e: any) {
-    console.error("❌ cancelPayment error:", e?.message);
-    res.status(500).json({ success: false, error: "Erreur annulation paiement" });
+
+    return res.json({ success: true, message: "Page archivée" });
+  } catch (err) {
+    console.error("❌ deletePage error:", err);
+    return res.status(500).json({ message: "Erreur suppression" });
   }
-};
-
-// ✅ Webhook Stripe
-export const stripeWebhook = async (req: Request, res: Response) => {
-  try {
-    const sig = req.headers["stripe-signature"];
-    if (!sig || !process.env.STRIPE_WEBHOOK_SECRET) {
-      return res.status(400).send("Missing Stripe signature or webhook secret");
-    }
-
-    let event: Stripe.Event;
-    try {
-      event = stripe.webhooks.constructEvent(req.body, sig, process.env.STRIPE_WEBHOOK_SECRET);
-    } catch (err: any) {
-      console.error("❌ Stripe webhook signature error:", err.message);
-      return res.status(400).send(`Webhook Error: ${err.message}`);
-    }
-
-    switch (event.type) {
-      case "payment_intent.succeeded": {
-        const pi = event.data.object as Stripe.PaymentIntent;
-        await prisma.payment.upsert({
-          where: { id: pi.id },
-          update: { status: pi.status },
-          create: {
-            id: pi.id,
-            amount: pi.amount,
-            currency: pi.currency,
-            status: pi.status,
-            userId: pi.metadata.userId || null,
-            projectId: pi.metadata.projectId || null,
-            provider: "stripe",
-          },
-        });
-        console.log("✅ Payment succeeded:", pi.id);
-        break;
-      }
-      case "payment_intent.payment_failed": {
-        const pi = event.data.object as Stripe.PaymentIntent;
-        await prisma.auditLog.create({
-          data: { action: "PAYMENT_FAILED", userId: pi.metadata.userId || null, details: `Payment ${pi.id} failed` },
-        });
-        console.warn("⚠️ Payment failed:", pi.id);
-        break;
-      }
-      case "charge.refunded": {
-        const charge = event.data.object as Stripe.Charge;
-        await prisma.auditLog.create({
-          data: { action: "PAYMENT_REFUNDED", userId: charge.metadata?.userId || null, details: `Charge ${charge.id} refunded` },
-        });
-        console.log("↩️ Payment refunded:", charge.id);
-        break;
-      }
-      case "invoice.paid":
-        console.log("💳 Subscription invoice paid");
-        break;
-      case "invoice.payment_failed":
-        console.warn("⚠️ Subscription invoice failed");
-        break;
-      default:
-        console.log(`ℹ️ Stripe event: ${event.type}`);
-    }
-
-    res.json({ received: true });
-  } catch (e: any) {
-    console.error("❌ stripeWebhook error:", e?.message);
-    res.status(500).json({ success: false, error: "Erreur webhook Stripe" });
-  }
-};
+}
 
 /* ============================================================================
- *  ADMIN / EXTRA ENDPOINTS
+ *  Fonctions avancées
  * ========================================================================== */
-
-// 🔎 Lister tous les paiements
-export async function listPayments(req: Request, res: Response) {
+export async function duplicatePage(req: Request, res: Response) {
   try {
-    if ((req as any).user?.role !== "ADMIN") return res.status(403).json({ success: false, error: "FORBIDDEN" });
+    const { id } = req.params;
+    const page = await prisma.page.findUnique({ where: { id } });
+    if (!page) return res.status(404).json({ message: "Page introuvable" });
 
-    const page = Math.max(1, Number(req.query.page) || 1);
-    const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 50));
-    const skip = (page - 1) * limit;
+    const copy = await prisma.page.create({
+      data: {
+        projectId: page.projectId,
+        name: `${page.name} (copie)`,
+        content: page.content,
+        type: page.type,
+        status: "draft",
+        order: page.order + 1,
+      },
+    });
 
-    const [payments, total] = await Promise.all([
-      prisma.payment.findMany({
-        include: { user: { select: { id: true, email: true } }, project: true },
-        orderBy: { createdAt: "desc" },
-        skip,
-        take: limit,
-      }),
-      prisma.payment.count(),
-    ]);
+    await prisma.auditLog.create({
+      data: { action: "PAGE_DUPLICATED", userId: (req as any).user?.id, details: `Page ${id} dupliquée` },
+    });
 
-    res.json({
+    return res.json({ success: true, data: copy });
+  } catch (err) {
+    console.error("❌ duplicatePage error:", err);
+    return res.status(500).json({ message: "Erreur duplication" });
+  }
+}
+
+export async function publishPage(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const page = await prisma.page.update({ where: { id }, data: { status: "published" } });
+
+    await prisma.auditLog.create({
+      data: { action: "PAGE_PUBLISHED", userId: (req as any).user?.id, details: `Page ${id} publiée` },
+    });
+
+    return res.json({ success: true, data: page });
+  } catch (err) {
+    console.error("❌ publishPage error:", err);
+    return res.status(500).json({ message: "Erreur publication" });
+  }
+}
+
+export async function sharePage(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const page = await prisma.page.findUnique({ where: { id } });
+    if (!page) return res.status(404).json({ message: "Page introuvable" });
+
+    const shareToken = Buffer.from(`${id}-${Date.now()}`).toString("base64");
+
+    await prisma.auditLog.create({
+      data: { action: "PAGE_SHARED", userId: (req as any).user?.id, details: `Page ${id} partagée` },
+    });
+
+    return res.json({
       success: true,
-      data: payments,
-      pagination: { total, page, limit, totalPages: Math.ceil(total / limit) },
+      url: `${process.env.APP_URL}/preview/${shareToken}`,
     });
-  } catch (e: any) {
-    console.error("❌ listPayments error:", e);
-    res.status(500).json({ success: false, error: "SERVER_ERROR" });
+  } catch (err) {
+    console.error("❌ sharePage error:", err);
+    return res.status(500).json({ message: "Erreur partage" });
   }
 }
 
-// 📑 Détail d’un paiement
-export async function getPayment(req: Request, res: Response) {
+export async function rollbackPage(req: Request, res: Response) {
   try {
-    if ((req as any).user?.role !== "ADMIN") return res.status(403).json({ success: false, error: "FORBIDDEN" });
+    const { id, versionId } = req.params;
+    const version = await prisma.pageVersion.findUnique({ where: { id: versionId } });
+    if (!version) return res.status(404).json({ message: "Version introuvable" });
 
-    const payment = await prisma.payment.findUnique({
-      where: { id: req.params.id },
-      include: { user: true, project: true },
+    const restored = await prisma.page.update({
+      where: { id },
+      data: {
+        name: version.name,
+        content: version.content,
+        type: version.type,
+        status: "draft",
+      },
     });
-    if (!payment) return res.status(404).json({ success: false, error: "PAYMENT_NOT_FOUND" });
 
-    res.json({ success: true, data: payment });
-  } catch (e: any) {
-    console.error("❌ getPayment error:", e);
-    res.status(500).json({ success: false, error: "SERVER_ERROR" });
+    await prisma.auditLog.create({
+      data: { action: "PAGE_ROLLBACK", userId: (req as any).user?.id, details: `Page ${id} rollback vers version ${versionId}` },
+    });
+
+    return res.json({ success: true, data: restored });
+  } catch (err) {
+    console.error("❌ rollbackPage error:", err);
+    return res.status(500).json({ message: "Erreur rollback" });
   }
 }
 
-// 📤 Exporter paiements (CSV/JSON)
-export async function exportPayments(req: Request, res: Response) {
+export async function reorderPages(req: Request, res: Response) {
   try {
-    if ((req as any).user?.role !== "ADMIN") return res.status(403).json({ success: false, error: "FORBIDDEN" });
+    const { projectId } = req.params;
+    const { order } = req.body;
 
-    const format = (req.query.format as string) || "json";
-    const payments = await prisma.payment.findMany({
-      include: { user: { select: { id: true, email: true } }, project: true },
-    });
-
-    if (format === "csv") {
-      const parser = new Json2csvParser({ fields: ["id", "user.email", "amount", "currency", "status", "createdAt"] });
-      const csv = parser.parse(payments);
-      res.setHeader("Content-Type", "text/csv");
-      res.setHeader("Content-Disposition", "attachment; filename=payments.csv");
-      res.send(csv);
-    } else {
-      res.json({ success: true, data: payments });
+    if (!Array.isArray(order)) {
+      return res.status(400).json({ message: "Format ordre invalide" });
     }
-  } catch (e: any) {
-    console.error("❌ exportPayments error:", e);
-    res.status(500).json({ success: false, error: "SERVER_ERROR" });
+
+    for (const o of order) {
+      await prisma.page.update({ where: { id: o.id }, data: { order: o.position } });
+    }
+
+    await prisma.auditLog.create({
+      data: { action: "PAGES_REORDERED", userId: (req as any).user?.id, details: `Réorganisation pages projet ${projectId}` },
+    });
+
+    return res.json({ success: true, message: "Ordre mis à jour" });
+  } catch (err) {
+    console.error("❌ reorderPages error:", err);
+    return res.status(500).json({ message: "Erreur réorganisation" });
+  }
+}
+
+/* ============================================================================
+ *  Export Multi-format
+ * ========================================================================== */
+export async function exportPage(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const format = (req.query.format as string) || "json";
+    const page = await prisma.page.findUnique({ where: { id } });
+    if (!page) return res.status(404).json({ message: "Page introuvable" });
+
+    switch (format) {
+      case "json":
+        return res.json({ success: true, data: page });
+
+      case "html":
+        return res.type("html").send(
+          `<!DOCTYPE html><html><head><title>${page.name}</title></head><body>${page.content}</body></html>`
+        );
+
+      case "md":
+      case "markdown":
+        return res.type("text/markdown").send(`# ${page.name}\n\n${page.content}`);
+
+      case "react":
+        return res.type("text/jsx").send(
+          `import React from "react";\n\nexport default function ${page.name.replace(/\W+/g, "")}() {\n  return (\n    <div className="page">\n      <h1>${page.name}</h1>\n      <div dangerouslySetInnerHTML={{ __html: \`${page.content}\` }} />\n    </div>\n  );\n}`
+        );
+
+      case "vue":
+        return res.type("text/vue").send(
+          `<template>\n  <div class="page">\n    <h1>${page.name}</h1>\n    <div v-html="content"></div>\n  </div>\n</template>\n\n<script>\nexport default {\n  name: "${page.name.replace(/\W+/g, "")}",\n  data() {\n    return { content: \`${page.content}\` };\n  }\n}\n</script>`
+        );
+
+      case "flutter":
+        return res.type("text/dart").send(
+          `import 'package:flutter/material.dart';\n\nclass ${page.name.replace(/\W+/g, "")}Page extends StatelessWidget {\n  @override\n  Widget build(BuildContext context) {\n    return Scaffold(\n      appBar: AppBar(title: Text('${page.name}')),\n      body: SingleChildScrollView(\n        padding: EdgeInsets.all(16),\n        child: Text('${page.content.replace(/'/g, "\\'")}'),\n      ),\n    );\n  }\n}`
+        );
+
+      default:
+        return res.status(400).json({ message: "Format non supporté" });
+    }
+  } catch (err) {
+    console.error("❌ exportPage error:", err);
+    return res.status(500).json({ message: "Erreur export" });
   }
 }
