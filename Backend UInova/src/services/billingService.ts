@@ -2,19 +2,37 @@
 import { prisma } from "../utils/prisma";
 import { logger } from "../utils/logger";
 import { emitEvent } from "./eventBus";
+import { auditLog } from "./auditLogService";
+import { metrics } from "../utils/metrics"; // Prometheus client
+import { z } from "zod";
 
 export type UsageType = "api_call" | "ai_tokens" | "export_job" | "storage";
+
+/* ============================================================================
+ * SCHEMA VALIDATION (Zod)
+ * ========================================================================== */
+const usageRecordSchema = z.object({
+  userId: z.string().uuid(),
+  type: z.enum(["api_call", "ai_tokens", "export_job", "storage"]),
+  amount: z.number().positive(),
+  projectId: z.string().uuid().optional(),
+  meta: z.record(z.any()).optional(),
+});
 
 export class BillingService {
   /* ============================================================================
    * MÉTRIQUES EN LIVE (données dérivées directement des autres tables)
    * ========================================================================== */
   async trackApiUsage(userId: string) {
-    return prisma.auditLog.count({ where: { userId } });
+    const count = await prisma.auditLog.count({ where: { userId } });
+    metrics.billingApiUsage.inc({ userId }, count);
+    return count;
   }
 
   async trackProjects(userId: string) {
-    return prisma.project.count({ where: { ownerId: userId } });
+    const count = await prisma.project.count({ where: { ownerId: userId } });
+    metrics.billingProjects.inc({ userId }, count);
+    return count;
   }
 
   async trackStorage(userId: string) {
@@ -22,7 +40,9 @@ export class BillingService {
       where: { userId },
       _sum: { size: true },
     });
-    return uploads._sum.size || 0;
+    const total = uploads._sum.size || 0;
+    metrics.billingStorage.set({ userId }, total);
+    return total;
   }
 
   /* ============================================================================
@@ -35,10 +55,19 @@ export class BillingService {
     projectId?: string,
     meta: Record<string, any> = {}
   ) {
+    const parsed = usageRecordSchema.parse({ userId, type, amount, projectId, meta });
+
     logger.info(`💳 Record usage: user=${userId}, type=${type}, amount=${amount}`);
-    const record = await prisma.usageRecord.create({
-      data: { userId, projectId, type, amount, meta },
+    const record = await prisma.usageRecord.create({ data: parsed });
+
+    // Logs & Monitoring
+    await auditLog.log(userId, "USAGE_RECORDED", {
+      type,
+      amount,
+      projectId,
+      meta,
     });
+    metrics.billingUsage.inc({ type }, amount);
 
     emitEvent("billing.usage.recorded", { userId, type, amount, projectId });
     return record;
@@ -60,7 +89,7 @@ export class BillingService {
       prisma.usageRecord.findMany({
         where: { userId, createdAt: { gte: since } },
         orderBy: { createdAt: "desc" },
-        take: 200,
+        take: 500,
       }),
     ]);
 
@@ -116,6 +145,7 @@ export class BillingService {
     if (percent >= 100) {
       logger.error(`❌ Quota dépassé pour ${type}`);
       emitEvent("billing.quota.exceeded", { userId, type, used: total, limit });
+      await auditLog.log(userId, "QUOTA_EXCEEDED", { type, used: total, limit });
       return { ok: false, used: total, limit };
     }
 
@@ -127,14 +157,17 @@ export class BillingService {
    * ========================================================================== */
   estimateCost(type: UsageType, amount: number) {
     const pricing: Record<UsageType, number> = {
-      api_call: parseFloat(process.env.PRICE_API_CALL || "0.001"), // ex: $0.001 / call
-      ai_tokens: parseFloat(process.env.PRICE_AI_TOKENS || "0.00002"), // ex: $0.00002 / token
-      export_job: parseFloat(process.env.PRICE_EXPORT_JOB || "0.05"), // ex: $0.05 / export
-      storage: parseFloat(process.env.PRICE_STORAGE_MB || "0.0001"), // ex: $0.0001 / MB
+      api_call: parseFloat(process.env.PRICE_API_CALL || "0.001"),
+      ai_tokens: parseFloat(process.env.PRICE_AI_TOKENS || "0.00002"),
+      export_job: parseFloat(process.env.PRICE_EXPORT_JOB || "0.05"),
+      storage: parseFloat(process.env.PRICE_STORAGE_MB || "0.0001"),
     };
 
     const unitPrice = pricing[type];
     const cost = unitPrice * amount;
+
+    metrics.billingEstimation.inc({ type }, cost);
+
     return { type, amount, unitPrice, cost };
   }
 }
