@@ -1,3 +1,4 @@
+// src/workers/emailWorker.ts
 import { Worker } from "bullmq";
 import { queues } from "../utils/queue";
 import { sendEmail } from "../utils/mailer";
@@ -5,6 +6,9 @@ import { prisma } from "../utils/prisma";
 
 const EMAIL_TIMEOUT_MS = 1000 * 60 * 2; // 2 min max
 
+/* ============================================================================
+ *  EMAIL WORKER – gestion des envois transactionnels & newsletters
+ * ========================================================================== */
 export const emailWorker = new Worker(
   "email",
   async (job) => {
@@ -14,12 +18,12 @@ export const emailWorker = new Worker(
     console.log(`📧 [EmailWorker] Job reçu → ${to} (${subject})`);
 
     try {
-      // Envoi via utils/mailer (qui peut router selon provider)
+      // Envoi email via utils/mailer (multi-provider)
       await sendEmail(to, subject, template, data, provider);
 
       const latency = Date.now() - start;
 
-      // Log en DB : succès
+      // ✅ Log en DB : succès
       await prisma.emailLog.create({
         data: {
           to,
@@ -31,10 +35,10 @@ export const emailWorker = new Worker(
         },
       });
 
-      // Audit
+      // ✅ Audit
       await prisma.auditLog.create({
         data: {
-          userId: null,
+          userId: job.data.userId || null,
           action: "EMAIL_SENT",
           metadata: { to, subject, template, provider, latency },
         },
@@ -44,7 +48,7 @@ export const emailWorker = new Worker(
     } catch (err: any) {
       console.error("❌ [EmailWorker] Erreur:", err.message);
 
-      // Log en DB : échec
+      // ❌ Log en DB : échec
       await prisma.emailLog.create({
         data: {
           to,
@@ -56,23 +60,42 @@ export const emailWorker = new Worker(
         },
       });
 
-      // Audit
+      // ❌ Audit
       await prisma.auditLog.create({
         data: {
-          userId: null,
+          userId: job.data.userId || null,
           action: "EMAIL_FAILED",
           metadata: { to, subject, template, provider, error: err.message },
         },
       });
 
-      throw err; // ➝ BullMQ retry
+      throw err; // ➝ Laisse BullMQ gérer retry/backoff
     }
   },
   {
     connection: queues.email.opts.connection,
-    concurrency: 5, // envoyer jusqu'à 5 emails en parallèle
+    concurrency: Number(process.env.EMAIL_WORKER_CONCURRENCY || 5), // scalable
     lockDuration: EMAIL_TIMEOUT_MS,
-    removeOnComplete: { count: 100 }, // garder historique limité
-    removeOnFail: { count: 200 }, // garder plus d'échecs
+    removeOnComplete: { count: 200 }, // garder plus d’historique des succès
+    removeOnFail: { count: 500 }, // garder plus d’échecs
   }
 );
+
+/* ============================================================================
+ *  HOOKS – monitoring avancé
+ * ========================================================================== */
+emailWorker.on("completed", (job) => {
+  console.log(`📬 [EmailWorker] Job ${job.id} complété avec succès`);
+});
+
+emailWorker.on("failed", (job, err) => {
+  console.error(`❌ [EmailWorker] Job ${job?.id} échoué:`, err?.message);
+});
+
+emailWorker.on("stalled", (jobId) => {
+  console.warn(`⚠️ [EmailWorker] Job ${jobId} stalled (bloqué)`);
+});
+
+emailWorker.on("progress", (job, progress) => {
+  console.log(`⏳ [EmailWorker] Job ${job.id} progression: ${progress}%`);
+});
