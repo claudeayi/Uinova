@@ -4,6 +4,9 @@ import { verifyToken, JWTPayload } from "../utils/jwt";
 import { prisma } from "../utils/prisma";
 import { logger } from "../utils/logger";
 import client from "prom-client";
+import { auditLog } from "./auditLogService";
+import { emitEvent } from "./eventBus";
+import { z } from "zod";
 
 type AppRole = "user" | "premium" | "admin";
 type AuthedUser = { id: string; email?: string; role: AppRole };
@@ -27,7 +30,8 @@ const roomKey = (projectId: string | number, pageId?: string | number) =>
 
 /* ============================================================================
  * 📊 METRICS Prometheus
- * ========================================================================== */
+ * ============================================================================
+ */
 const gaugeUsersConnected = new client.Gauge({
   name: "uinova_collab_users_connected",
   help: "Nombre d’utilisateurs connectés au collab",
@@ -38,9 +42,23 @@ const gaugeRoomsActive = new client.Gauge({
   help: "Nombre de rooms actives (projets/pages)",
 });
 
+const counterEvents = new client.Counter({
+  name: "uinova_collab_events_total",
+  help: "Nombre d’événements collaboratifs traités",
+  labelNames: ["event", "status"],
+});
+
+const histogramLatency = new client.Histogram({
+  name: "uinova_collab_event_latency_ms",
+  help: "Latence des événements collaboratifs",
+  labelNames: ["event"],
+  buckets: [10, 50, 100, 200, 500, 1000, 2000],
+});
+
 /* ============================================================================
  * ⏳ Rate limiting simple par socket
- * ========================================================================== */
+ * ============================================================================
+ */
 function makeRateLimit(perSec = 30, burst = 60) {
   let tokens = burst;
   let last = Date.now();
@@ -56,7 +74,8 @@ function makeRateLimit(perSec = 30, burst = 60) {
 
 /* ============================================================================
  * 🔐 Auth JWT au handshake
- * ========================================================================== */
+ * ============================================================================
+ */
 function authMiddleware(socket: Socket, next: (err?: any) => void) {
   try {
     const raw =
@@ -84,15 +103,45 @@ function authMiddleware(socket: Socket, next: (err?: any) => void) {
 
 /* ============================================================================
  * (Optionnel) RBAC projet
- * ========================================================================== */
+ * ============================================================================
+ */
 async function ensureAccess(_userId: string, _projectId: string | number, _need: "VIEW" | "EDIT") {
-  // ⚡ Hook RBAC : tu peux brancher une vraie logique (organisation, rôles)
+  // ⚡ Hook RBAC : à implémenter (organisation, rôles, partage projet…)
   return;
 }
 
 /* ============================================================================
+ * Validation Zod des payloads
+ * ============================================================================
+ */
+const updateElementsSchema = z.object({
+  projectId: z.union([z.string(), z.number()]),
+  pageId: z.union([z.string(), z.number()]),
+  ops: z.any(),
+  version: z.number().optional(),
+});
+
+const cursorSchema = z.object({
+  projectId: z.union([z.string(), z.number()]),
+  pageId: z.union([z.string(), z.number()]),
+  x: z.number(),
+  y: z.number(),
+  zoom: z.number().optional(),
+  selection: z.array(z.string()).optional(),
+  color: z.string().optional(),
+});
+
+const pageMetaSchema = z.object({
+  projectId: z.union([z.string(), z.number()]),
+  pageId: z.union([z.string(), z.number()]),
+  locks: z.record(z.string()).optional(),
+  title: z.string().optional(),
+});
+
+/* ============================================================================
  * Présence : liste des users connectés par room
- * ========================================================================== */
+ * ============================================================================
+ */
 async function getUsersInRoom(room: string) {
   const sockets = await io!.in(room).fetchSockets();
   return sockets.map((s) => s.user);
@@ -100,7 +149,8 @@ async function getUsersInRoom(room: string) {
 
 /* ============================================================================
  * 🚀 Setup Socket.io
- * ========================================================================== */
+ * ============================================================================
+ */
 export function setupCollabSocket(server: any) {
   io = new Server(server, {
     cors: {
@@ -123,16 +173,16 @@ export function setupCollabSocket(server: any) {
       const users = await getUsersInRoom(room);
       io!.to(room).emit("usersUpdate", { count: users.length, users });
 
-      // Metrics
       gaugeUsersConnected.set(io!.engine.clientsCount);
       const rooms = await io!.allSockets();
       gaugeRoomsActive.set(rooms.size);
     }
 
     /* -----------------------------
-     * Join d’une room
+     * Join Room
      * ----------------------------- */
-    socket.on("joinRoom", async ({ projectId, pageId }: { projectId: string | number; pageId?: string | number }) => {
+    socket.on("joinRoom", async ({ projectId, pageId }) => {
+      const start = Date.now();
       try {
         if (!socket.user) throw new Error("UNAUTHORIZED");
         if (!projectId) throw new Error("BAD_REQUEST");
@@ -144,7 +194,6 @@ export function setupCollabSocket(server: any) {
         const pRoom = roomKey(projectId);
         const pgRoom = pageId !== undefined ? roomKey(projectId, pageId) : null;
 
-        // Check room size
         if (pgRoom) {
           const socketsInPage = await io!.in(pgRoom).fetchSockets();
           if (socketsInPage.length >= MAX_ROOM_SIZE) {
@@ -161,96 +210,93 @@ export function setupCollabSocket(server: any) {
 
         socket.emit("joined", { projectRoom: pRoom, pageRoom: pgRoom });
 
-        await prisma.auditLog.create({
-          data: {
-            action: "COLLAB_JOIN",
-            userId: socket.user.id,
-            details: `Joined project ${projectId}`,
-          },
-        });
+        await auditLog.log(socket.user.id, "COLLAB_JOIN", { projectId, pageId });
+        emitEvent("collab.join", { userId: socket.user.id, projectId, pageId });
 
         logger.info(`👥 User ${socket.user.id} joined ${pRoom}${pgRoom ? " / " + pgRoom : ""}`);
+        counterEvents.inc({ event: "joinRoom", status: "success" });
       } catch (e: any) {
         socket.emit("errorMessage", { code: e?.message || "JOIN_FAILED" });
+        counterEvents.inc({ event: "joinRoom", status: "error" });
+      } finally {
+        histogramLatency.observe({ event: "joinRoom" }, Date.now() - start);
       }
     });
 
     /* -----------------------------
-     * Quitter une room
+     * Update Elements
      * ----------------------------- */
-    socket.on("leaveRoom", async ({ projectId, pageId }: { projectId: string | number; pageId?: string | number }) => {
-      try {
-        const pRoom = roomKey(projectId);
-        const pgRoom = pageId !== undefined ? roomKey(projectId, pageId) : null;
-        if (pgRoom) socket.leave(pgRoom);
-        socket.leave(pRoom);
-
-        if (pgRoom) await emitUsersCount(pgRoom);
-        await emitUsersCount(pRoom);
-
-        await prisma.auditLog.create({
-          data: {
-            action: "COLLAB_LEAVE",
-            userId: socket.user?.id || null,
-            details: `Left project ${projectId}`,
-          },
-        });
-      } catch (e) {
-        logger.error("❌ leaveRoom error:", e);
-      }
-    });
-
-    /* -----------------------------
-     * Update Elements (diff/ops)
-     * ----------------------------- */
-    socket.on("updateElements", async (payload: { projectId: string | number; pageId: string | number; ops: any; version?: number }) => {
+    socket.on("updateElements", async (payload) => {
+      const start = Date.now();
       try {
         if (!rlUpdate()) return socket.emit("rateLimited", { event: "updateElements" });
         if (!socket.user) throw new Error("UNAUTHORIZED");
-        const { projectId, pageId, ops, version } = payload || ({} as any);
-        if (!projectId || pageId === undefined) throw new Error("BAD_REQUEST");
-        await ensureAccess(socket.user.id, projectId, "EDIT");
 
-        io!.to(roomKey(projectId, pageId)).except(socket.id).emit("updateElements", {
-          projectId, pageId, ops, version, actor: socket.user.id,
-        });
+        const parsed = updateElementsSchema.parse(payload);
+        await ensureAccess(socket.user.id, parsed.projectId, "EDIT");
+
+        io!.to(roomKey(parsed.projectId, parsed.pageId))
+          .except(socket.id)
+          .emit("updateElements", { ...parsed, actor: socket.user.id });
 
         await prisma.collabHistory.create({
-          data: { projectId: String(projectId), userId: socket.user.id, changes: ops },
+          data: { projectId: String(parsed.projectId), userId: socket.user.id, changes: parsed.ops },
         });
 
-        await prisma.auditLog.create({
-          data: { userId: socket.user.id, action: "COLLAB_UPDATE", metadata: { projectId, pageId, ops, version } },
-        });
+        await auditLog.log(socket.user.id, "COLLAB_UPDATE", parsed);
+        emitEvent("collab.update", { userId: socket.user.id, ...parsed });
+
+        counterEvents.inc({ event: "updateElements", status: "success" });
       } catch (e: any) {
         socket.emit("errorMessage", { code: e?.message || "UPDATE_FAILED" });
+        counterEvents.inc({ event: "updateElements", status: "error" });
+      } finally {
+        histogramLatency.observe({ event: "updateElements" }, Date.now() - start);
       }
     });
 
     /* -----------------------------
-     * Curseurs (présence fine)
+     * Cursor
      * ----------------------------- */
-    socket.on("cursor", (payload: { projectId: string | number; pageId: string | number; x: number; y: number; zoom?: number; selection?: string[]; color?: string }) => {
-      if (!rlCursor()) return socket.emit("rateLimited", { event: "cursor" });
-      if (!socket.user) return;
-      const { projectId, pageId, ...rest } = payload || ({} as any);
-      if (!projectId || pageId === undefined) return;
-      socket.to(roomKey(projectId, pageId)).emit("cursor", { userId: socket.user.id, ...rest });
+    socket.on("cursor", (payload) => {
+      const start = Date.now();
+      try {
+        if (!rlCursor()) return socket.emit("rateLimited", { event: "cursor" });
+        if (!socket.user) return;
+
+        const parsed = cursorSchema.parse(payload);
+        socket.to(roomKey(parsed.projectId, parsed.pageId)).emit("cursor", { userId: socket.user.id, ...parsed });
+
+        counterEvents.inc({ event: "cursor", status: "success" });
+      } catch {
+        counterEvents.inc({ event: "cursor", status: "error" });
+      } finally {
+        histogramLatency.observe({ event: "cursor" }, Date.now() - start);
+      }
     });
 
     /* -----------------------------
-     * Métadonnées page
+     * Page Meta
      * ----------------------------- */
-    socket.on("pageMeta", (payload: { projectId: string | number; pageId: string | number; locks?: Record<string, string>; title?: string }) => {
-      if (!rlMeta()) return socket.emit("rateLimited", { event: "pageMeta" });
-      if (!socket.user) return;
-      const { projectId, pageId, ...rest } = payload || ({} as any);
-      if (!projectId || pageId === undefined) return;
-      socket.to(roomKey(projectId, pageId)).emit("pageMeta", { ...rest, actor: socket.user.id });
+    socket.on("pageMeta", (payload) => {
+      const start = Date.now();
+      try {
+        if (!rlMeta()) return socket.emit("rateLimited", { event: "pageMeta" });
+        if (!socket.user) return;
+
+        const parsed = pageMetaSchema.parse(payload);
+        socket.to(roomKey(parsed.projectId, parsed.pageId)).emit("pageMeta", { ...parsed, actor: socket.user.id });
+
+        counterEvents.inc({ event: "pageMeta", status: "success" });
+      } catch {
+        counterEvents.inc({ event: "pageMeta", status: "error" });
+      } finally {
+        histogramLatency.observe({ event: "pageMeta" }, Date.now() - start);
+      }
     });
 
     /* -----------------------------
-     * Heartbeat
+     * Heartbeat & Disconnect
      * ----------------------------- */
     socket.on("pingMe", () => socket.emit("pongMe", { t: Date.now() }));
 
@@ -260,9 +306,9 @@ export function setupCollabSocket(server: any) {
         for (const r of rooms) await emitUsersCount(r);
 
         logger.info(`⚡ User ${socket.user?.id} disconnected (${socket.id})`);
-
-        // Update metrics
         gaugeUsersConnected.set(io!.engine.clientsCount);
+
+        emitEvent("collab.disconnect", { userId: socket.user?.id });
       } catch { /* ignore */ }
     });
   });
@@ -272,7 +318,8 @@ export function setupCollabSocket(server: any) {
 
 /* ============================================================================
  * Helpers externes
- * ========================================================================== */
+ * ============================================================================
+ */
 export function emitToProject(projectId: string | number, event: string, payload: any) {
   io?.to(roomKey(projectId)).emit(event, payload);
 }
@@ -287,7 +334,8 @@ export function emitToUser(userId: string, event: string, payload: any) {
 
 /* ============================================================================
  * Graceful shutdown
- * ========================================================================== */
+ * ============================================================================
+ */
 export async function shutdownCollab() {
   if (io) {
     await io.close();
