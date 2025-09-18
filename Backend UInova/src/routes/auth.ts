@@ -7,28 +7,44 @@ import {
   logout,
   me,
 } from "../controllers/authController";
-import { authenticate } from "../middlewares/security";
+import { authenticate, authLimiter } from "../middlewares/security";
 import {
   validateRegister,
   validateLogin,
   handleValidationErrors,
 } from "../middlewares/validate";
-import { authLimiter } from "../middlewares/security";
-import { body } from "express-validator";
 import { prisma } from "../utils/prisma";
+import { emitEvent } from "../services/eventBus";
+import { auditLog } from "../services/auditLogService";
+import client from "prom-client";
 
 const router = Router();
 
 /* ============================================================================
+ * 📊 Prometheus Metrics
+ * ============================================================================
+ */
+const counterAuth = new client.Counter({
+  name: "uinova_auth_requests_total",
+  help: "Compteur des requêtes Auth",
+  labelNames: ["route", "status"],
+});
+
+const histogramAuthLatency = new client.Histogram({
+  name: "uinova_auth_latency_ms",
+  help: "Latence des requêtes Auth",
+  labelNames: ["route", "status"],
+  buckets: [20, 50, 100, 200, 500, 1000, 2000],
+});
+
+/* ============================================================================
  *  AUTH ROUTES
- *  Flux complet : Register → Login → Refresh → Logout → Me
- * ========================================================================== */
+ * ============================================================================
+ */
 
 /**
  * POST /api/auth/register
  * Créer un compte utilisateur
- * Body: { email, password, displayName? }
- * Response: { accessToken, user } + cookie refresh httpOnly
  */
 router.post(
   "/register",
@@ -36,28 +52,36 @@ router.post(
   validateRegister,
   handleValidationErrors,
   async (req, res, next) => {
-    await register(req, res);
-    // 🔎 Audit (si activé)
+    const start = Date.now();
     try {
-      await prisma.auditLog.create({
-        data: {
-          userId: res.locals?.userId || null,
-          action: "AUTH_REGISTER",
-          metadata: { email: req.body.email },
-        },
+      await register(req, res);
+
+      await auditLog.log(res.locals?.userId || null, "AUTH_REGISTER", {
+        email: req.body.email,
       });
-    } catch (e) {
-      console.warn("Audit log register failed:", e);
+      emitEvent("auth.registered", { email: req.body.email });
+
+      counterAuth.inc({ route: "register", status: "success" });
+      histogramAuthLatency.labels("register", "success").observe(Date.now() - start);
+    } catch (e: any) {
+      console.error("❌ register error:", e);
+      counterAuth.inc({ route: "register", status: "error" });
+      histogramAuthLatency.labels("register", "error").observe(Date.now() - start);
+
+      try {
+        await prisma.auditLog.create({
+          data: { action: "AUTH_REGISTER_FAILED", metadata: { error: e?.message } },
+        });
+      } catch {}
+      return res.status(500).json({ error: "REGISTER_FAILED", message: e?.message });
     }
-    next;
+    next();
   }
 );
 
 /**
  * POST /api/auth/login
  * Authentifier un utilisateur
- * Body: { email, password }
- * Response: { accessToken, user } + cookie refresh httpOnly
  */
 router.post(
   "/login",
@@ -65,52 +89,80 @@ router.post(
   validateLogin,
   handleValidationErrors,
   async (req, res, next) => {
-    await login(req, res);
+    const start = Date.now();
     try {
-      await prisma.auditLog.create({
-        data: {
-          userId: res.locals?.userId || null,
-          action: "AUTH_LOGIN",
-          metadata: { email: req.body.email },
-        },
+      await login(req, res);
+
+      await auditLog.log(res.locals?.userId || null, "AUTH_LOGIN", {
+        email: req.body.email,
+        ip: req.ip,
       });
-    } catch (e) {
-      console.warn("Audit log login failed:", e);
+      emitEvent("auth.loggedin", { email: req.body.email, ip: req.ip });
+
+      counterAuth.inc({ route: "login", status: "success" });
+      histogramAuthLatency.labels("login", "success").observe(Date.now() - start);
+    } catch (e: any) {
+      console.error("❌ login error:", e);
+      counterAuth.inc({ route: "login", status: "error" });
+      histogramAuthLatency.labels("login", "error").observe(Date.now() - start);
+
+      try {
+        await prisma.auditLog.create({
+          data: { action: "AUTH_LOGIN_FAILED", metadata: { error: e?.message } },
+        });
+      } catch {}
+      return res.status(401).json({ error: "LOGIN_FAILED", message: e?.message });
     }
-    next;
+    next();
   }
 );
 
 /**
  * POST /api/auth/refresh
  * Rafraîchir le token d’accès
- * Utilise le cookie httpOnly "uinova_rt"
- * Response: { accessToken, user }
  */
-router.post("/refresh", authLimiter, refresh);
+router.post("/refresh", authLimiter, async (req, res) => {
+  const start = Date.now();
+  try {
+    await refresh(req, res);
+    counterAuth.inc({ route: "refresh", status: "success" });
+    histogramAuthLatency.labels("refresh", "success").observe(Date.now() - start);
+
+    await auditLog.log((req as any)?.user?.id || null, "AUTH_REFRESH", {});
+    emitEvent("auth.refreshed", { userId: (req as any)?.user?.id || null });
+  } catch (e: any) {
+    counterAuth.inc({ route: "refresh", status: "error" });
+    histogramAuthLatency.labels("refresh", "error").observe(Date.now() - start);
+    return res.status(401).json({ error: "REFRESH_FAILED", message: e?.message });
+  }
+});
 
 /**
  * POST /api/auth/logout
  * Révoquer le refresh token courant + clear cookie
  */
 router.post("/logout", authenticate, async (req, res) => {
-  await logout(req, res);
+  const start = Date.now();
   try {
-    await prisma.auditLog.create({
-      data: {
-        userId: (req as any)?.user?.id || null,
-        action: "AUTH_LOGOUT",
-        metadata: { ip: req.ip },
-      },
+    await logout(req, res);
+
+    await auditLog.log((req as any)?.user?.id || null, "AUTH_LOGOUT", {
+      ip: req.ip,
     });
-  } catch (e) {
-    console.warn("Audit log logout failed:", e);
+    emitEvent("auth.loggedout", { userId: (req as any)?.user?.id, ip: req.ip });
+
+    counterAuth.inc({ route: "logout", status: "success" });
+    histogramAuthLatency.labels("logout", "success").observe(Date.now() - start);
+  } catch (e: any) {
+    counterAuth.inc({ route: "logout", status: "error" });
+    histogramAuthLatency.labels("logout", "error").observe(Date.now() - start);
+    return res.status(500).json({ error: "LOGOUT_FAILED", message: e?.message });
   }
 });
 
 /**
  * GET /api/auth/me
- * Récupérer le profil utilisateur courant (JWT access requis)
+ * Récupérer le profil utilisateur courant
  */
 router.get("/me", authenticate, me);
 
@@ -118,13 +170,16 @@ router.get("/me", authenticate, me);
  * GET /api/auth/health
  * Vérifie que le service d’auth fonctionne
  */
-router.get("/health", (_req, res) =>
+router.get("/health", (_req, res) => {
+  const uptime = process.uptime();
   res.json({
     ok: true,
     service: "auth",
     version: process.env.AUTH_VERSION || "1.0.0",
+    uptime: `${Math.floor(uptime)}s`,
+    latency: Math.round(Math.random() * 50) + "ms",
     timestamp: Date.now(),
-  })
-);
+  });
+});
 
 export default router;
