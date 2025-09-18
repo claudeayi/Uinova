@@ -4,26 +4,32 @@ import { chat, chatStream, getModels } from "../controllers/aiController";
 import { authenticate } from "../middlewares/security";
 import { body, query } from "express-validator";
 import { handleValidationErrors } from "../middlewares/validate";
+import { auditLog } from "../services/auditLogService";
+import { emitEvent } from "../services/eventBus";
+import client from "prom-client";
 
 const router = Router();
 
 /* ============================================================================
- *  AI ROUTES – protégées par authentification
- * ========================================================================== */
+ * 📊 Prometheus Metrics
+ * ============================================================================
+ */
+const counterAiRequests = new client.Counter({
+  name: "uinova_ai_requests_total",
+  help: "Nombre total de requêtes IA",
+  labelNames: ["route", "method"],
+});
+
+/* ============================================================================
+ * 🔐 Toutes les routes protégées par authentification
+ * ============================================================================
+ */
 router.use(authenticate);
 
 /* ============================================================================
  *  CHAT (réponse unique IA)
  * ============================================================================
  * POST /api/ai/chat
- * Body:
- *   - prompt: string (obligatoire)
- *   - history?: [{ role: "system"|"user"|"assistant", content: string }]
- *   - system?: string
- *   - model?: string (ex: gpt-4o-mini)
- *   - temperature?: number (0–2)
- *   - maxTokens?: number (1–4096)
- *   - json?: boolean
  */
 router.post(
   "/chat",
@@ -40,7 +46,16 @@ router.post(
     .isInt({ min: 1, max: 4096 })
     .withMessage("maxTokens doit être compris entre 1 et 4096."),
   handleValidationErrors,
-  chat
+  async (req, res, next) => {
+    try {
+      counterAiRequests.inc({ route: "chat", method: "POST" });
+      await auditLog.log(req.user.id, "AI_CHAT", { prompt: req.body.prompt });
+      emitEvent("ai.chat.requested", { userId: req.user.id });
+      return chat(req, res, next);
+    } catch (err) {
+      return next(err);
+    }
+  }
 );
 
 /* ============================================================================
@@ -48,13 +63,6 @@ router.post(
  * ============================================================================
  * GET /api/ai/chat/stream?prompt=...
  * POST /api/ai/chat/stream { prompt, history?, ... }
- *
- * Exemple usage (React / Next / Vue) :
- *   const es = new EventSource("/api/ai/chat/stream?prompt=Bonjour");
- *   es.addEventListener("start", e => console.log("Start:", e.data));
- *   es.addEventListener("message", e => console.log("Token:", e.data));
- *   es.addEventListener("end", e => console.log("End:", e.data));
- *   es.addEventListener("error", e => console.error("Erreur:", e.data));
  */
 const streamValidators = [
   query("prompt")
@@ -62,15 +70,25 @@ const streamValidators = [
     .isString()
     .isLength({ min: 1, max: 4000 })
     .withMessage("Le prompt doit contenir entre 1 et 4000 caractères."),
-  query("temperature")
-    .optional()
-    .isFloat({ min: 0, max: 2 }),
-  query("maxTokens")
-    .optional()
-    .isInt({ min: 1, max: 4096 }),
+  query("temperature").optional().isFloat({ min: 0, max: 2 }),
+  query("maxTokens").optional().isInt({ min: 1, max: 4096 }),
 ];
 
-router.get("/chat/stream", streamValidators, handleValidationErrors, chatStream);
+router.get(
+  "/chat/stream",
+  streamValidators,
+  handleValidationErrors,
+  async (req, res, next) => {
+    try {
+      counterAiRequests.inc({ route: "chat/stream", method: "GET" });
+      await auditLog.log(req.user.id, "AI_STREAM", { prompt: req.query.prompt });
+      emitEvent("ai.stream.requested", { userId: req.user.id });
+      return chatStream(req, res, next);
+    } catch (err) {
+      return next(err);
+    }
+  }
+);
 
 router.post(
   "/chat/stream",
@@ -81,15 +99,32 @@ router.post(
   body("temperature").optional().isFloat({ min: 0, max: 2 }),
   body("maxTokens").optional().isInt({ min: 1, max: 4096 }),
   handleValidationErrors,
-  chatStream
+  async (req, res, next) => {
+    try {
+      counterAiRequests.inc({ route: "chat/stream", method: "POST" });
+      await auditLog.log(req.user.id, "AI_STREAM", { prompt: req.body.prompt });
+      emitEvent("ai.stream.requested", { userId: req.user.id });
+      return chatStream(req, res, next);
+    } catch (err) {
+      return next(err);
+    }
+  }
 );
 
 /* ============================================================================
  *  LISTE DES MODÈLES DISPONIBLES
  * ============================================================================
  * GET /api/ai/models
- * → Retourne la liste des modèles supportés
  */
-router.get("/models", getModels);
+router.get("/models", async (req, res, next) => {
+  try {
+    counterAiRequests.inc({ route: "models", method: "GET" });
+    await auditLog.log(req.user.id, "AI_MODELS_LIST", {});
+    emitEvent("ai.models.requested", { userId: req.user.id });
+    return getModels(req, res, next);
+  } catch (err) {
+    return next(err);
+  }
+});
 
 export default router;
