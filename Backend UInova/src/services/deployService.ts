@@ -43,6 +43,11 @@ const counterDeployByTarget = new client.Counter({
   labelNames: ["target"] as const,
 });
 
+const counterDeployRetries = new client.Counter({
+  name: "uinova_deploy_retries_total",
+  help: "Nombre de retries lors des déploiements",
+});
+
 /* ============================================================================
  * Helpers
  * ========================================================================== */
@@ -59,6 +64,13 @@ async function updateStatus(
     where: { id },
     data: { status, ...extra },
   });
+}
+
+function backoffDelay(attempt: number) {
+  // Exponential backoff avec jitter
+  const base = Math.pow(2, attempt) * 1000; // 1s, 2s, 4s...
+  const jitter = Math.floor(Math.random() * 500);
+  return base + jitter;
 }
 
 /* ============================================================================
@@ -112,7 +124,7 @@ export async function deployProject({
         userId,
       });
 
-      // 2. Déterminer l’URL finale
+      // 2. Déterminer l’URL finale (mock ou API)
       let url = "";
       switch (target) {
         case "local":
@@ -120,15 +132,15 @@ export async function deployProject({
           break;
         case "netlify":
           url = `https://your-netlify-site.netlify.app/${deployId}/`;
-          // ⚡ TODO: push via API Netlify
+          // TODO: Netlify API push
           break;
         case "vercel":
           url = `https://your-vercel-site.vercel.app/${deployId}/`;
-          // ⚡ TODO: push via API Vercel
+          // TODO: Vercel API push
           break;
         case "s3":
           url = `https://your-bucket.s3.amazonaws.com/${deployId}/index.html`;
-          // ⚡ TODO: upload vers AWS S3
+          // TODO: AWS S3 upload
           break;
       }
 
@@ -162,6 +174,7 @@ export async function deployProject({
     } catch (err: any) {
       const duration = (Date.now() - start) / 1000;
       counterDeployFail.inc();
+      counterDeployRetries.inc();
       logger.error(`❌ Déploiement échoué (tentative ${attempts})`, {
         deployId,
         error: err.message,
@@ -183,7 +196,9 @@ export async function deployProject({
         emitEvent("project.deploy_failed", { deploymentId: deployId, projectId, userId, target, error: err.message });
         throw err;
       } else {
-        logger.warn(`🔁 Retry automatique du déploiement ${deployId} (tentative ${attempts + 1})`);
+        const delay = backoffDelay(attempts);
+        logger.warn(`🔁 Retry automatique du déploiement ${deployId} dans ${delay}ms (tentative ${attempts + 1})`);
+        await new Promise((r) => setTimeout(r, delay));
       }
     }
   }
