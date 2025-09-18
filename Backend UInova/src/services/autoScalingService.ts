@@ -2,6 +2,9 @@
 import { prisma } from "../utils/prisma";
 import { emitEvent } from "./eventBus";
 import { logger } from "../utils/logger";
+import { auditLog } from "./auditLogService";
+import { metrics } from "../utils/metrics";
+import { z } from "zod";
 
 /**
  * Service d’auto-scaling & auto-healing pour les déploiements UInova
@@ -9,6 +12,9 @@ import { logger } from "../utils/logger";
  */
 export class AutoScalingService {
   private MAX_RETRIES = parseInt(process.env.DEPLOY_MAX_RETRIES || "3", 10);
+
+  private deploymentIdSchema = z.string().uuid();
+  private projectIdSchema = z.string().uuid();
 
   /**
    * Vérifie l’état des déploiements en échec et tente des corrections
@@ -31,8 +37,11 @@ export class AutoScalingService {
         logger.warn(`🚨 Déploiement échoué ${d.id} (projet=${d.projectId})`);
         await this.retryDeployment(d.id);
       }
+
+      metrics.deploymentsChecked.inc(failed.length);
     } catch (err: any) {
       logger.error("❌ monitorDeployments error:", err?.message);
+      metrics.deploymentsErrors.inc();
     }
   }
 
@@ -41,15 +50,16 @@ export class AutoScalingService {
    */
   async retryDeployment(deploymentId: string) {
     try {
+      this.deploymentIdSchema.parse(deploymentId);
+
       const dep = await prisma.deployment.findUnique({ where: { id: deploymentId } });
       if (!dep) return null;
 
       const retries = (dep.retries || 0) + 1;
       if (retries > this.MAX_RETRIES) {
-        logger.error(
-          `❌ Trop d’échecs (${retries}), rollback requis pour projet=${dep.projectId}`
-        );
+        logger.error(`❌ Trop d’échecs (${retries}), rollback requis pour projet=${dep.projectId}`);
         await this.rollbackDeployment(dep.projectId);
+        metrics.deploymentsRollback.inc();
         return null;
       }
 
@@ -58,9 +68,7 @@ export class AutoScalingService {
         where: { id: deploymentId },
         data: {
           status: "PENDING",
-          logs:
-            (dep.logs || "") +
-            `\nRelance automatique (${retries}/${this.MAX_RETRIES})...`,
+          logs: (dep.logs || "") + `\nRelance automatique (${retries}/${this.MAX_RETRIES})...`,
           retries,
           updatedAt: new Date(),
         },
@@ -76,12 +84,20 @@ export class AutoScalingService {
         },
       });
 
+      await auditLog.log(dep.userId || "system", "DEPLOYMENT_RETRY", {
+        deploymentId,
+        retries,
+        projectId: dep.projectId,
+      });
+
       emitEvent("deployment.retry.success", { deploymentId, retries });
+      metrics.deploymentsRetries.inc();
       logger.info(`✅ Retry réussi pour déploiement=${deploymentId}`);
       return updated;
     } catch (err: any) {
       logger.error("❌ retryDeployment error:", err?.message);
       emitEvent("deployment.retry.failed", { deploymentId, error: err?.message });
+      metrics.deploymentsErrors.inc();
       return null;
     }
   }
@@ -91,6 +107,8 @@ export class AutoScalingService {
    */
   async rollbackDeployment(projectId: string) {
     try {
+      this.projectIdSchema.parse(projectId);
+
       const last = await prisma.deployment.findFirst({
         where: { projectId },
         orderBy: { createdAt: "desc" },
@@ -101,21 +119,29 @@ export class AutoScalingService {
         where: { id: last.id },
         data: {
           status: "ERROR",
-          logs:
-            (last.logs || "") + "\n⚠️ Rollback automatique déclenché",
+          logs: (last.logs || "") + "\n⚠️ Rollback automatique déclenché",
           updatedAt: new Date(),
         },
+      });
+
+      await auditLog.log(last.userId || "system", "DEPLOYMENT_ROLLBACK", {
+        projectId,
+        deploymentId: last.id,
       });
 
       emitEvent("deployment.rollback.triggered", {
         projectId,
         deploymentId: last.id,
       });
+      metrics.deploymentsRollback.inc();
       logger.warn(`↩️ Rollback déclenché pour projet=${projectId}`);
       return last;
     } catch (err: any) {
       logger.error("❌ rollbackDeployment error:", err?.message);
+      metrics.deploymentsErrors.inc();
       return null;
     }
   }
 }
+
+export const autoScalingService = new AutoScalingService();
