@@ -1,6 +1,10 @@
 // src/services/aiService.ts
 import OpenAI from "openai";
 import { logger } from "../utils/logger";
+import { auditLog } from "./auditLogService";
+import { emitEvent } from "./eventBus";
+import { metrics } from "../utils/metrics";
+import { z } from "zod";
 
 const client = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY || "test-key",
@@ -29,9 +33,54 @@ export interface StreamCallbacks {
 }
 
 /* ============================================================================
+ * Zod Schema
+ * ========================================================================== */
+const generateOptionsSchema = z.object({
+  prompt: z.string().min(1),
+  history: z
+    .array(
+      z.object({
+        role: z.enum(["system", "user", "assistant"]),
+        content: z.string(),
+      })
+    )
+    .optional(),
+  system: z.string().optional(),
+  model: z.string().optional(),
+  temperature: z.number().min(0).max(1).optional(),
+  maxTokens: z.number().positive().optional(),
+  jsonMode: z.boolean().optional(),
+  userId: z.string().optional(),
+});
+
+/* ============================================================================
+ * Safe Wrapper
+ * ========================================================================== */
+async function safeCall<T>(
+  action: string,
+  fn: () => Promise<T>,
+  userId?: string
+): Promise<T | null> {
+  const start = Date.now();
+  try {
+    const result = await fn();
+    metrics.aiCalls.inc({ action, status: "success" });
+    metrics.aiLatency.observe({ action }, Date.now() - start);
+    return result;
+  } catch (err: any) {
+    logger.error(`❌ [AI] ${action} error`, err?.message);
+    metrics.aiCalls.inc({ action, status: "error" });
+    metrics.aiLatency.observe({ action }, Date.now() - start);
+    await auditLog.log(userId || "system", "AI_ERROR", { action, error: err?.message });
+    return null;
+  }
+}
+
+/* ============================================================================
  * Réponse simple (non-streamée)
  * ========================================================================== */
 export async function generateAssistantResponse(opts: GenerateOptions) {
+  const parsed = generateOptionsSchema.parse(opts);
   const {
     prompt,
     history = [],
@@ -41,11 +90,10 @@ export async function generateAssistantResponse(opts: GenerateOptions) {
     maxTokens = 800,
     jsonMode = false,
     userId,
-  } = opts;
+  } = parsed;
 
-  try {
+  return safeCall("generateAssistantResponse", async () => {
     const messages: any[] = [];
-
     if (system) messages.push({ role: "system", content: system });
     messages.push(...history);
     messages.push({ role: "user", content: prompt });
@@ -62,11 +110,16 @@ export async function generateAssistantResponse(opts: GenerateOptions) {
     const answer = completion.choices[0].message?.content || "";
     const usage = completion.usage || {};
 
+    // Metrics + Audit + Events
+    metrics.aiTokens.inc({ model }, usage.total_tokens || 0);
+    await auditLog.log(userId || "system", "AI_RESPONSE_GENERATED", {
+      model,
+      tokens: usage.total_tokens,
+    });
+    emitEvent("ai.response.generated", { userId, model, tokens: usage.total_tokens });
+
     return { answer, usage, model };
-  } catch (err: any) {
-    logger.error("❌ [AI] generateAssistantResponse error", err?.message);
-    throw err;
-  }
+  }, userId);
 }
 
 /* ============================================================================
@@ -76,6 +129,7 @@ export async function generateAssistantStream(
   opts: GenerateOptions,
   cb: StreamCallbacks
 ) {
+  const parsed = generateOptionsSchema.parse(opts);
   const {
     prompt,
     history = [],
@@ -85,9 +139,9 @@ export async function generateAssistantStream(
     maxTokens = 800,
     jsonMode = false,
     userId,
-  } = opts;
+  } = parsed;
 
-  try {
+  return safeCall("generateAssistantStream", async () => {
     const messages: any[] = [];
     if (system) messages.push({ role: "system", content: system });
     messages.push(...history);
@@ -111,25 +165,23 @@ export async function generateAssistantStream(
     }
 
     cb.onEnd?.({ model });
-  } catch (err: any) {
-    logger.error("❌ [AI] generateAssistantStream error", err?.message);
-    cb.onError?.(err);
-  }
+    await auditLog.log(userId || "system", "AI_STREAM_COMPLETED", { model });
+    emitEvent("ai.response.streamed", { userId, model });
+
+    return { model };
+  }, userId);
 }
 
 /* ============================================================================
  * Liste des modèles disponibles
  * ========================================================================== */
 export async function listAvailableModels() {
-  try {
+  return safeCall("listAvailableModels", async () => {
     const res = await client.models.list();
     return res.data.map((m) => ({
       id: m.id,
       created: m.created,
       owned_by: m.owned_by,
     }));
-  } catch (err: any) {
-    logger.error("❌ [AI] listAvailableModels error", err?.message);
-    return [];
-  }
+  });
 }
