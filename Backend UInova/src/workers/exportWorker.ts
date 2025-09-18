@@ -1,78 +1,119 @@
 import { Worker } from "bullmq";
 import { queues } from "../utils/queue";
-import { sendEmail } from "../utils/mailer";
 import { prisma } from "../utils/prisma";
+import { exportToFormat } from "../services/exportService"; // service dédié aux exports multi-format
 
-const EMAIL_TIMEOUT_MS = 1000 * 60 * 2; // 2 min max
+const EXPORT_TIMEOUT_MS = Number(process.env.EXPORT_TIMEOUT_MS || 1000 * 60 * 5); // 5 min max
+const EXPORT_CONCURRENCY = Number(process.env.EXPORT_WORKER_CONCURRENCY || 3);
 
-export const emailWorker = new Worker(
-  "email",
+export const exportWorker = new Worker(
+  "export",
   async (job) => {
-    const { to, subject, template, data, provider = "default" } = job.data;
+    const { pageId, projectId, format = "json", userId } = job.data;
     const start = Date.now();
 
-    console.log(`📧 [EmailWorker] Job reçu → ${to} (${subject})`);
+    console.log(
+      `📦 [ExportWorker] Job ${job.id} reçu → page=${pageId} project=${projectId} format=${format}`
+    );
 
     try {
-      // Envoi via utils/mailer (qui peut router selon provider)
-      await sendEmail(to, subject, template, data, provider);
+      // ➡️ Sauvegarde log initial
+      await prisma.exportLog.create({
+        data: {
+          jobId: job.id.toString(),
+          pageId,
+          projectId,
+          format,
+          status: "RUNNING",
+          startedAt: new Date(),
+        },
+      });
+
+      // ➡️ Génération via service export (gère JSON, HTML, React, Vue, Flutter, PDF…)
+      const result = await exportToFormat({ pageId, projectId, format });
 
       const latency = Date.now() - start;
 
-      // Log en DB : succès
-      await prisma.emailLog.create({
+      // ✅ Log succès
+      await prisma.exportLog.update({
+        where: { jobId: job.id.toString() },
         data: {
-          to,
-          subject,
-          template,
-          provider,
-          status: "SENT",
+          status: "SUCCESS",
+          finishedAt: new Date(),
           latencyMs: latency,
+          outputUrl: result.url || null,
         },
       });
 
-      // Audit
+      // ✅ Audit
       await prisma.auditLog.create({
         data: {
-          userId: null,
-          action: "EMAIL_SENT",
-          metadata: { to, subject, template, provider, latency },
+          userId: userId || null,
+          action: "EXPORT_SUCCESS",
+          metadata: { jobId: job.id, pageId, projectId, format, latency },
         },
       });
 
-      console.log(`✅ [EmailWorker] Email envoyé → ${to} (${latency}ms)`);
-    } catch (err: any) {
-      console.error("❌ [EmailWorker] Erreur:", err.message);
+      console.log(
+        `✅ [ExportWorker] Export ${format} pour page=${pageId} terminé (${latency}ms)`
+      );
 
-      // Log en DB : échec
-      await prisma.emailLog.create({
+      return result;
+    } catch (err: any) {
+      console.error(`❌ [ExportWorker] Job ${job.id} erreur:`, err.message);
+
+      // ❌ Log échec
+      await prisma.exportLog.update({
+        where: { jobId: job.id.toString() },
         data: {
-          to,
-          subject,
-          template,
-          provider,
           status: "FAILED",
+          finishedAt: new Date(),
           error: err.message,
         },
       });
 
-      // Audit
+      // ❌ Audit
       await prisma.auditLog.create({
         data: {
-          userId: null,
-          action: "EMAIL_FAILED",
-          metadata: { to, subject, template, provider, error: err.message },
+          userId: job.data.userId || null,
+          action: "EXPORT_FAILED",
+          metadata: { jobId: job.id, pageId, projectId, format, error: err.message },
         },
       });
 
       throw err; // ➝ BullMQ retry
+    } finally {
+      const latency = Date.now() - start;
+      console.log(`⏱️ [ExportWorker] Job ${job.id} terminé en ${latency}ms`);
     }
   },
   {
-    connection: queues.email.opts.connection,
-    concurrency: 5, // envoyer jusqu'à 5 emails en parallèle
-    lockDuration: EMAIL_TIMEOUT_MS,
-    removeOnComplete: { count: 100 }, // garder historique limité
-    removeOnFail: { count: 200 }, // garder plus d'échecs
+    connection: queues.export.opts.connection,
+    concurrency: EXPORT_CONCURRENCY,
+    lockDuration: EXPORT_TIMEOUT_MS,
+    removeOnComplete: { count: 100 },
+    removeOnFail: { count: 200 },
   }
 );
+
+/* ============================================================================
+ *  HOOKS DE MONITORING
+ * ========================================================================== */
+exportWorker.on("completed", (job) => {
+  console.log(`📤 [ExportWorker] Job ${job.id} complété avec succès`);
+});
+
+exportWorker.on("failed", (job, err) => {
+  console.error(
+    `❌ [ExportWorker] Job ${job?.id} échoué après ${job?.attemptsMade} tentatives:`,
+    err?.message
+  );
+});
+
+exportWorker.on("stalled", (jobId) => {
+  console.warn(`⚠️ [ExportWorker] Job ${jobId} stalled (bloqué)`);
+});
+
+exportWorker.on("progress", (job, progress) => {
+  console.log(`⏳ [ExportWorker] Job ${job.id} progression: ${progress}%`);
+});
