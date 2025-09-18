@@ -1,9 +1,13 @@
+// src/workers/deployWorker.ts
 import { Worker } from "bullmq";
 import { queues } from "../utils/queue";
 import { prisma } from "../utils/prisma";
 
 const DEPLOY_TIMEOUT_MS = 1000 * 60 * 10; // 10 min max
 
+/* ============================================================================
+ *  DEPLOY WORKER – Orchestration des déploiements
+ * ========================================================================== */
 export const deployWorker = new Worker(
   "deploy",
   async (job) => {
@@ -14,13 +18,12 @@ export const deployWorker = new Worker(
     console.log(`🚀 [Deploy Worker] Job reçu: ${projectId} (${env})`);
 
     try {
-      // ➡️ Mise à jour du statut : RUNNING
+      // ➡️ Statut : RUNNING
       await prisma.deployment.update({
         where: { id: deployId },
         data: { status: "RUNNING", startedAt: new Date() },
       });
 
-      // ➡️ Log initial
       await prisma.deployLog.create({
         data: {
           deploymentId: deployId,
@@ -29,13 +32,25 @@ export const deployWorker = new Worker(
         },
       });
 
-      // 🔧 Simulation logique de déploiement
-      // Ici tu pourrais appeler Netlify API, Docker, Vercel, AWS, etc.
-      if (provider === "mock") {
-        await new Promise((r) => setTimeout(r, 5000));
+      // 🔧 Simulation provider
+      switch (provider) {
+        case "mock":
+          await new Promise((r) => setTimeout(r, 5000));
+          break;
+        case "vercel":
+          // TODO: intégrer API Vercel
+          break;
+        case "netlify":
+          // TODO: intégrer API Netlify
+          break;
+        case "aws":
+          // TODO: intégration AWS
+          break;
+        default:
+          throw new Error(`Provider ${provider} non supporté`);
       }
 
-      // ➡️ Déploiement terminé avec succès
+      // ➡️ Succès
       const targetUrl = `https://${projectId}.${env}.uinova.dev`;
       await prisma.deployment.update({
         where: { id: deployId },
@@ -50,7 +65,6 @@ export const deployWorker = new Worker(
         },
       });
 
-      // ➡️ Audit log
       await prisma.auditLog.create({
         data: {
           userId: job.data.userId || null,
@@ -63,6 +77,7 @@ export const deployWorker = new Worker(
     } catch (err: any) {
       console.error("❌ [Deploy Worker] Erreur déploiement:", err);
 
+      // ➡️ Rollback & statut FAILED
       await prisma.deployment.update({
         where: { id: deployId },
         data: { status: "FAILED", finishedAt: new Date(), error: err.message },
@@ -84,19 +99,41 @@ export const deployWorker = new Worker(
         },
       });
 
-      throw err; // ⬅️ Permet au worker de gérer le retry/backoff
+      throw err; // ⬅️ Laisse BullMQ gérer retry/backoff
     } finally {
       const latency = Date.now() - start;
-      console.log(
-        `⏱️ [Deploy Worker] Job ${deployId} terminé en ${latency}ms`
-      );
+
+      await prisma.deployLog.create({
+        data: {
+          deploymentId: deployId,
+          level: "info",
+          message: `Durée totale: ${latency}ms`,
+        },
+      });
+
+      console.log(`⏱️ [Deploy Worker] Job ${deployId} terminé en ${latency}ms`);
     }
   },
   {
     connection: queues.deploy.opts.connection,
-    concurrency: 3, // 3 déploiements en parallèle max
+    concurrency: Number(process.env.DEPLOY_WORKER_CONCURRENCY || 3),
     lockDuration: DEPLOY_TIMEOUT_MS,
-    removeOnComplete: { count: 50 }, // garde historique limité
-    removeOnFail: { count: 100 }, // logs échecs
+    removeOnComplete: { count: 100 }, // plus d’historique
+    removeOnFail: { count: 500 },
   }
 );
+
+/* ============================================================================
+ *  HOOKS – Monitoring avancé
+ * ========================================================================== */
+deployWorker.on("completed", (job, result) => {
+  console.log(`✅ [Deploy Worker] Job ${job.id} complété avec succès`, result);
+});
+
+deployWorker.on("failed", (job, err) => {
+  console.error(`❌ [Deploy Worker] Job ${job.id} échoué:`, err?.message);
+});
+
+deployWorker.on("stalled", (jobId) => {
+  console.warn(`⚠️ [Deploy Worker] Job ${jobId} stalled (bloqué)`);
+});
