@@ -4,8 +4,10 @@ import path from "path";
 import crypto from "crypto";
 import { logger } from "../utils/logger";
 import { emitEvent } from "./eventBus";
+import { auditLog } from "./auditLogService";
+import client from "prom-client";
 
-// 🔹 Backends cloud (si besoin)
+// 🔹 Backends cloud
 import AWS from "aws-sdk";
 // import { Storage } from "@google-cloud/storage";
 
@@ -13,8 +15,26 @@ const uploadDir = process.env.UPLOAD_DIR || path.join(process.cwd(), "uploads");
 const STORAGE_BACKEND = process.env.STORAGE_BACKEND || "local"; // "local" | "s3" | "gcp"
 
 /* ============================================================================
+ * 📊 Metrics Prometheus
+ * ============================================================================
+ */
+const counterFiles = new client.Counter({
+  name: "uinova_storage_files_total",
+  help: "Nombre total de fichiers traités",
+  labelNames: ["action", "backend"],
+});
+
+const histogramSize = new client.Histogram({
+  name: "uinova_storage_file_size_bytes",
+  help: "Distribution des tailles de fichiers uploadés",
+  labelNames: ["backend"],
+  buckets: [1024, 10_000, 100_000, 1_000_000, 10_000_000], // 1KB → 10MB
+});
+
+/* ============================================================================
  * Helpers
- * ========================================================================== */
+ * ============================================================================
+ */
 function ensureDir(p: string) {
   if (!fs.existsSync(p)) fs.mkdirSync(p, { recursive: true });
 }
@@ -29,7 +49,8 @@ function checksum(buffer: Buffer) {
 
 /* ============================================================================
  * LOCAL STORAGE
- * ========================================================================== */
+ * ============================================================================
+ */
 async function saveLocalFile(filename: string, buffer: Buffer) {
   ensureDir(uploadDir);
   const safeName = sanitizeFilename(filename);
@@ -63,7 +84,8 @@ async function deleteLocalFile(filename: string) {
 
 /* ============================================================================
  * AWS S3 STORAGE
- * ========================================================================== */
+ * ============================================================================
+ */
 const s3 = new AWS.S3({
   accessKeyId: process.env.AWS_ACCESS_KEY_ID,
   secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY,
@@ -94,43 +116,110 @@ async function saveS3File(filename: string, buffer: Buffer) {
 
 async function deleteS3File(filename: string) {
   const safeName = sanitizeFilename(filename);
-  await s3
-    .deleteObject({ Bucket: S3_BUCKET, Key: safeName })
-    .promise()
-    .catch((err) => {
-      logger.error("❌ S3 delete error", { error: err.message });
-    });
+  try {
+    await s3.deleteObject({ Bucket: S3_BUCKET, Key: safeName }).promise();
+    logger.info("🗑️ File deleted from S3", { key: safeName });
+    return true;
+  } catch (err: any) {
+    logger.error("❌ S3 delete error", { error: err.message });
+    return false;
+  }
+}
 
-  logger.info("🗑️ File deleted from S3", { key: safeName });
-  return true;
+/* ============================================================================
+ * GCP STORAGE (optionnel)
+ * ============================================================================
+ */
+async function saveGCPFile(_filename: string, _buffer: Buffer) {
+  throw new Error("GCP storage not yet implemented");
+}
+async function deleteGCPFile(_filename: string) {
+  throw new Error("GCP storage not yet implemented");
 }
 
 /* ============================================================================
  * EXPORTED API (Backend Agnostic)
- * ========================================================================== */
-export async function saveFile(filename: string, buffer: Buffer) {
+ * ============================================================================
+ */
+export async function saveFile(filename: string, buffer: Buffer, userId: string = "system") {
   let result;
-  switch (STORAGE_BACKEND) {
-    case "s3":
-      result = await saveS3File(filename, buffer);
-      break;
-    case "gcp":
-      throw new Error("GCP storage not yet implemented");
-    default:
-      result = await saveLocalFile(filename, buffer);
-  }
+  const start = Date.now();
 
-  emitEvent("file.uploaded", { filename, ...result });
-  return result;
+  try {
+    switch (STORAGE_BACKEND) {
+      case "s3":
+        result = await saveS3File(filename, buffer);
+        break;
+      case "gcp":
+        result = await saveGCPFile(filename, buffer);
+        break;
+      default:
+        result = await saveLocalFile(filename, buffer);
+    }
+
+    counterFiles.inc({ action: "upload", backend: STORAGE_BACKEND });
+    histogramSize.labels(STORAGE_BACKEND).observe(buffer.length);
+
+    await auditLog.log(userId, "FILE_UPLOADED", { filename, backend: STORAGE_BACKEND, ...result });
+    emitEvent("file.uploaded", { filename, backend: STORAGE_BACKEND, ...result });
+
+    logger.info(`📦 File uploaded via ${STORAGE_BACKEND}`, { filename, size: buffer.length });
+    return result;
+  } catch (err: any) {
+    logger.error("❌ saveFile error", { error: err.message });
+    await auditLog.log(userId, "FILE_UPLOAD_FAILED", { filename, backend: STORAGE_BACKEND, error: err.message });
+    emitEvent("file.upload.failed", { filename, backend: STORAGE_BACKEND, error: err.message });
+    throw err;
+  } finally {
+    logger.debug(`⏱️ saveFile latency: ${Date.now() - start}ms`);
+  }
 }
 
-export async function deleteFile(filename: string) {
-  switch (STORAGE_BACKEND) {
-    case "s3":
-      return await deleteS3File(filename);
-    case "gcp":
-      throw new Error("GCP storage not yet implemented");
-    default:
-      return await deleteLocalFile(filename);
+export async function deleteFile(filename: string, userId: string = "system") {
+  try {
+    let ok;
+    switch (STORAGE_BACKEND) {
+      case "s3":
+        ok = await deleteS3File(filename);
+        break;
+      case "gcp":
+        ok = await deleteGCPFile(filename);
+        break;
+      default:
+        ok = await deleteLocalFile(filename);
+    }
+
+    counterFiles.inc({ action: "delete", backend: STORAGE_BACKEND });
+
+    await auditLog.log(userId, "FILE_DELETED", { filename, backend: STORAGE_BACKEND, ok });
+    emitEvent("file.deleted", { filename, backend: STORAGE_BACKEND, ok });
+
+    return ok;
+  } catch (err: any) {
+    logger.error("❌ deleteFile error", { error: err.message });
+    await auditLog.log(userId, "FILE_DELETE_FAILED", { filename, backend: STORAGE_BACKEND, error: err.message });
+    emitEvent("file.delete.failed", { filename, backend: STORAGE_BACKEND, error: err.message });
+    return false;
+  }
+}
+
+/* ============================================================================
+ * Extra: récupérer metadata (utile pour UI/Admin)
+ * ============================================================================
+ */
+export async function getFileMetadata(filename: string) {
+  const safeName = sanitizeFilename(filename);
+  const filePath = path.join(uploadDir, safeName);
+
+  try {
+    const stat = await fs.promises.stat(filePath);
+    return {
+      filename: safeName,
+      size: stat.size,
+      checksum: checksum(await fs.promises.readFile(filePath)),
+      modifiedAt: stat.mtime,
+    };
+  } catch {
+    return null;
   }
 }
