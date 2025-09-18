@@ -1,16 +1,47 @@
+// src/services/eventBus.ts
 import { EventEmitter } from "events";
 import axios from "axios";
 import crypto from "crypto";
 import { prisma } from "../utils/prisma";
+import { auditLog } from "./auditLogService";
+import { logger } from "../utils/logger";
+import client from "prom-client";
+import { z } from "zod";
 
 const bus = new EventEmitter();
 
 /* ============================================================================
+ * 📊 Metrics Prometheus
+ * ============================================================================
+ */
+const counterEvents = new client.Counter({
+  name: "uinova_events_total",
+  help: "Nombre total d’événements émis",
+  labelNames: ["event"],
+});
+
+const counterWebhookDeliveries = new client.Counter({
+  name: "uinova_webhook_deliveries_total",
+  help: "Nombre total de livraisons webhook",
+  labelNames: ["event", "status"],
+});
+
+const histogramWebhookLatency = new client.Histogram({
+  name: "uinova_webhook_latency_ms",
+  help: "Latence des appels webhook (ms)",
+  labelNames: ["event"],
+  buckets: [50, 100, 200, 500, 1000, 2000, 5000],
+});
+
+/* ============================================================================
  *  EMISSION & ABONNEMENT INTERNE
- * ========================================================================== */
+ * ============================================================================
+ */
 export function emitEvent(event: string, payload: any) {
-  // ⚡ Emission non bloquante
   setImmediate(() => bus.emit(event, payload));
+  counterEvents.inc({ event });
+  auditLog.log("system", "EVENT_EMITTED", { event, payload }).catch(() => {});
+  logger.info(`📡 Event emitted: ${event}`);
 }
 
 export function onEvent(event: string, handler: (data: any) => void) {
@@ -19,7 +50,8 @@ export function onEvent(event: string, handler: (data: any) => void) {
 
 /* ============================================================================
  *  WEBHOOKS – CRUD
- * ========================================================================== */
+ * ============================================================================
+ */
 export async function registerWebhook(userId: string, url: string, event: string) {
   return prisma.webhook.create({ data: { userId, url, event, active: true } });
 }
@@ -40,7 +72,8 @@ export async function removeWebhook(userId: string, id: string) {
 
 /* ============================================================================
  *  SIGNATURE HMAC (sécurité)
- * ========================================================================== */
+ * ============================================================================
+ */
 function signPayload(payload: any, secret: string) {
   return crypto
     .createHmac("sha256", secret)
@@ -50,25 +83,31 @@ function signPayload(payload: any, secret: string) {
 
 /* ============================================================================
  *  DISPATCH AUTOMATIQUE VERS WEBHOOKS
- * ========================================================================== */
+ * ============================================================================
+ */
 async function dispatchEvent(event: string, data: any) {
   const hooks = await prisma.webhook.findMany({
     where: { event, active: true },
   });
 
   for (const hook of hooks) {
-    // HMAC avec clé secrète par webhook (ou fallback env)
     const secret = hook.secret || process.env.WEBHOOK_SECRET || "uinova-secret";
-    const signature = signPayload({ event, data }, secret);
+    const payload = { event, data };
+    const signature = signPayload(payload, secret);
 
-    // Envoi + retry exponentiel
     const attemptDelivery = async (retry = 0): Promise<void> => {
       const start = Date.now();
       try {
         const res = await axios.post(
           hook.url,
-          { event, data, signature },
-          { timeout: 5000, headers: { "X-UInova-Signature": signature } }
+          payload,
+          {
+            timeout: 5000,
+            headers: {
+              "X-UInova-Event": event,
+              "X-UInova-Signature": signature,
+            },
+          }
         );
 
         await prisma.webhookDelivery.create({
@@ -80,9 +119,12 @@ async function dispatchEvent(event: string, data: any) {
             latencyMs: Date.now() - start,
           },
         });
-      } catch (err: any) {
-        console.error(`❌ Webhook error [${hook.url}] (${err.message})`);
 
+        counterWebhookDeliveries.inc({ event, status: "success" });
+        histogramWebhookLatency.observe({ event }, Date.now() - start);
+
+        logger.info(`✅ Webhook delivered [${event}] → ${hook.url}`);
+      } catch (err: any) {
         await prisma.webhookDelivery.create({
           data: {
             webhookId: hook.id,
@@ -93,10 +135,14 @@ async function dispatchEvent(event: string, data: any) {
           },
         });
 
-        // 🔁 Retry exponentiel max 3 fois
+        counterWebhookDeliveries.inc({ event, status: "failed" });
+        histogramWebhookLatency.observe({ event }, Date.now() - start);
+
+        logger.error(`❌ Webhook failed [${event}] → ${hook.url}`, err.message);
+
         if (retry < 3) {
           const delay = Math.pow(2, retry) * 5000; // 5s → 10s → 20s
-          console.log(`🔁 Retry #${retry + 1} dans ${delay / 1000}s`);
+          logger.warn(`🔁 Retry #${retry + 1} in ${delay / 1000}s for ${hook.url}`);
           setTimeout(() => attemptDelivery(retry + 1), delay);
         }
       }
@@ -107,14 +153,17 @@ async function dispatchEvent(event: string, data: any) {
 }
 
 /* ============================================================================
- *  ABONNEMENTS PAR DEFAUT
- * ========================================================================== */
-const SUPPORTED_EVENTS = [
+ *  ABONNEMENTS PAR DÉFAUT
+ * ============================================================================
+ */
+export const SUPPORTED_EVENTS = [
   "project.published",
   "export.done",
   "deployment.done",
   "payment.succeeded",
   "notification.created",
+  "email.sent",
+  "email.failed",
 ];
 
 for (const ev of SUPPORTED_EVENTS) {
