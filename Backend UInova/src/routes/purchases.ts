@@ -11,21 +11,36 @@ import {
   refundPurchase,
 } from "../controllers/purchaseController";
 import { handleValidationErrors } from "../middlewares/validate";
+import client from "prom-client";
+import { auditLog } from "../services/auditLogService";
+import { emitEvent } from "../services/eventBus";
 
 const router = Router();
 
 /* ============================================================================
+ * 📊 Metrics Prometheus
+ * ========================================================================== */
+const counterPurchases = new client.Counter({
+  name: "uinova_purchases_total",
+  help: "Nombre total d’achats",
+  labelNames: ["action", "provider", "status"],
+});
+
+const histogramPurchaseLatency = new client.Histogram({
+  name: "uinova_purchases_latency_ms",
+  help: "Latence des opérations d’achat en ms",
+  labelNames: ["action", "provider", "status"],
+  buckets: [50, 100, 200, 500, 1000, 2000, 5000, 10000],
+});
+
+/* ============================================================================
  * PURCHASE ROUTES – Auth Required
- * ============================================================================
- */
+ * ========================================================================== */
 router.use(authenticate);
 
 /**
  * GET /api/purchases
  * ▶️ Liste des achats de l’utilisateur connecté
- * Query params : ?status=&provider=&page=&pageSize=&from=&to=
- * - status: "PENDING" | "PAID" | "CANCELLED" | "REFUNDED"
- * - provider: "STRIPE" | "PAYPAL" | "CINETPAY" | "MOCK"
  */
 router.get(
   "/",
@@ -41,8 +56,7 @@ router.get(
 
 /**
  * POST /api/purchases
- * ▶️ Créer un nouvel achat (ex: achat d’un template marketplace)
- * body: { itemId: string, paymentProvider?: "STRIPE" | "PAYPAL" | "CINETPAY" | "MOCK" }
+ * ▶️ Créer un nouvel achat
  */
 router.post(
   "/",
@@ -52,39 +66,56 @@ router.post(
     .isIn(["STRIPE", "PAYPAL", "CINETPAY", "MOCK"])
     .withMessage("Fournisseur de paiement invalide"),
   handleValidationErrors,
-  createPurchase
+  async (req, res, next) => {
+    const start = Date.now();
+    const result = await createPurchase(req, res, next);
+
+    const provider = req.body.paymentProvider || "MOCK";
+    counterPurchases.inc({ action: "create", provider, status: "created" });
+    histogramPurchaseLatency.labels("create", provider, "created").observe(Date.now() - start);
+
+    await auditLog.log(req.user?.id, "PURCHASE_CREATED", { itemId: req.body.itemId, provider });
+    emitEvent("purchase.created", { userId: req.user?.id, itemId: req.body.itemId, provider });
+
+    return result;
+  }
 );
 
 /**
  * GET /api/purchases/:id
  * ▶️ Récupérer le détail d’un achat
  */
-router.get(
-  "/:id",
-  param("id").isString().withMessage("id invalide"),
-  handleValidationErrors,
-  getPurchase
-);
+router.get("/:id", param("id").isString().withMessage("id invalide"), handleValidationErrors, getPurchase);
 
 /**
  * DELETE /api/purchases/:id
- * ▶️ Annuler un achat (seulement si en attente)
+ * ▶️ Annuler un achat (si en attente)
  */
 router.delete(
   "/:id",
   param("id").isString().withMessage("id invalide"),
   handleValidationErrors,
-  deletePurchase
+  async (req, res, next) => {
+    const start = Date.now();
+    const result = await deletePurchase(req, res, next);
+
+    counterPurchases.inc({ action: "cancel", provider: "any", status: "cancelled" });
+    histogramPurchaseLatency.labels("cancel", "any", "cancelled").observe(Date.now() - start);
+
+    await auditLog.log(req.user?.id, "PURCHASE_CANCELLED", { purchaseId: req.params.id });
+    emitEvent("purchase.cancelled", { purchaseId: req.params.id, userId: req.user?.id });
+
+    return result;
+  }
 );
 
 /* ============================================================================
- * ADMIN ROUTES – Rôle ADMIN uniquement
- * ============================================================================
- */
+ * ADMIN ROUTES
+ * ========================================================================== */
 
 /**
  * GET /api/purchases/admin
- * ▶️ Lister tous les achats (avec filtres avancés)
+ * ▶️ Lister tous les achats (admin only)
  */
 router.get(
   "/admin",
@@ -100,14 +131,25 @@ router.get(
 
 /**
  * POST /api/purchases/:id/refund
- * ▶️ Rembourser un achat (si payé, via provider)
+ * ▶️ Rembourser un achat (admin only)
  */
 router.post(
   "/:id/refund",
   authorize(["ADMIN"]),
   param("id").isString().withMessage("id invalide"),
   handleValidationErrors,
-  refundPurchase
+  async (req, res, next) => {
+    const start = Date.now();
+    const result = await refundPurchase(req, res, next);
+
+    counterPurchases.inc({ action: "refund", provider: "any", status: "refunded" });
+    histogramPurchaseLatency.labels("refund", "any", "refunded").observe(Date.now() - start);
+
+    await auditLog.log(req.user?.id, "PURCHASE_REFUNDED", { purchaseId: req.params.id });
+    emitEvent("purchase.refunded", { purchaseId: req.params.id, adminId: req.user?.id });
+
+    return result;
+  }
 );
 
 export default router;
