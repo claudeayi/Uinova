@@ -4,8 +4,26 @@ import { body, param, query } from "express-validator";
 import { prisma } from "../utils/prisma";
 import { authenticate, authorize } from "../middlewares/security";
 import { handleValidationErrors } from "../middlewares/validate";
+import { auditLog } from "../services/auditLogService";
+import { emitEvent } from "../services/eventBus";
+import client from "prom-client";
 
 const router = Router();
+
+/* ============================================================================
+ * 📊 Prometheus Metrics
+ * ========================================================================== */
+const counterTx = new client.Counter({
+  name: "uinova_transactions_total",
+  help: "Nombre total de transactions créées",
+  labelNames: ["provider", "status"],
+});
+
+const histogramTxLatency = new client.Histogram({
+  name: "uinova_transactions_latency_ms",
+  help: "Latence de création des transactions",
+  buckets: [50, 100, 200, 500, 1000, 5000],
+});
 
 /* ============================================================================
  *  TRANSACTIONS ROUTES
@@ -18,28 +36,28 @@ router.use(authenticate);
  */
 router.post(
   "/",
-  body("provider")
-    .isIn(["STRIPE", "PAYPAL", "CINETPAY", "MOCK"])
-    .withMessage("Fournisseur invalide"),
-  body("amount").isInt({ min: 1 }).withMessage("Montant invalide"),
+  body("provider").isIn(["STRIPE", "PAYPAL", "CINETPAY", "MOCK"]),
+  body("amount").isInt({ min: 1, max: 1_000_000 }).withMessage("Montant invalide"),
   body("currency").isString().isLength({ min: 3, max: 3 }),
   body("status").isIn(["PENDING", "SUCCESS", "FAILED", "REFUNDED"]),
   body("reference").isString().isLength({ min: 5 }),
   handleValidationErrors,
   async (req, res) => {
+    const start = Date.now();
     try {
       const { provider, amount, currency, status, reference } = req.body;
 
       const tx = await prisma.transaction.create({
-        data: {
-          userId: req.user!.id,
-          provider,
-          amount,
-          currency,
-          status,
-          reference,
-        },
+        data: { userId: req.user!.id, provider, amount, currency, status, reference },
       });
+
+      // Metrics
+      counterTx.inc({ provider, status });
+      histogramTxLatency.observe(Date.now() - start);
+
+      // Audit + Event
+      await auditLog.log(req.user!.id, "TRANSACTION_CREATED", { id: tx.id, provider, amount });
+      emitEvent("transaction.created", { userId: req.user!.id, id: tx.id });
 
       res.status(201).json({ success: true, message: "Transaction créée", data: tx });
     } catch (err: any) {
@@ -52,12 +70,10 @@ router.post(
 /**
  * GET /api/transactions/user/:userId
  * ✅ Lister transactions d’un utilisateur
- * - USER ne peut voir que ses propres transactions
- * - ADMIN peut voir celles des autres
  */
 router.get(
   "/user/:userId",
-  param("userId").isString().withMessage("userId invalide"),
+  param("userId").isString(),
   query("page").optional().isInt({ min: 1 }).toInt(),
   query("pageSize").optional().isInt({ min: 1, max: 100 }).toInt(),
   handleValidationErrors,
@@ -65,7 +81,7 @@ router.get(
     try {
       const { userId } = req.params;
       const page = Number(req.query.page) || 1;
-      const pageSize = Number(req.query.pageSize) || 20;
+      const pageSize = Math.min(Number(req.query.pageSize) || 20, 100);
 
       if (req.user!.role !== "ADMIN" && req.user!.id !== userId) {
         return res.status(403).json({ success: false, error: "Accès interdit" });
@@ -80,6 +96,8 @@ router.get(
           take: pageSize,
         }),
       ]);
+
+      await auditLog.log(req.user!.id, "TRANSACTION_LIST", { userId, count: txs.length });
 
       res.json({
         success: true,
@@ -99,7 +117,7 @@ router.get(
  */
 router.get(
   "/:id",
-  param("id").isString().withMessage("id invalide"),
+  param("id").isString(),
   handleValidationErrors,
   async (req, res) => {
     try {
@@ -107,11 +125,11 @@ router.get(
       const tx = await prisma.transaction.findUnique({ where: { id } });
 
       if (!tx) return res.status(404).json({ success: false, error: "Transaction introuvable" });
-
       if (req.user!.role !== "ADMIN" && tx.userId !== req.user!.id) {
         return res.status(403).json({ success: false, error: "Accès interdit" });
       }
 
+      await auditLog.log(req.user!.id, "TRANSACTION_GET", { id });
       res.json({ success: true, data: tx });
     } catch (err: any) {
       console.error("❌ Transaction get error:", err);
@@ -127,12 +145,16 @@ router.get(
 router.delete(
   "/:id",
   authorize(["ADMIN"]),
-  param("id").isString().withMessage("id invalide"),
+  param("id").isString(),
   handleValidationErrors,
   async (req, res) => {
     try {
       const { id } = req.params;
       await prisma.transaction.delete({ where: { id } });
+
+      await auditLog.log(req.user!.id, "TRANSACTION_DELETED", { id });
+      emitEvent("transaction.deleted", { adminId: req.user!.id, id });
+
       res.json({ success: true, message: `Transaction ${id} supprimée` });
     } catch (err: any) {
       console.error("❌ Transaction delete error:", err);
@@ -147,7 +169,7 @@ router.delete(
  */
 router.get(
   "/search/ref/:reference",
-  param("reference").isString().withMessage("Référence invalide"),
+  param("reference").isString(),
   handleValidationErrors,
   async (req, res) => {
     try {
@@ -155,10 +177,12 @@ router.get(
       const tx = await prisma.transaction.findUnique({ where: { reference } });
 
       if (!tx) return res.status(404).json({ success: false, error: "Transaction introuvable" });
-
       if (req.user!.role !== "ADMIN" && tx.userId !== req.user!.id) {
         return res.status(403).json({ success: false, error: "Accès interdit" });
       }
+
+      await auditLog.log(req.user!.id, "TRANSACTION_SEARCH", { reference });
+      emitEvent("transaction.searched", { userId: req.user!.id, reference });
 
       res.json({ success: true, data: tx });
     } catch (err: any) {
