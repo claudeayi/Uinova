@@ -1,6 +1,6 @@
 // src/routes/pages.ts
 import { Router } from "express";
-import { authenticate, authorize } from "../middlewares/security";
+import { authenticate } from "../middlewares/security";
 import {
   validateProjectIdParam,
   validatePageIdParam,
@@ -29,8 +29,20 @@ import {
   markAsFavorite,
   unmarkAsFavorite,
 } from "../controllers/pageController";
+import client from "prom-client";
+import { auditLog } from "../services/auditLogService";
+import { emitEvent } from "../services/eventBus";
 
 const router = Router();
+
+/* ============================================================================
+ * 📊 Metrics Prometheus
+ * ========================================================================== */
+const counterPages = new client.Counter({
+  name: "uinova_pages_actions_total",
+  help: "Nombre d’actions effectuées sur les pages",
+  labelNames: ["action"],
+});
 
 /* ============================================================================
  *  PAGES ROUTES – nécessite authentification
@@ -38,106 +50,128 @@ const router = Router();
 router.use(authenticate);
 
 /* ---------------- PAR PROJET ---------------- */
-
-/**
- * GET /api/projects/:projectId/pages
- * ▶️ Lister toutes les pages d’un projet
- */
 router.get(
   "/projects/:projectId/pages",
   validateProjectIdParam,
   handleValidationErrors,
-  list
+  async (req, res, next) => {
+    const result = await list(req, res, next);
+    counterPages.inc({ action: "list" });
+    await auditLog.log(req.user?.id, "PAGE_LIST", { projectId: req.params.projectId });
+    return result;
+  }
 );
 
-/**
- * POST /api/projects/:projectId/pages
- * ▶️ Créer une nouvelle page dans un projet
- */
 router.post(
   "/projects/:projectId/pages",
   validateProjectIdParam,
   validatePageCreate,
   handleValidationErrors,
-  create
+  async (req, res, next) => {
+    const result = await create(req, res, next);
+    counterPages.inc({ action: "create" });
+    await auditLog.log(req.user?.id, "PAGE_CREATED", { projectId: req.params.projectId, data: req.body });
+    emitEvent("page.created", { projectId: req.params.projectId, userId: req.user?.id });
+    return result;
+  }
 );
 
-/**
- * POST /api/projects/:projectId/pages/reorder
- * ▶️ Réordonner les pages d’un projet
- * Body: { items: [{ id, sortOrder }] }
- */
 router.post(
   "/projects/:projectId/pages/reorder",
   validateProjectIdParam,
   validatePagesReorder,
   handleValidationErrors,
-  reorder
+  async (req, res, next) => {
+    const result = await reorder(req, res, next);
+    counterPages.inc({ action: "reorder" });
+    await auditLog.log(req.user?.id, "PAGE_REORDERED", { projectId: req.params.projectId, order: req.body.items });
+    emitEvent("page.reordered", { projectId: req.params.projectId, order: req.body.items });
+    return result;
+  }
 );
 
 /* ---------------- PAR PAGE ---------------- */
+router.get(
+  "/pages/:id",
+  validatePageIdParam,
+  handleValidationErrors,
+  async (req, res, next) => {
+    const result = await get(req, res, next);
+    counterPages.inc({ action: "get" });
+    return result;
+  }
+);
 
-/**
- * GET /api/pages/:id
- * ▶️ Obtenir le détail d’une page
- */
-router.get("/pages/:id", validatePageIdParam, handleValidationErrors, get);
-
-/**
- * PATCH /api/pages/:id
- * ▶️ Mettre à jour une page
- */
 router.patch(
   "/pages/:id",
   validatePageIdParam,
   validatePageUpdate,
   handleValidationErrors,
-  update
+  async (req, res, next) => {
+    const result = await update(req, res, next);
+    counterPages.inc({ action: "update" });
+    await auditLog.log(req.user?.id, "PAGE_UPDATED", { pageId: req.params.id, changes: req.body });
+    emitEvent("page.updated", { id: req.params.id, userId: req.user?.id });
+    return result;
+  }
 );
 
-/**
- * POST /api/pages/:id/duplicate
- * ▶️ Dupliquer une page
- */
 router.post(
   "/pages/:id/duplicate",
   validatePageIdParam,
   handleValidationErrors,
-  duplicate
+  async (req, res, next) => {
+    const result = await duplicate(req, res, next);
+    counterPages.inc({ action: "duplicate" });
+    await auditLog.log(req.user?.id, "PAGE_DUPLICATED", { pageId: req.params.id });
+    emitEvent("page.duplicated", { id: req.params.id, userId: req.user?.id });
+    return result;
+  }
 );
 
-/**
- * DELETE /api/pages/:id
- * ▶️ Supprimer une page
- */
-router.delete("/pages/:id", validatePageIdParam, handleValidationErrors, remove);
+router.delete(
+  "/pages/:id",
+  validatePageIdParam,
+  handleValidationErrors,
+  async (req, res, next) => {
+    const result = await remove(req, res, next);
+    counterPages.inc({ action: "delete" });
+    await auditLog.log(req.user?.id, "PAGE_DELETED", { pageId: req.params.id });
+    emitEvent("page.deleted", { id: req.params.id, userId: req.user?.id });
+    return result;
+  }
+);
 
-/* ---------------- EXTENSIONS (Preview / Publication) ---------------- */
-
-/**
- * GET /api/pages/:id/preview
- * ▶️ Prévisualiser une page (JSON/HTML pour LivePreview)
- */
+/* ---------------- EXTENSIONS ---------------- */
 router.get("/pages/:id/preview", validatePageIdParam, handleValidationErrors, preview);
 
-/**
- * POST /api/pages/:id/publish
- * ▶️ Publier une page (publique)
- */
-router.post("/pages/:id/publish", validatePageIdParam, handleValidationErrors, publish);
+router.post(
+  "/pages/:id/publish",
+  validatePageIdParam,
+  handleValidationErrors,
+  async (req, res, next) => {
+    const result = await publish(req, res, next);
+    counterPages.inc({ action: "publish" });
+    await auditLog.log(req.user?.id, "PAGE_PUBLISHED", { pageId: req.params.id });
+    emitEvent("page.published", { id: req.params.id, userId: req.user?.id });
+    return result;
+  }
+);
 
-/**
- * POST /api/pages/:id/unpublish
- * ▶️ Retirer une page de la publication
- */
-router.post("/pages/:id/unpublish", validatePageIdParam, handleValidationErrors, unpublish);
+router.post(
+  "/pages/:id/unpublish",
+  validatePageIdParam,
+  handleValidationErrors,
+  async (req, res, next) => {
+    const result = await unpublish(req, res, next);
+    counterPages.inc({ action: "unpublish" });
+    await auditLog.log(req.user?.id, "PAGE_UNPUBLISHED", { pageId: req.params.id });
+    emitEvent("page.unpublished", { id: req.params.id, userId: req.user?.id });
+    return result;
+  }
+);
 
 /* ---------------- ANALYTICS & VERSIONING ---------------- */
-
-/**
- * GET /api/pages/:id/stats
- * ▶️ Statistiques d’une page (vues, temps moyen, interactions)
- */
 router.get(
   "/pages/:id/stats",
   param("id").isString().isLength({ min: 5 }),
@@ -145,65 +179,81 @@ router.get(
   getPageStats
 );
 
-/**
- * GET /api/pages/:id/versions
- * ▶️ Liste des versions précédentes (historique sauvegardes)
- */
-router.get(
-  "/pages/:id/versions",
-  validatePageIdParam,
-  handleValidationErrors,
-  listVersions
-);
+router.get("/pages/:id/versions", validatePageIdParam, handleValidationErrors, listVersions);
 
-/**
- * POST /api/pages/:id/restore/:versionId
- * ▶️ Restaurer une version précédente
- */
 router.post(
   "/pages/:id/restore/:versionId",
   validatePageIdParam,
   param("versionId").isString().isLength({ min: 5 }),
   handleValidationErrors,
-  restoreVersion
+  async (req, res, next) => {
+    const result = await restoreVersion(req, res, next);
+    counterPages.inc({ action: "restore" });
+    await auditLog.log(req.user?.id, "PAGE_VERSION_RESTORED", {
+      pageId: req.params.id,
+      versionId: req.params.versionId,
+    });
+    emitEvent("page.restored", { id: req.params.id, versionId: req.params.versionId });
+    return result;
+  }
 );
 
 /* ---------------- COLLABORATION & FAVORIS ---------------- */
-
-/**
- * POST /api/pages/:id/collaborators
- * ▶️ Ajouter un collaborateur à une page
- */
 router.post(
   "/pages/:id/collaborators",
   validatePageIdParam,
   body("userId").isString().withMessage("userId requis"),
   handleValidationErrors,
-  addCollaborator
+  async (req, res, next) => {
+    const result = await addCollaborator(req, res, next);
+    counterPages.inc({ action: "addCollaborator" });
+    await auditLog.log(req.user?.id, "PAGE_COLLABORATOR_ADDED", { pageId: req.params.id, userId: req.body.userId });
+    emitEvent("page.collaborator.added", { id: req.params.id, userId: req.body.userId });
+    return result;
+  }
 );
 
-/**
- * DELETE /api/pages/:id/collaborators/:userId
- * ▶️ Retirer un collaborateur d’une page
- */
 router.delete(
   "/pages/:id/collaborators/:userId",
   validatePageIdParam,
   param("userId").isString().isLength({ min: 5 }),
   handleValidationErrors,
-  removeCollaborator
+  async (req, res, next) => {
+    const result = await removeCollaborator(req, res, next);
+    counterPages.inc({ action: "removeCollaborator" });
+    await auditLog.log(req.user?.id, "PAGE_COLLABORATOR_REMOVED", {
+      pageId: req.params.id,
+      userId: req.params.userId,
+    });
+    emitEvent("page.collaborator.removed", { id: req.params.id, userId: req.params.userId });
+    return result;
+  }
 );
 
-/**
- * POST /api/pages/:id/favorite
- * ▶️ Marquer une page comme favori
- */
-router.post("/pages/:id/favorite", validatePageIdParam, handleValidationErrors, markAsFavorite);
+router.post(
+  "/pages/:id/favorite",
+  validatePageIdParam,
+  handleValidationErrors,
+  async (req, res, next) => {
+    const result = await markAsFavorite(req, res, next);
+    counterPages.inc({ action: "favorite" });
+    await auditLog.log(req.user?.id, "PAGE_FAVORITED", { pageId: req.params.id });
+    emitEvent("page.favorited", { id: req.params.id, userId: req.user?.id });
+    return result;
+  }
+);
 
-/**
- * DELETE /api/pages/:id/favorite
- * ▶️ Retirer une page des favoris
- */
-router.delete("/pages/:id/favorite", validatePageIdParam, handleValidationErrors, unmarkAsFavorite);
+router.delete(
+  "/pages/:id/favorite",
+  validatePageIdParam,
+  handleValidationErrors,
+  async (req, res, next) => {
+    const result = await unmarkAsFavorite(req, res, next);
+    counterPages.inc({ action: "unfavorite" });
+    await auditLog.log(req.user?.id, "PAGE_UNFAVORITED", { pageId: req.params.id });
+    emitEvent("page.unfavorited", { id: req.params.id, userId: req.user?.id });
+    return result;
+  }
+);
 
 export default router;
