@@ -14,8 +14,20 @@ import {
   changeRole,
 } from "../controllers/organizationController";
 import { handleValidationErrors } from "../middlewares/validate";
+import client from "prom-client";
+import { auditLog } from "../services/auditLogService";
+import { emitEvent } from "../services/eventBus";
 
 const router = Router();
+
+/* ============================================================================
+ * 📊 Prometheus metrics
+ * ========================================================================== */
+const counterOrgActions = new client.Counter({
+  name: "uinova_organizations_actions_total",
+  help: "Compteur des actions sur les organisations",
+  labelNames: ["action"],
+});
 
 /* ============================================================================
  * ORGANIZATIONS – Auth Required
@@ -24,57 +36,75 @@ router.use(authenticate);
 
 /**
  * GET /api/organizations
- * ▶️ Liste les organisations de l’utilisateur connecté
  */
-router.get("/", listOrganizations);
+router.get("/", async (req, res, next) => {
+  const result = await listOrganizations(req, res, next);
+  counterOrgActions.inc({ action: "list" });
+  return result;
+});
 
 /**
  * GET /api/organizations/:id
- * ▶️ Récupère une organisation (si membre ou admin)
  */
 router.get(
   "/:id",
   param("id").isString().isLength({ min: 8 }).withMessage("id invalide"),
   handleValidationErrors,
-  getOrganization
+  async (req, res, next) => {
+    const result = await getOrganization(req, res, next);
+    counterOrgActions.inc({ action: "get" });
+    return result;
+  }
 );
 
 /**
  * POST /api/organizations
- * ▶️ Crée une nouvelle organisation
  */
 router.post(
   "/",
-  body("name")
-    .isString()
-    .isLength({ min: 3, max: 100 })
-    .withMessage("Nom d’organisation invalide"),
+  body("name").isString().isLength({ min: 3, max: 100 }).withMessage("Nom d’organisation invalide"),
   handleValidationErrors,
-  createOrganization
+  async (req, res, next) => {
+    const result = await createOrganization(req, res, next);
+    counterOrgActions.inc({ action: "create" });
+    await auditLog.log(req.user?.id, "ORG_CREATED", { name: req.body.name });
+    emitEvent("organization.created", { userId: req.user?.id, name: req.body.name });
+    return result;
+  }
 );
 
 /**
  * PATCH /api/organizations/:id
- * ▶️ Met à jour une organisation
  */
 router.patch(
   "/:id",
   param("id").isString().isLength({ min: 8 }).withMessage("id invalide"),
   body("name").optional().isString().isLength({ min: 3, max: 100 }),
   handleValidationErrors,
-  updateOrganization
+  async (req, res, next) => {
+    const result = await updateOrganization(req, res, next);
+    counterOrgActions.inc({ action: "update" });
+    await auditLog.log(req.user?.id, "ORG_UPDATED", { id: req.params.id, changes: req.body });
+    emitEvent("organization.updated", { id: req.params.id, userId: req.user?.id });
+    return result;
+  }
 );
 
 /**
  * DELETE /api/organizations/:id
- * ▶️ Supprime une organisation (OWNER ou ADMIN only)
  */
 router.delete(
   "/:id",
   param("id").isString().isLength({ min: 8 }).withMessage("id invalide"),
   handleValidationErrors,
   authorize(["ADMIN", "OWNER"]),
-  deleteOrganization
+  async (req, res, next) => {
+    const result = await deleteOrganization(req, res, next);
+    counterOrgActions.inc({ action: "delete" });
+    await auditLog.log(req.user?.id, "ORG_DELETED", { id: req.params.id });
+    emitEvent("organization.deleted", { id: req.params.id, userId: req.user?.id });
+    return result;
+  }
 );
 
 /* ============================================================================
@@ -83,35 +113,40 @@ router.delete(
 
 /**
  * POST /api/organizations/:id/invite
- * ▶️ Invite un membre (OWNER ou ADMIN only)
- * Body: { email: string, role?: "MEMBER"|"ADMIN" }
  */
 router.post(
   "/:id/invite",
   param("id").isString().isLength({ min: 8 }).withMessage("id invalide"),
   body("email").isEmail().withMessage("Email invalide"),
-  body("role")
-    .optional()
-    .isIn(["MEMBER", "ADMIN"])
-    .withMessage("Rôle invalide"),
+  body("role").optional().isIn(["MEMBER", "ADMIN"]).withMessage("Rôle invalide"),
   handleValidationErrors,
-  inviteMember
+  async (req, res, next) => {
+    const result = await inviteMember(req, res, next);
+    counterOrgActions.inc({ action: "invite" });
+    await auditLog.log(req.user?.id, "ORG_MEMBER_INVITED", { id: req.params.id, email: req.body.email });
+    emitEvent("organization.member.invited", { orgId: req.params.id, email: req.body.email });
+    return result;
+  }
 );
 
 /**
  * POST /api/organizations/invites/:inviteId/accept
- * ▶️ Accepte une invitation
  */
 router.post(
   "/invites/:inviteId/accept",
   param("inviteId").isString().isLength({ min: 10 }).withMessage("inviteId invalide"),
   handleValidationErrors,
-  acceptInvite
+  async (req, res, next) => {
+    const result = await acceptInvite(req, res, next);
+    counterOrgActions.inc({ action: "acceptInvite" });
+    await auditLog.log(req.user?.id, "ORG_INVITE_ACCEPTED", { inviteId: req.params.inviteId });
+    emitEvent("organization.invite.accepted", { inviteId: req.params.inviteId, userId: req.user?.id });
+    return result;
+  }
 );
 
 /**
  * DELETE /api/organizations/:id/members/:userId
- * ▶️ Retire un membre (OWNER ou ADMIN only)
  */
 router.delete(
   "/:id/members/:userId",
@@ -119,12 +154,17 @@ router.delete(
   param("userId").isString().isLength({ min: 8 }).withMessage("userId invalide"),
   handleValidationErrors,
   authorize(["ADMIN", "OWNER"]),
-  removeMember
+  async (req, res, next) => {
+    const result = await removeMember(req, res, next);
+    counterOrgActions.inc({ action: "removeMember" });
+    await auditLog.log(req.user?.id, "ORG_MEMBER_REMOVED", { orgId: req.params.id, userId: req.params.userId });
+    emitEvent("organization.member.removed", { orgId: req.params.id, userId: req.params.userId });
+    return result;
+  }
 );
 
 /**
  * PATCH /api/organizations/:id/members/:userId/role
- * ▶️ Change le rôle d’un membre (OWNER only)
  */
 router.patch(
   "/:id/members/:userId/role",
@@ -133,7 +173,21 @@ router.patch(
   body("role").isIn(["MEMBER", "ADMIN"]).withMessage("Rôle invalide"),
   handleValidationErrors,
   authorize(["OWNER"]),
-  changeRole
+  async (req, res, next) => {
+    const result = await changeRole(req, res, next);
+    counterOrgActions.inc({ action: "changeRole" });
+    await auditLog.log(req.user?.id, "ORG_MEMBER_ROLE_CHANGED", {
+      orgId: req.params.id,
+      userId: req.params.userId,
+      role: req.body.role,
+    });
+    emitEvent("organization.member.roleChanged", {
+      orgId: req.params.id,
+      userId: req.params.userId,
+      role: req.body.role,
+    });
+    return result;
+  }
 );
 
 export default router;
