@@ -10,66 +10,108 @@ import {
 import { authenticate, authorize } from "../middlewares/security";
 import { query } from "express-validator";
 import { handleValidationErrors } from "../middlewares/validate";
+import client from "prom-client";
+import { auditLog } from "../services/auditLogService";
+import { emitEvent } from "../services/eventBus";
 
 const router = Router();
 
 /* ============================================================================
+ * 📊 Prometheus Metrics
+ * ========================================================================== */
+const counterMonitoring = new client.Counter({
+  name: "uinova_monitoring_total",
+  help: "Nombre total d’appels aux routes de monitoring",
+  labelNames: ["route", "status"],
+});
+
+const histogramMonitoring = new client.Histogram({
+  name: "uinova_monitoring_latency_ms",
+  help: "Latence des endpoints de monitoring",
+  labelNames: ["route", "status"],
+  buckets: [10, 50, 100, 200, 500, 1000, 2000],
+});
+
+function withMetrics(route: string, handler: any) {
+  return async (req: any, res: any, next: any) => {
+    const start = Date.now();
+    try {
+      const result = await handler(req, res, next);
+      counterMonitoring.inc({ route, status: "success" });
+      histogramMonitoring.labels(route, "success").observe(Date.now() - start);
+      return result;
+    } catch (err) {
+      counterMonitoring.inc({ route, status: "error" });
+      histogramMonitoring.labels(route, "error").observe(Date.now() - start);
+      throw err;
+    }
+  };
+}
+
+/* ============================================================================
  *  PUBLIC MONITORING ROUTES
- *  → Exposées pour l’infrastructure (K8s liveness/readiness probes,
- *    Prometheus/Grafana scraping, load balancers health checks…)
  * ========================================================================== */
 
 /**
  * GET /api/monitoring/metrics
- * ✅ Retourne un JSON avec métriques système + DB
- * Exemple:
- *   { uptime: 12345, memory: { used: 42 }, db: { status: "ok" } }
+ * ✅ JSON avec métriques système + DB
  */
-router.get("/metrics", getMetrics);
+router.get("/metrics", withMetrics("metrics", getMetrics));
 
 /**
  * GET /api/monitoring/prometheus
- * ✅ Format texte Prometheus (scraping Grafana/Prometheus)
- * Exemple:
- *   node_uptime_seconds 12345
- *   db_connections_total 5
+ * ✅ Format Prometheus (Grafana/Prometheus scraping)
  */
-router.get("/prometheus", getPrometheusMetrics);
+router.get("/prometheus", withMetrics("prometheus", getPrometheusMetrics));
 
 /**
  * GET /api/monitoring/health
- * ✅ Health check détaillé (serveur + DB)
- * Utilisé par Kubernetes `readinessProbe` & `livenessProbe`
+ * ✅ Health check détaillé (K8s probes)
  */
-router.get("/health", getHealth);
+router.get(
+  "/health",
+  withMetrics("health", async (req, res, next) => {
+    const result = await getHealth(req, res, next);
+
+    if (!result?.ok) {
+      await auditLog.log("system", "MONITORING_HEALTH_FAILED", { result });
+      emitEvent("monitoring.health.failed", { ts: Date.now(), result });
+    }
+    return result;
+  })
+);
 
 /* ============================================================================
  *  ADMIN MONITORING ROUTES
- *  → Protégées par authentification + rôle admin
  * ========================================================================== */
 router.use(authenticate, authorize(["ADMIN"]));
 
 /**
- * GET /api/monitoring/logs?limit=100
- * ✅ Récupère les derniers logs d’audit
- * Query params:
- *   - limit (optionnel, défaut=100, max=500)
+ * GET /api/monitoring/logs
+ * ✅ Derniers logs d’audit
  */
 router.get(
   "/logs",
-  query("limit")
-    .optional()
-    .isInt({ min: 1, max: 500 })
-    .withMessage("limit doit être compris entre 1 et 500"),
+  query("limit").optional().isInt({ min: 1, max: 500 }),
   handleValidationErrors,
-  getLogs
+  withMetrics("logs", async (req, res, next) => {
+    const result = await getLogs(req, res, next);
+    await auditLog.log(req.user?.id, "MONITORING_LOGS_VIEWED", { limit: req.query.limit || 100 });
+    return result;
+  })
 );
 
 /**
  * GET /api/monitoring/overview
- * ✅ Vue d’ensemble (utilisateurs, projets, uptime, erreurs récentes…)
- * Utilisé dans le dashboard admin
+ * ✅ Vue d’ensemble (admin dashboard)
  */
-router.get("/overview", getOverview);
+router.get(
+  "/overview",
+  withMetrics("overview", async (req, res, next) => {
+    const result = await getOverview(req, res, next);
+    await auditLog.log(req.user?.id, "MONITORING_OVERVIEW_VIEWED", { ts: Date.now() });
+    return result;
+  })
+);
 
 export default router;
