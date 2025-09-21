@@ -25,95 +25,95 @@ import {
   listTrendingProjects,
   getProjectActivity,
 } from "../controllers/projectController";
+import client from "prom-client";
+import { auditLog } from "../services/auditLogService";
+import { emitEvent } from "../services/eventBus";
 
 const router = Router();
+
+/* ============================================================================
+ * 📊 Metrics Prometheus
+ * ========================================================================== */
+const counterProjects = new client.Counter({
+  name: "uinova_projects_actions_total",
+  help: "Nombre d’actions effectuées sur les projets",
+  labelNames: ["action"],
+});
 
 /* ============================================================================
  *  PROJECT ROUTES – User Auth Required
  * ========================================================================== */
 router.use(authenticate);
 
-/**
- * GET /api/projects
- * ▶️ Liste tous les projets de l'utilisateur connecté (paginés + filtres)
- * Query: ?q=&status=&page=&pageSize=&tags=&orgId=&sort=&dateFrom=&dateTo=
- */
-router.get("/", listProjects);
+router.get("/", async (req, res, next) => {
+  const result = await listProjects(req, res, next);
+  counterProjects.inc({ action: "list" });
+  return result;
+});
 
-/**
- * GET /api/projects/recent
- * ▶️ Derniers projets mis à jour (dashboard)
- */
 router.get("/recent", listRecentProjects);
-
-/**
- * GET /api/projects/favorites
- * ▶️ Liste des projets marqués comme favoris
- */
 router.get("/favorites", listFavoriteProjects);
-
-/**
- * GET /api/projects/trending
- * ▶️ Projets populaires (basés sur activité, likes, partages)
- */
 router.get("/trending", listTrendingProjects);
 
-/**
- * GET /api/projects/:id
- * ▶️ Récupérer un projet précis
- */
 router.get("/:id", validateProjectIdParam, handleValidationErrors, getProject);
 
-/**
- * POST /api/projects
- * ▶️ Créer un nouveau projet
- */
-router.post("/", validateProjectCreate, handleValidationErrors, createProject);
+router.post("/", validateProjectCreate, handleValidationErrors, async (req, res, next) => {
+  const result = await createProject(req, res, next);
+  counterProjects.inc({ action: "create" });
+  await auditLog.log(req.user?.id, "PROJECT_CREATED", { data: req.body });
+  emitEvent("project.created", { userId: req.user?.id, project: req.body });
+  return result;
+});
 
-/**
- * PATCH /api/projects/:id
- * ▶️ Mettre à jour un projet (partiellement)
- */
 router.patch(
   "/:id",
   validateProjectIdParam,
   validateProjectUpdate,
   handleValidationErrors,
-  updateProject
+  async (req, res, next) => {
+    const result = await updateProject(req, res, next);
+    counterProjects.inc({ action: "update" });
+    await auditLog.log(req.user?.id, "PROJECT_UPDATED", { id: req.params.id, changes: req.body });
+    emitEvent("project.updated", { id: req.params.id, changes: req.body });
+    return result;
+  }
 );
 
-/**
- * DELETE /api/projects/:id
- * ▶️ Supprimer un projet
- */
-router.delete("/:id", validateProjectIdParam, handleValidationErrors, removeProject);
+router.delete("/:id", validateProjectIdParam, handleValidationErrors, async (req, res, next) => {
+  const result = await removeProject(req, res, next);
+  counterProjects.inc({ action: "delete" });
+  await auditLog.log(req.user?.id, "PROJECT_DELETED", { id: req.params.id });
+  emitEvent("project.deleted", { id: req.params.id, userId: req.user?.id });
+  return result;
+});
 
 /* ============================================================================
- *  EXTENDED ROUTES – Actions spécifiques
+ *  EXTENDED ROUTES
  * ========================================================================== */
+router.post("/:id/duplicate", validateProjectIdParam, handleValidationErrors, async (req, res, next) => {
+  const result = await duplicateProject(req, res, next);
+  counterProjects.inc({ action: "duplicate" });
+  await auditLog.log(req.user?.id, "PROJECT_DUPLICATED", { id: req.params.id });
+  emitEvent("project.duplicated", { id: req.params.id, userId: req.user?.id });
+  return result;
+});
 
-/**
- * POST /api/projects/:id/duplicate
- * ▶️ Dupliquer un projet existant
- */
-router.post("/:id/duplicate", validateProjectIdParam, handleValidationErrors, duplicateProject);
+router.post("/:id/publish", validateProjectIdParam, handleValidationErrors, async (req, res, next) => {
+  const result = await publishProject(req, res, next);
+  counterProjects.inc({ action: "publish" });
+  await auditLog.log(req.user?.id, "PROJECT_PUBLISHED", { id: req.params.id });
+  emitEvent("project.published", { id: req.params.id, userId: req.user?.id });
+  return result;
+});
 
-/**
- * POST /api/projects/:id/publish
- * ▶️ Publier/déployer un projet (flag public ou non)
- */
-router.post("/:id/publish", validateProjectIdParam, handleValidationErrors, publishProject);
+router.post("/:id/share", validateProjectIdParam, handleValidationErrors, async (req, res, next) => {
+  const result = await shareProject(req, res, next);
+  counterProjects.inc({ action: "share" });
+  await auditLog.log(req.user?.id, "PROJECT_SHARED", { id: req.params.id });
+  emitEvent("project.shared", { id: req.params.id, userId: req.user?.id });
+  return result;
+});
 
-/**
- * POST /api/projects/:id/share
- * ▶️ Générer un lien de partage public
- */
-router.post("/:id/share", validateProjectIdParam, handleValidationErrors, shareProject);
-
-/**
- * GET /api/projects/:id/stats
- * ▶️ Statistiques d’un projet (pages, collaborations, dernières modifs)
- */
 router.get(
   "/:id/stats",
   param("id").isString().isLength({ min: 5 }).withMessage("id projet invalide"),
@@ -121,10 +121,6 @@ router.get(
   getProjectStats
 );
 
-/**
- * GET /api/projects/:id/activity
- * ▶️ Historique d’activité du projet (audit trail)
- */
 router.get(
   "/:id/activity",
   param("id").isString().isLength({ min: 5 }),
@@ -135,12 +131,6 @@ router.get(
 /* ============================================================================
  *  COLLABORATION ROUTES
  * ========================================================================== */
-
-/**
- * POST /api/projects/:id/collaborators
- * ▶️ Ajouter un collaborateur (par email ou userId)
- * Body: { userId?: string, email?: string, role?: "VIEWER"|"EDITOR" }
- */
 router.post(
   "/:id/collaborators",
   param("id").isString().isLength({ min: 5 }),
@@ -148,36 +138,47 @@ router.post(
   body("email").optional().isEmail(),
   body("role").optional().isIn(["VIEWER", "EDITOR"]),
   handleValidationErrors,
-  addCollaborator
+  async (req, res, next) => {
+    const result = await addCollaborator(req, res, next);
+    counterProjects.inc({ action: "addCollaborator" });
+    await auditLog.log(req.user?.id, "PROJECT_COLLABORATOR_ADDED", { id: req.params.id, collaborator: req.body });
+    emitEvent("project.collaborator.added", { id: req.params.id, collaborator: req.body });
+    return result;
+  }
 );
 
-/**
- * DELETE /api/projects/:id/collaborators/:userId
- * ▶️ Retirer un collaborateur
- */
 router.delete(
   "/:id/collaborators/:userId",
   param("id").isString().isLength({ min: 5 }),
   param("userId").isString().isLength({ min: 5 }),
   handleValidationErrors,
-  removeCollaborator
+  async (req, res, next) => {
+    const result = await removeCollaborator(req, res, next);
+    counterProjects.inc({ action: "removeCollaborator" });
+    await auditLog.log(req.user?.id, "PROJECT_COLLABORATOR_REMOVED", {
+      id: req.params.id,
+      userId: req.params.userId,
+    });
+    emitEvent("project.collaborator.removed", { id: req.params.id, userId: req.params.userId });
+    return result;
+  }
 );
 
 /* ============================================================================
- *  ADMIN ROUTES – Gestion globale des projets
+ *  ADMIN ROUTES
  * ========================================================================== */
-
-/**
- * GET /api/projects/admin/all
- * ▶️ Lister tous les projets (admin only, avec filtres avancés)
- */
 router.get(
   "/admin/all",
   authorize(["ADMIN"]),
   query("q").optional().isString(),
   query("status").optional().isIn(["EN_COURS", "TERMINE", "PLANIFIE"]),
   handleValidationErrors,
-  listProjects
+  async (req, res, next) => {
+    const result = await listProjects(req, res, next);
+    counterProjects.inc({ action: "admin_list" });
+    await auditLog.log(req.user?.id, "ADMIN_PROJECTS_LISTED", { filters: req.query });
+    return result;
+  }
 );
 
 export default router;
