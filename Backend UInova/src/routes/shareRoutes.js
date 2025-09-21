@@ -4,11 +4,29 @@ import { prisma } from "../utils/prisma.js";
 import { nanoid } from "nanoid";
 import { body, param, query } from "express-validator";
 import { handleValidationErrors } from "../middlewares/validate";
+import { auditLog } from "../services/auditLogService";
+import { emitEvent } from "../services/eventBus";
+import client from "prom-client";
 
 const router = express.Router();
 
 /* ============================================================================
- *  SHARE LINKS – Lien public/privé pour accéder à un projet
+ * 📊 Metrics Prometheus
+ * ========================================================================== */
+const counterShareLinks = new client.Counter({
+  name: "uinova_share_links_total",
+  help: "Nombre total de liens de partage",
+  labelNames: ["action"],
+});
+
+const histogramShareLifetime = new client.Histogram({
+  name: "uinova_share_lifetime_minutes",
+  help: "Durée de vie des liens de partage en minutes",
+  buckets: [10, 60, 360, 1440, 10080, 43200], // 10min, 1h, 6h, 1j, 1s, 30j
+});
+
+/* ============================================================================
+ *  SHARE LINKS – Création, accès et révocation
  * ========================================================================== */
 
 /**
@@ -31,15 +49,17 @@ router.post(
       const { isPublic = true, expiresIn } = req.body;
 
       const token = nanoid(16);
+      const expiresAt = expiresIn ? new Date(Date.now() + expiresIn * 60_000) : null;
 
       const link = await prisma.shareLink.create({
-        data: {
-          projectId,
-          token,
-          isPublic,
-          expiresAt: expiresIn ? new Date(Date.now() + expiresIn * 60_000) : null,
-        },
+        data: { projectId, token, isPublic, expiresAt },
       });
+
+      counterShareLinks.inc({ action: "created" });
+      if (expiresIn) histogramShareLifetime.observe(expiresIn);
+
+      await auditLog.log(req.user?.id, "SHARE_CREATED", { projectId, isPublic, expiresIn });
+      emitEvent("share.created", { userId: req.user?.id, projectId, token });
 
       res.json({
         success: true,
@@ -91,6 +111,9 @@ router.get(
         },
       });
 
+      await auditLog.log(req.user?.id, "SHARE_ACCESSED", { projectId, token });
+      emitEvent("share.accessed", { userId: req.user?.id, projectId, token });
+
       res.json({ success: true, project });
     } catch (err: any) {
       console.error("❌ get share link error:", err);
@@ -111,6 +134,11 @@ router.delete(
     try {
       const { projectId } = req.params;
       const deleted = await prisma.shareLink.deleteMany({ where: { projectId } });
+
+      counterShareLinks.inc({ action: "revoked" });
+
+      await auditLog.log(req.user?.id, "SHARE_REVOKED", { projectId, count: deleted.count });
+      emitEvent("share.revoked", { userId: req.user?.id, projectId, count: deleted.count });
 
       res.json({
         success: true,
