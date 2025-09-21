@@ -11,41 +11,78 @@ import {
 import { authenticate, authorize } from "../middlewares/security";
 import { param, query } from "express-validator";
 import { handleValidationErrors } from "../middlewares/validate";
+import client from "prom-client";
+import { auditLog } from "../services/auditLogService";
+import { emitEvent } from "../services/eventBus";
 
 const router = Router();
 
 /* ============================================================================
- *  ROUTES REPLAYS – User Auth Required
- * ============================================================================
- */
+ * 📊 Prometheus Metrics
+ * ========================================================================== */
+const counterReplays = new client.Counter({
+  name: "uinova_replays_total",
+  help: "Nombre total de replays",
+  labelNames: ["action", "status"],
+});
+
+const histogramReplayDuration = new client.Histogram({
+  name: "uinova_replay_duration_ms",
+  help: "Durée des replays en millisecondes",
+  labelNames: ["status"],
+  buckets: [100, 500, 1000, 5000, 10000, 60000, 300000],
+});
+
+/* ============================================================================
+ * REPLAYS – Auth Required
+ * ========================================================================== */
 router.use(authenticate);
 
 /**
  * POST /api/replay/:projectId/start
- * ▶️ Démarrer un replay pour un projet
+ * ▶️ Démarrer un replay
  */
 router.post(
   "/:projectId/start",
   param("projectId").isString().isLength({ min: 5 }).withMessage("id projet invalide"),
   handleValidationErrors,
-  startReplay
+  async (req, res, next) => {
+    const start = Date.now();
+    const result = await startReplay(req, res, next);
+
+    counterReplays.inc({ action: "start", status: "running" });
+    await auditLog.log(req.user?.id, "REPLAY_STARTED", { projectId: req.params.projectId });
+    emitEvent("replay.started", { userId: req.user?.id, projectId: req.params.projectId });
+
+    histogramReplayDuration.labels("running").observe(Date.now() - start);
+    return result;
+  }
 );
 
 /**
  * POST /api/replay/:projectId/stop
- * ▶️ Arrêter un replay en cours
+ * ▶️ Arrêter un replay
  */
 router.post(
   "/:projectId/stop",
   param("projectId").isString().isLength({ min: 5 }),
   handleValidationErrors,
-  stopReplay
+  async (req, res, next) => {
+    const start = Date.now();
+    const result = await stopReplay(req, res, next);
+
+    counterReplays.inc({ action: "stop", status: "stopped" });
+    await auditLog.log(req.user?.id, "REPLAY_STOPPED", { projectId: req.params.projectId });
+    emitEvent("replay.stopped", { userId: req.user?.id, projectId: req.params.projectId });
+
+    histogramReplayDuration.labels("stopped").observe(Date.now() - start);
+    return result;
+  }
 );
 
 /**
  * GET /api/replay/:projectId
  * ▶️ Lister les replays d’un projet
- * Query: ?limit=10&from=2024-01-01&to=2024-12-31
  */
 router.get(
   "/:projectId",
@@ -71,26 +108,34 @@ router.get(
 
 /**
  * DELETE /api/replay/:projectId/:replayId
- * ▶️ Supprimer un replay (owner ou admin)
+ * ▶️ Supprimer un replay
  */
 router.delete(
   "/:projectId/:replayId",
   param("projectId").isString().isLength({ min: 5 }),
   param("replayId").isString().isLength({ min: 5 }),
   handleValidationErrors,
-  deleteReplay
+  async (req, res, next) => {
+    const result = await deleteReplay(req, res, next);
+
+    counterReplays.inc({ action: "delete", status: "deleted" });
+    await auditLog.log(req.user?.id, "REPLAY_DELETED", {
+      projectId: req.params.projectId,
+      replayId: req.params.replayId,
+    });
+    emitEvent("replay.deleted", {
+      userId: req.user?.id,
+      projectId: req.params.projectId,
+      replayId: req.params.replayId,
+    });
+
+    return result;
+  }
 );
 
 /* ============================================================================
- *  ADMIN ROUTES – Rôle ADMIN requis
- * ============================================================================
- */
-
-/**
- * GET /api/replay/admin/replays
- * ▶️ Lister toutes les sessions (admin only)
- * Query: ?page=1&pageSize=20&userId=&projectId=&status=
- */
+ * ADMIN ROUTES – Admin Required
+ * ========================================================================== */
 router.get(
   "/admin/replays",
   authorize(["ADMIN"]),
