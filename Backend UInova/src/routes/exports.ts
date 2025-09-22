@@ -41,11 +41,30 @@ function withMetrics(route: string, handler: any) {
     const start = Date.now();
     try {
       await handler(req, res, next);
+      const duration = Date.now() - start;
+
       counterExports.inc({ route, status: "success" });
-      histogramExports.labels(route, "success").observe(Date.now() - start);
-    } catch (err) {
+      histogramExports.labels(route, "success").observe(duration);
+
+      await auditLog.log(req.user?.id, "EXPORT_METRIC", {
+        route,
+        status: "success",
+        latency: duration,
+        ip: req.ip,
+      });
+    } catch (err: any) {
+      const duration = Date.now() - start;
       counterExports.inc({ route, status: "error" });
-      histogramExports.labels(route, "error").observe(Date.now() - start);
+      histogramExports.labels(route, "error").observe(duration);
+
+      await auditLog.log(req.user?.id, "EXPORT_METRIC_ERROR", {
+        route,
+        status: "error",
+        latency: duration,
+        ip: req.ip,
+        error: err.message,
+      });
+
       throw err;
     }
   };
@@ -58,8 +77,7 @@ router.use(requireAuth);
 
 /**
  * POST /api/exports/:projectId
- * POST /api/exports/:projectId/:pageId
- * 🆕 Créer un export (direct ou en file d’attente)
+ * 🆕 Créer un export projet
  */
 router.post(
   "/:projectId",
@@ -67,12 +85,24 @@ router.post(
   validateExportSave,
   handleValidationErrors,
   withMetrics("create", async (req, res, next) => {
-    await auditLog.log(req.user?.id, "EXPORT_CREATED", { projectId: req.params.projectId });
-    emitEvent("export.created", { projectId: req.params.projectId, userId: req.user?.id });
+    await auditLog.log(req.user?.id, "EXPORT_CREATED", {
+      projectId: req.params.projectId,
+      ip: req.ip,
+    });
+    emitEvent("export.created", {
+      projectId: req.params.projectId,
+      userId: req.user?.id,
+      ip: req.ip,
+      ts: Date.now(),
+    });
     return saveExport(req, res, next);
   })
 );
 
+/**
+ * POST /api/exports/:projectId/:pageId
+ * 🆕 Créer un export page
+ */
 router.post(
   "/:projectId/:pageId",
   param("projectId").isString().isLength({ min: 8 }).withMessage("projectId invalide"),
@@ -83,11 +113,14 @@ router.post(
     await auditLog.log(req.user?.id, "EXPORT_CREATED", {
       projectId: req.params.projectId,
       pageId: req.params.pageId,
+      ip: req.ip,
     });
     emitEvent("export.created", {
       projectId: req.params.projectId,
       pageId: req.params.pageId,
       userId: req.user?.id,
+      ip: req.ip,
+      ts: Date.now(),
     });
     return saveExport(req, res, next);
   })
@@ -105,23 +138,33 @@ router.get("/", validateExportListQuery, handleValidationErrors, withMetrics("li
  */
 router.get(
   "/:id",
-  param("id").isString().isLength({ min: 10 }).withMessage("ID export invalide"),
+  param("id").isString().isLength({ min: 10 }),
   handleValidationErrors,
   withMetrics("get_one", getOne)
 );
 
 /**
  * POST /api/exports/:id/mark-failed
- * ❌ Marquer un export comme échoué
+ * ❌ Marquer un export échoué
  */
 router.post(
   "/:id/mark-failed",
-  param("id").isString().isLength({ min: 10 }).withMessage("ID export invalide"),
+  param("id").isString().isLength({ min: 10 }),
   body("error").optional().isString().isLength({ max: 500 }),
   handleValidationErrors,
   withMetrics("mark_failed", async (req, res, next) => {
-    await auditLog.log(req.user?.id, "EXPORT_FAILED", { exportId: req.params.id, error: req.body.error });
-    emitEvent("export.failed", { exportId: req.params.id, error: req.body.error, userId: req.user?.id });
+    await auditLog.log(req.user?.id, "EXPORT_FAILED", {
+      exportId: req.params.id,
+      error: req.body.error,
+      ip: req.ip,
+    });
+    emitEvent("export.failed", {
+      exportId: req.params.id,
+      error: req.body.error,
+      userId: req.user?.id,
+      ip: req.ip,
+      ts: Date.now(),
+    });
     return markFailed(req, res, next);
   })
 );
@@ -132,14 +175,58 @@ router.post(
  */
 router.post(
   "/:id/mark-ready",
-  param("id").isString().isLength({ min: 10 }).withMessage("ID export invalide"),
-  body("bundleUrl").isURL().withMessage("bundleUrl doit être une URL valide"),
+  param("id").isString().isLength({ min: 10 }),
+  body("bundleUrl")
+    .isURL().withMessage("bundleUrl doit être une URL valide")
+    .matches(/^https:\/\//).withMessage("bundleUrl doit être en HTTPS"),
   body("meta").optional().isObject(),
   handleValidationErrors,
   withMetrics("mark_ready", async (req, res, next) => {
-    await auditLog.log(req.user?.id, "EXPORT_READY", { exportId: req.params.id, bundleUrl: req.body.bundleUrl });
-    emitEvent("export.ready", { exportId: req.params.id, bundleUrl: req.body.bundleUrl, userId: req.user?.id });
+    await auditLog.log(req.user?.id, "EXPORT_READY", {
+      exportId: req.params.id,
+      bundleUrl: req.body.bundleUrl,
+      ip: req.ip,
+    });
+    emitEvent("export.ready", {
+      exportId: req.params.id,
+      bundleUrl: req.body.bundleUrl,
+      userId: req.user?.id,
+      ip: req.ip,
+      ts: Date.now(),
+    });
     return markReady(req, res, next);
+  })
+);
+
+/* ============================================================================
+ * 📊 Stats & Health
+ * ========================================================================== */
+
+/**
+ * GET /api/exports/stats
+ * 📈 KPIs exports (succès, erreurs, latence)
+ */
+router.get("/stats", async (_req, res) => {
+  const metrics = await client.register.getSingleMetricAsString("uinova_exports_requests_total");
+  res.json({
+    ok: true,
+    service: "exports",
+    metrics,
+    ts: Date.now(),
+  });
+});
+
+/**
+ * GET /api/exports/health
+ * ✅ Health check service exports
+ */
+router.get("/health", (_req, res) =>
+  res.json({
+    ok: true,
+    service: "exports",
+    version: process.env.EXPORTS_VERSION || "1.0.0",
+    uptime: process.uptime(),
+    ts: Date.now(),
   })
 );
 
