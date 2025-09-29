@@ -36,13 +36,35 @@ import { emitEvent } from "../services/eventBus";
 const router = Router();
 
 /* ============================================================================
- * 📊 Metrics Prometheus
+ * 📊 Prometheus Metrics
  * ========================================================================== */
 const counterPages = new client.Counter({
   name: "uinova_pages_actions_total",
   help: "Nombre d’actions effectuées sur les pages",
   labelNames: ["action"],
 });
+
+const histogramPages = new client.Histogram({
+  name: "uinova_pages_latency_ms",
+  help: "Latence des opérations sur les pages",
+  labelNames: ["action", "status"],
+  buckets: [20, 50, 100, 200, 500, 1000, 2000],
+});
+
+function withMetrics(action: string, handler: any) {
+  return async (req: any, res: any, next: any) => {
+    const start = Date.now();
+    try {
+      const result = await handler(req, res, next);
+      counterPages.inc({ action });
+      histogramPages.labels(action, "success").observe(Date.now() - start);
+      return result;
+    } catch (err) {
+      histogramPages.labels(action, "error").observe(Date.now() - start);
+      throw err;
+    }
+  };
+}
 
 /* ============================================================================
  *  PAGES ROUTES – nécessite authentification
@@ -54,12 +76,11 @@ router.get(
   "/projects/:projectId/pages",
   validateProjectIdParam,
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("list", async (req, res, next) => {
     const result = await list(req, res, next);
-    counterPages.inc({ action: "list" });
     await auditLog.log(req.user?.id, "PAGE_LIST", { projectId: req.params.projectId });
     return result;
-  }
+  })
 );
 
 router.post(
@@ -67,13 +88,12 @@ router.post(
   validateProjectIdParam,
   validatePageCreate,
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("create", async (req, res, next) => {
     const result = await create(req, res, next);
-    counterPages.inc({ action: "create" });
     await auditLog.log(req.user?.id, "PAGE_CREATED", { projectId: req.params.projectId, data: req.body });
     emitEvent("page.created", { projectId: req.params.projectId, userId: req.user?.id });
     return result;
-  }
+  })
 );
 
 router.post(
@@ -81,13 +101,12 @@ router.post(
   validateProjectIdParam,
   validatePagesReorder,
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("reorder", async (req, res, next) => {
     const result = await reorder(req, res, next);
-    counterPages.inc({ action: "reorder" });
     await auditLog.log(req.user?.id, "PAGE_REORDERED", { projectId: req.params.projectId, order: req.body.items });
     emitEvent("page.reordered", { projectId: req.params.projectId, order: req.body.items });
     return result;
-  }
+  })
 );
 
 /* ---------------- PAR PAGE ---------------- */
@@ -95,11 +114,7 @@ router.get(
   "/pages/:id",
   validatePageIdParam,
   handleValidationErrors,
-  async (req, res, next) => {
-    const result = await get(req, res, next);
-    counterPages.inc({ action: "get" });
-    return result;
-  }
+  withMetrics("get", get)
 );
 
 router.patch(
@@ -107,39 +122,36 @@ router.patch(
   validatePageIdParam,
   validatePageUpdate,
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("update", async (req, res, next) => {
     const result = await update(req, res, next);
-    counterPages.inc({ action: "update" });
     await auditLog.log(req.user?.id, "PAGE_UPDATED", { pageId: req.params.id, changes: req.body });
     emitEvent("page.updated", { id: req.params.id, userId: req.user?.id });
     return result;
-  }
+  })
 );
 
 router.post(
   "/pages/:id/duplicate",
   validatePageIdParam,
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("duplicate", async (req, res, next) => {
     const result = await duplicate(req, res, next);
-    counterPages.inc({ action: "duplicate" });
     await auditLog.log(req.user?.id, "PAGE_DUPLICATED", { pageId: req.params.id });
     emitEvent("page.duplicated", { id: req.params.id, userId: req.user?.id });
     return result;
-  }
+  })
 );
 
 router.delete(
   "/pages/:id",
   validatePageIdParam,
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("delete", async (req, res, next) => {
     const result = await remove(req, res, next);
-    counterPages.inc({ action: "delete" });
     await auditLog.log(req.user?.id, "PAGE_DELETED", { pageId: req.params.id });
     emitEvent("page.deleted", { id: req.params.id, userId: req.user?.id });
     return result;
-  }
+  })
 );
 
 /* ---------------- EXTENSIONS ---------------- */
@@ -149,26 +161,24 @@ router.post(
   "/pages/:id/publish",
   validatePageIdParam,
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("publish", async (req, res, next) => {
     const result = await publish(req, res, next);
-    counterPages.inc({ action: "publish" });
     await auditLog.log(req.user?.id, "PAGE_PUBLISHED", { pageId: req.params.id });
     emitEvent("page.published", { id: req.params.id, userId: req.user?.id });
     return result;
-  }
+  })
 );
 
 router.post(
   "/pages/:id/unpublish",
   validatePageIdParam,
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("unpublish", async (req, res, next) => {
     const result = await unpublish(req, res, next);
-    counterPages.inc({ action: "unpublish" });
     await auditLog.log(req.user?.id, "PAGE_UNPUBLISHED", { pageId: req.params.id });
     emitEvent("page.unpublished", { id: req.params.id, userId: req.user?.id });
     return result;
-  }
+  })
 );
 
 /* ---------------- ANALYTICS & VERSIONING ---------------- */
@@ -176,26 +186,30 @@ router.get(
   "/pages/:id/stats",
   param("id").isString().isLength({ min: 5 }),
   handleValidationErrors,
-  getPageStats
+  withMetrics("stats", getPageStats)
 );
 
-router.get("/pages/:id/versions", validatePageIdParam, handleValidationErrors, listVersions);
+router.get(
+  "/pages/:id/versions",
+  validatePageIdParam,
+  handleValidationErrors,
+  withMetrics("listVersions", listVersions)
+);
 
 router.post(
   "/pages/:id/restore/:versionId",
   validatePageIdParam,
   param("versionId").isString().isLength({ min: 5 }),
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("restore", async (req, res, next) => {
     const result = await restoreVersion(req, res, next);
-    counterPages.inc({ action: "restore" });
     await auditLog.log(req.user?.id, "PAGE_VERSION_RESTORED", {
       pageId: req.params.id,
       versionId: req.params.versionId,
     });
     emitEvent("page.restored", { id: req.params.id, versionId: req.params.versionId });
     return result;
-  }
+  })
 );
 
 /* ---------------- COLLABORATION & FAVORIS ---------------- */
@@ -204,13 +218,12 @@ router.post(
   validatePageIdParam,
   body("userId").isString().withMessage("userId requis"),
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("addCollaborator", async (req, res, next) => {
     const result = await addCollaborator(req, res, next);
-    counterPages.inc({ action: "addCollaborator" });
     await auditLog.log(req.user?.id, "PAGE_COLLABORATOR_ADDED", { pageId: req.params.id, userId: req.body.userId });
     emitEvent("page.collaborator.added", { id: req.params.id, userId: req.body.userId });
     return result;
-  }
+  })
 );
 
 router.delete(
@@ -218,42 +231,39 @@ router.delete(
   validatePageIdParam,
   param("userId").isString().isLength({ min: 5 }),
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("removeCollaborator", async (req, res, next) => {
     const result = await removeCollaborator(req, res, next);
-    counterPages.inc({ action: "removeCollaborator" });
     await auditLog.log(req.user?.id, "PAGE_COLLABORATOR_REMOVED", {
       pageId: req.params.id,
       userId: req.params.userId,
     });
     emitEvent("page.collaborator.removed", { id: req.params.id, userId: req.params.userId });
     return result;
-  }
+  })
 );
 
 router.post(
   "/pages/:id/favorite",
   validatePageIdParam,
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("favorite", async (req, res, next) => {
     const result = await markAsFavorite(req, res, next);
-    counterPages.inc({ action: "favorite" });
     await auditLog.log(req.user?.id, "PAGE_FAVORITED", { pageId: req.params.id });
     emitEvent("page.favorited", { id: req.params.id, userId: req.user?.id });
     return result;
-  }
+  })
 );
 
 router.delete(
   "/pages/:id/favorite",
   validatePageIdParam,
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("unfavorite", async (req, res, next) => {
     const result = await unmarkAsFavorite(req, res, next);
-    counterPages.inc({ action: "unfavorite" });
     await auditLog.log(req.user?.id, "PAGE_UNFAVORITED", { pageId: req.params.id });
     emitEvent("page.unfavorited", { id: req.params.id, userId: req.user?.id });
     return result;
-  }
+  })
 );
 
 export default router;
