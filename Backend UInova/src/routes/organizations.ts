@@ -29,6 +29,28 @@ const counterOrgActions = new client.Counter({
   labelNames: ["action"],
 });
 
+const histogramOrgLatency = new client.Histogram({
+  name: "uinova_organizations_latency_ms",
+  help: "Latence des opérations sur les organisations",
+  labelNames: ["action", "status"],
+  buckets: [20, 50, 100, 200, 500, 1000, 2000],
+});
+
+function withMetrics(action: string, handler: any) {
+  return async (req: any, res: any, next: any) => {
+    const start = Date.now();
+    try {
+      const result = await handler(req, res, next);
+      counterOrgActions.inc({ action });
+      histogramOrgLatency.labels(action, "success").observe(Date.now() - start);
+      return result;
+    } catch (err) {
+      histogramOrgLatency.labels(action, "error").observe(Date.now() - start);
+      throw err;
+    }
+  };
+}
+
 /* ============================================================================
  * ORGANIZATIONS – Auth Required
  * ========================================================================== */
@@ -37,11 +59,7 @@ router.use(authenticate);
 /**
  * GET /api/organizations
  */
-router.get("/", async (req, res, next) => {
-  const result = await listOrganizations(req, res, next);
-  counterOrgActions.inc({ action: "list" });
-  return result;
-});
+router.get("/", withMetrics("list", listOrganizations));
 
 /**
  * GET /api/organizations/:id
@@ -50,11 +68,7 @@ router.get(
   "/:id",
   param("id").isString().isLength({ min: 8 }).withMessage("id invalide"),
   handleValidationErrors,
-  async (req, res, next) => {
-    const result = await getOrganization(req, res, next);
-    counterOrgActions.inc({ action: "get" });
-    return result;
-  }
+  withMetrics("get", getOrganization)
 );
 
 /**
@@ -64,13 +78,12 @@ router.post(
   "/",
   body("name").isString().isLength({ min: 3, max: 100 }).withMessage("Nom d’organisation invalide"),
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("create", async (req, res, next) => {
     const result = await createOrganization(req, res, next);
-    counterOrgActions.inc({ action: "create" });
     await auditLog.log(req.user?.id, "ORG_CREATED", { name: req.body.name });
     emitEvent("organization.created", { userId: req.user?.id, name: req.body.name });
     return result;
-  }
+  })
 );
 
 /**
@@ -81,13 +94,12 @@ router.patch(
   param("id").isString().isLength({ min: 8 }).withMessage("id invalide"),
   body("name").optional().isString().isLength({ min: 3, max: 100 }),
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("update", async (req, res, next) => {
     const result = await updateOrganization(req, res, next);
-    counterOrgActions.inc({ action: "update" });
     await auditLog.log(req.user?.id, "ORG_UPDATED", { id: req.params.id, changes: req.body });
     emitEvent("organization.updated", { id: req.params.id, userId: req.user?.id });
     return result;
-  }
+  })
 );
 
 /**
@@ -98,13 +110,12 @@ router.delete(
   param("id").isString().isLength({ min: 8 }).withMessage("id invalide"),
   handleValidationErrors,
   authorize(["ADMIN", "OWNER"]),
-  async (req, res, next) => {
+  withMetrics("delete", async (req, res, next) => {
     const result = await deleteOrganization(req, res, next);
-    counterOrgActions.inc({ action: "delete" });
     await auditLog.log(req.user?.id, "ORG_DELETED", { id: req.params.id });
     emitEvent("organization.deleted", { id: req.params.id, userId: req.user?.id });
     return result;
-  }
+  })
 );
 
 /* ============================================================================
@@ -120,13 +131,12 @@ router.post(
   body("email").isEmail().withMessage("Email invalide"),
   body("role").optional().isIn(["MEMBER", "ADMIN"]).withMessage("Rôle invalide"),
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("invite", async (req, res, next) => {
     const result = await inviteMember(req, res, next);
-    counterOrgActions.inc({ action: "invite" });
     await auditLog.log(req.user?.id, "ORG_MEMBER_INVITED", { id: req.params.id, email: req.body.email });
     emitEvent("organization.member.invited", { orgId: req.params.id, email: req.body.email });
     return result;
-  }
+  })
 );
 
 /**
@@ -136,13 +146,12 @@ router.post(
   "/invites/:inviteId/accept",
   param("inviteId").isString().isLength({ min: 10 }).withMessage("inviteId invalide"),
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("acceptInvite", async (req, res, next) => {
     const result = await acceptInvite(req, res, next);
-    counterOrgActions.inc({ action: "acceptInvite" });
     await auditLog.log(req.user?.id, "ORG_INVITE_ACCEPTED", { inviteId: req.params.inviteId });
     emitEvent("organization.invite.accepted", { inviteId: req.params.inviteId, userId: req.user?.id });
     return result;
-  }
+  })
 );
 
 /**
@@ -154,13 +163,12 @@ router.delete(
   param("userId").isString().isLength({ min: 8 }).withMessage("userId invalide"),
   handleValidationErrors,
   authorize(["ADMIN", "OWNER"]),
-  async (req, res, next) => {
+  withMetrics("removeMember", async (req, res, next) => {
     const result = await removeMember(req, res, next);
-    counterOrgActions.inc({ action: "removeMember" });
     await auditLog.log(req.user?.id, "ORG_MEMBER_REMOVED", { orgId: req.params.id, userId: req.params.userId });
     emitEvent("organization.member.removed", { orgId: req.params.id, userId: req.params.userId });
     return result;
-  }
+  })
 );
 
 /**
@@ -173,9 +181,8 @@ router.patch(
   body("role").isIn(["MEMBER", "ADMIN"]).withMessage("Rôle invalide"),
   handleValidationErrors,
   authorize(["OWNER"]),
-  async (req, res, next) => {
+  withMetrics("changeRole", async (req, res, next) => {
     const result = await changeRole(req, res, next);
-    counterOrgActions.inc({ action: "changeRole" });
     await auditLog.log(req.user?.id, "ORG_MEMBER_ROLE_CHANGED", {
       orgId: req.params.id,
       userId: req.params.userId,
@@ -187,7 +194,7 @@ router.patch(
       role: req.body.role,
     });
     return result;
-  }
+  })
 );
 
 export default router;
