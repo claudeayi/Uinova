@@ -76,7 +76,10 @@ router.get(
     if (!result?.ok) {
       await auditLog.log("system", "MONITORING_HEALTH_FAILED", { result });
       emitEvent("monitoring.health.failed", { ts: Date.now(), result });
+    } else {
+      await auditLog.log("system", "MONITORING_HEALTH_OK", { ts: Date.now() });
     }
+
     return result;
   })
 );
@@ -95,8 +98,12 @@ router.get(
   query("limit").optional().isInt({ min: 1, max: 500 }),
   handleValidationErrors,
   withMetrics("logs", async (req, res, next) => {
+    const limit = Number(req.query.limit) || 100;
     const result = await getLogs(req, res, next);
-    await auditLog.log(req.user?.id, "MONITORING_LOGS_VIEWED", { limit: req.query.limit || 100 });
+
+    await auditLog.log(req.user?.id, "MONITORING_LOGS_VIEWED", { limit });
+    emitEvent("monitoring.logs.viewed", { userId: req.user?.id, limit });
+
     return result;
   })
 );
@@ -109,7 +116,10 @@ router.get(
   "/overview",
   withMetrics("overview", async (req, res, next) => {
     const result = await getOverview(req, res, next);
+
     await auditLog.log(req.user?.id, "MONITORING_OVERVIEW_VIEWED", { ts: Date.now() });
+    emitEvent("monitoring.overview.viewed", { userId: req.user?.id, ts: Date.now() });
+
     return result;
   })
 );
