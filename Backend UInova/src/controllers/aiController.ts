@@ -1,3 +1,4 @@
+// src/controllers/AiController.ts
 import { Request, Response } from "express";
 import { z } from "zod";
 import crypto from "crypto";
@@ -17,15 +18,13 @@ import { billingService } from "../services/billingService";
  * ========================================================================== */
 const counterRequests = new client.Counter({
   name: "uinova_ai_requests_total",
-  help: "Total des requêtes AI",
-});
-const counterErrors = new client.Counter({
-  name: "uinova_ai_errors_total",
-  help: "Erreurs AI",
+  help: "Nombre total de requêtes AI",
+  labelNames: ["action", "status", "userType"],
 });
 const histogramLatency = new client.Histogram({
   name: "uinova_ai_request_duration_seconds",
   help: "Durée des requêtes AI",
+  labelNames: ["action", "status"],
   buckets: [0.1, 0.5, 1, 2, 5, 10],
 });
 
@@ -69,6 +68,10 @@ function truncateHistory(
   return out;
 }
 
+function auditAiLog(event: string, data: any) {
+  logger.info(`📝 ${event}`, data);
+}
+
 /* ============================================================================
  * CONTROLLERS
  * ========================================================================== */
@@ -80,13 +83,13 @@ function truncateHistory(
 export const chat = async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = uuid();
-  counterRequests.inc();
+  const userId = (req as any)?.user?.id || "anonymous";
+  const userType = (req as any)?.user?.role || "GUEST";
 
   try {
-    const userId = (req as any)?.user?.id || "anonymous";
     const parsed = ChatSchema.safeParse(req.body);
     if (!parsed.success) {
-      counterErrors.inc();
+      counterRequests.inc({ action: "chat", status: "error", userType });
       return res.status(400).json({
         success: false,
         error: "INVALID_BODY",
@@ -100,17 +103,18 @@ export const chat = async (req: Request, res: Response) => {
 
     // 🔒 Sécurité : modération
     if (!moderatePrompt(prompt)) {
-      counterErrors.inc();
+      counterRequests.inc({ action: "chat", status: "blocked", userType });
       return res.status(403).json({
         success: false,
-        error: "Prompt interdit par la politique UInova.",
+        error: "PROMPT_BLOCKED",
         requestId,
       });
     }
 
-    // 💳 Quota réel
+    // 💳 Quota
     const quotaCheck = await billingService.checkQuota(userId, "ai_tokens");
     if (!quotaCheck.ok) {
+      counterRequests.inc({ action: "chat", status: "quota_exceeded", userType });
       return res.status(402).json({
         success: false,
         error: "QUOTA_EXCEEDED",
@@ -135,12 +139,13 @@ export const chat = async (req: Request, res: Response) => {
 
     await billingService.recordUsage(userId, "ai_tokens", result?.usage?.totalTokens || 0);
 
-    histogramLatency.observe((Date.now() - start) / 1000);
+    counterRequests.inc({ action: "chat", status: "success", userType });
+    histogramLatency.labels("chat", "success").observe((Date.now() - start) / 1000);
 
-    // 📜 Audit enrichi
-    logger.info("📝 AI_CHAT_AUDIT", {
+    auditAiLog("AI_CHAT_AUDIT", {
       requestId,
       userId,
+      userType,
       promptHash: crypto.createHash("sha256").update(prompt).digest("hex"),
       model: result?.model,
       tokens: result?.usage?.totalTokens,
@@ -159,11 +164,11 @@ export const chat = async (req: Request, res: Response) => {
       mode: json ? "json" : "text",
     });
   } catch (e: any) {
-    counterErrors.inc();
+    counterRequests.inc({ action: "chat", status: "error", userType });
     logger.error("❌ [AI] chat error", e?.response?.data || e?.message || e);
     return res.status(500).json({
       success: false,
-      error: e?.message || "Erreur lors de la génération AI.",
+      error: "INTERNAL_ERROR",
       requestId,
     });
   }
@@ -176,24 +181,29 @@ export const chat = async (req: Request, res: Response) => {
 export const chatStream = async (req: Request, res: Response) => {
   const start = Date.now();
   const requestId = uuid();
+  const userId = (req as any)?.user?.id || "anonymous";
+  const userType = (req as any)?.user?.role || "GUEST";
+
   const method = req.method.toUpperCase();
   const input = method === "POST" ? req.body : req.query;
-
   const parsed = ChatSchema.safeParse(input);
+
   if (!parsed.success) {
-    counterErrors.inc();
-    return res
-      .status(400)
-      .json({ success: false, error: "INVALID_BODY", details: parsed.error.flatten(), requestId });
+    counterRequests.inc({ action: "chatStream", status: "error", userType });
+    return res.status(400).json({
+      success: false,
+      error: "INVALID_BODY",
+      details: parsed.error.flatten(),
+      requestId,
+    });
   }
 
-  const userId = (req as any)?.user?.id || "anonymous";
   const { prompt, history = [], system, model, temperature, maxTokens, json } =
     parsed.data;
 
   if (!moderatePrompt(prompt)) {
-    counterErrors.inc();
-    return res.status(403).json({ success: false, error: "Prompt interdit.", requestId });
+    counterRequests.inc({ action: "chatStream", status: "blocked", userType });
+    return res.status(403).json({ success: false, error: "PROMPT_BLOCKED", requestId });
   }
 
   res.set({
@@ -228,9 +238,10 @@ export const chatStream = async (req: Request, res: Response) => {
         onStart: (info) => send("start", { requestId, ...info }),
         onEnd: (info) => {
           send("end", { requestId, ...info });
-          logger.info("📝 AI_STREAM_AUDIT", {
+          auditAiLog("AI_STREAM_AUDIT", {
             requestId,
             userId,
+            userType,
             promptHash: crypto.createHash("sha256").update(prompt).digest("hex"),
             model: info?.model,
             latencyMs: Date.now() - start,
@@ -242,13 +253,16 @@ export const chatStream = async (req: Request, res: Response) => {
       }
     );
 
-    // Heartbeat pour éviter timeout côté client
+    counterRequests.inc({ action: "chatStream", status: "success", userType });
+    histogramLatency.labels("chatStream", "success").observe((Date.now() - start) / 1000);
+
+    // Heartbeat
     const heartbeat = setInterval(() => send("heartbeat", Date.now()), 15000);
     res.on("close", () => clearInterval(heartbeat));
   } catch (e: any) {
-    counterErrors.inc();
+    counterRequests.inc({ action: "chatStream", status: "error", userType });
     logger.error("❌ [AI] chatStream error", e?.response?.data || e?.message);
-    send("error", e?.message || "Erreur lors du streaming AI.");
+    send("error", "INTERNAL_ERROR");
   } finally {
     res.end();
   }
@@ -256,14 +270,19 @@ export const chatStream = async (req: Request, res: Response) => {
 
 /**
  * GET /api/ai/models
- * → Retourne la liste des modèles disponibles
+ * → Liste enrichie des modèles disponibles
  */
 export const getModels = async (_req: Request, res: Response) => {
   try {
     const models = await listAvailableModels();
-    res.json({ success: true, data: models });
+    counterRequests.inc({ action: "getModels", status: "success", userType: "ANY" });
+    return res.json({
+      success: true,
+      data: models.sort((a: any, b: any) => a.provider.localeCompare(b.provider)),
+    });
   } catch (e: any) {
+    counterRequests.inc({ action: "getModels", status: "error", userType: "ANY" });
     logger.error("❌ [AI] getModels error", e?.message);
-    res.status(500).json({ success: false, error: "Impossible de charger les modèles" });
+    return res.status(500).json({ success: false, error: "INTERNAL_ERROR" });
   }
 };
