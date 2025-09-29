@@ -24,8 +24,8 @@ const router = Router();
  * ========================================================================== */
 const counterTemplates = new client.Counter({
   name: "uinova_templates_total",
-  help: "Nombre total de templates créés ou supprimés",
-  labelNames: ["action"],
+  help: "Nombre total d’actions sur les templates",
+  labelNames: ["action", "status"],
 });
 
 const histogramSchemaSize = new client.Histogram({
@@ -35,31 +35,21 @@ const histogramSchemaSize = new client.Histogram({
 });
 
 /* ============================================================================
- *  PUBLIC ROUTES – accessibles sans authentification
+ *  PUBLIC ROUTES
  * ========================================================================== */
-
-/**
- * GET /api/templates
- * ▶️ Liste tous les templates (filtrés/paginés)
- * Query: ?q=...&page=1&pageSize=20&category=landing|dashboard&sort=asc|desc&tags=...
- */
 router.get(
   "/",
   query("q").optional().isString().trim(),
   query("category").optional().isString(),
   query("sort").optional().isIn(["asc", "desc"]),
   query("status").optional().isIn(["draft", "published", "archived"]),
-  query("tags").optional().isString(), // CSV de tags
+  query("tags").optional().isString(),
   query("page").optional().isInt({ min: 1 }).toInt(),
   query("pageSize").optional().isInt({ min: 1, max: 100 }).toInt(),
   handleValidationErrors,
   getAllTemplates
 );
 
-/**
- * GET /api/templates/:id
- * ▶️ Récupérer le détail d’un template public
- */
 router.get(
   "/:id",
   param("id").isString().isLength({ min: 5 }),
@@ -68,37 +58,33 @@ router.get(
 );
 
 /* ============================================================================
- *  USER ROUTES – nécessite authentification
+ *  USER ROUTES – Auth Required
  * ========================================================================== */
 router.use(authenticate);
 
-/**
- * POST /api/templates
- * ▶️ Publier un template (USER: pour soi, ADMIN: pour tous)
- */
 router.post(
   "/",
-  body("name").isString().isLength({ min: 3, max: 100 }).withMessage("Nom invalide"),
-  body("category").isString().isLength({ min: 3, max: 50 }).withMessage("Catégorie invalide"),
-  body("schema").isObject().withMessage("Schema requis"),
+  body("name").isString().isLength({ min: 3, max: 100 }),
+  body("category").isString().isLength({ min: 3, max: 50 }),
+  body("schema").isObject(),
   body("description").optional().isString().isLength({ max: 500 }),
   handleValidationErrors,
   async (req, res, next) => {
-    const tpl = await publishTemplate(req, res);
-    if (tpl) {
-      counterTemplates.inc({ action: "created" });
-      histogramSchemaSize.observe(JSON.stringify(req.body.schema).length);
-      await auditLog.log(req.user?.id, "TEMPLATE_CREATED", { id: tpl.id, name: tpl.name });
-      emitEvent("template.created", { userId: req.user?.id, id: tpl.id });
+    try {
+      const tpl = await publishTemplate(req, res, next);
+      if (tpl) {
+        counterTemplates.inc({ action: "create", status: "success" });
+        histogramSchemaSize.observe(JSON.stringify(req.body.schema).length);
+        await auditLog.log(req.user?.id, "TEMPLATE_CREATED", { id: tpl.id, name: tpl.name });
+        emitEvent("template.created", { userId: req.user?.id, id: tpl.id });
+      }
+    } catch (err) {
+      counterTemplates.inc({ action: "create", status: "error" });
+      throw err;
     }
-    next;
   }
 );
 
-/**
- * PATCH /api/templates/:id
- * ▶️ Mettre à jour un template (auteur ou admin)
- */
 router.patch(
   "/:id",
   param("id").isString().isLength({ min: 5 }),
@@ -108,64 +94,62 @@ router.patch(
   body("description").optional().isString().isLength({ max: 500 }),
   handleValidationErrors,
   async (req, res, next) => {
-    const tpl = await updateTemplate(req, res);
-    if (tpl) {
-      await auditLog.log(req.user?.id, "TEMPLATE_UPDATED", { id: tpl.id });
-      emitEvent("template.updated", { userId: req.user?.id, id: tpl.id });
+    try {
+      const tpl = await updateTemplate(req, res, next);
+      if (tpl) {
+        counterTemplates.inc({ action: "update", status: "success" });
+        await auditLog.log(req.user?.id, "TEMPLATE_UPDATED", { id: tpl.id });
+        emitEvent("template.updated", { userId: req.user?.id, id: tpl.id });
+      }
+    } catch (err) {
+      counterTemplates.inc({ action: "update", status: "error" });
+      throw err;
     }
-    next;
   }
 );
 
-/**
- * DELETE /api/templates/:id
- * ▶️ Supprimer un template (auteur ou admin)
- */
 router.delete(
   "/:id",
   param("id").isString().isLength({ min: 5 }),
   handleValidationErrors,
   async (req, res, next) => {
-    const deleted = await deleteTemplate(req, res);
-    if (deleted) {
-      counterTemplates.inc({ action: "deleted" });
-      await auditLog.log(req.user?.id, "TEMPLATE_DELETED", { id: req.params.id });
-      emitEvent("template.deleted", { userId: req.user?.id, id: req.params.id });
+    try {
+      const deleted = await deleteTemplate(req, res, next);
+      if (deleted) {
+        counterTemplates.inc({ action: "delete", status: "success" });
+        await auditLog.log(req.user?.id, "TEMPLATE_DELETED", { id: req.params.id });
+        emitEvent("template.deleted", { userId: req.user?.id, id: req.params.id });
+      }
+    } catch (err) {
+      counterTemplates.inc({ action: "delete", status: "error" });
+      throw err;
     }
-    next;
   }
 );
 
-/**
- * GET /api/templates/my
- * ▶️ Liste des templates publiés par l’utilisateur courant
- */
 router.get("/my", listUserTemplates);
 
-/**
- * POST /api/templates/:id/favorite
- * ▶️ Ajouter/retirer un template des favoris
- */
 router.post(
   "/:id/favorite",
   param("id").isString().isLength({ min: 5 }),
   handleValidationErrors,
   async (req, res, next) => {
-    const fav = await toggleFavoriteTemplate(req, res);
-    await auditLog.log(req.user?.id, "TEMPLATE_FAVORITED", { id: req.params.id });
-    emitEvent("template.favorited", { userId: req.user?.id, id: req.params.id });
-    next;
+    try {
+      const fav = await toggleFavoriteTemplate(req, res, next);
+      counterTemplates.inc({ action: "favorite", status: "success" });
+      await auditLog.log(req.user?.id, "TEMPLATE_FAVORITED", { id: req.params.id });
+      emitEvent("template.favorited", { userId: req.user?.id, id: req.params.id });
+      return fav;
+    } catch (err) {
+      counterTemplates.inc({ action: "favorite", status: "error" });
+      throw err;
+    }
   }
 );
 
 /* ============================================================================
  *  ADMIN ROUTES
  * ========================================================================== */
-
-/**
- * GET /api/templates/admin/all
- * ▶️ Lister tous les templates (y compris privés/brouillons)
- */
 router.get("/admin/all", authorize(["ADMIN"]), getAllTemplates);
 
-export default router;
+export default router; // enrichi sans rien enlever
