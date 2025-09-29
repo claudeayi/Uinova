@@ -1,6 +1,6 @@
 // src/routes/jobs.ts
 import { Router } from "express";
-import { body, param } from "express-validator";
+import { body, param, query } from "express-validator";
 import { authenticate, authorize } from "../middlewares/security";
 import { handleValidationErrors } from "../middlewares/validate";
 import { JobService } from "../services/jobService";
@@ -34,7 +34,6 @@ router.use(authenticate);
 
 /**
  * POST /api/jobs/export
- * ▶️ Enqueue un job d’export
  */
 router.post(
   "/export",
@@ -46,7 +45,6 @@ router.post(
     const start = Date.now();
     try {
       const { projectId, target, exportId } = req.body;
-
       const job = await jobs.enqueueExport({ projectId, target, exportId });
 
       await prisma.auditLog.create({
@@ -58,36 +56,20 @@ router.post(
       });
 
       emitEvent("job.export.created", { jobId: job.id, projectId, target });
-
       counterJobs.inc({ type: "export", status: "success" });
       histogramJobLatency.labels("export", "success").observe(Date.now() - start);
 
-      res.status(201).json({
-        success: true,
-        message: "✅ Job d’export créé avec succès",
-        jobId: job.id,
-      });
+      res.status(201).json({ success: true, jobId: job.id });
     } catch (err: any) {
       counterJobs.inc({ type: "export", status: "failed" });
       histogramJobLatency.labels("export", "failed").observe(Date.now() - start);
-
-      console.error("❌ Export job error:", err);
-      res.status(500).json({
-        success: false,
-        error: "JOB_CREATION_FAILED",
-        message: err.message || "Erreur création job export",
-      });
+      res.status(500).json({ success: false, error: "JOB_CREATION_FAILED", message: err.message });
     }
   }
 );
 
-/* ============================================================================
- * EXTENSIONS JOBS
- * ========================================================================== */
-
 /**
  * POST /api/jobs/deploy
- * ▶️ Enqueue un job de déploiement
  */
 router.post(
   "/deploy",
@@ -109,20 +91,13 @@ router.post(
       });
 
       emitEvent("job.deploy.created", { jobId: job.id, projectId, env });
-
       counterJobs.inc({ type: "deploy", status: "success" });
       histogramJobLatency.labels("deploy", "success").observe(Date.now() - start);
 
-      res.status(201).json({
-        success: true,
-        message: "✅ Job de déploiement créé avec succès",
-        jobId: job.id,
-      });
+      res.status(201).json({ success: true, jobId: job.id });
     } catch (err: any) {
       counterJobs.inc({ type: "deploy", status: "failed" });
       histogramJobLatency.labels("deploy", "failed").observe(Date.now() - start);
-
-      console.error("❌ Deploy job error:", err);
       res.status(500).json({ success: false, error: err.message });
     }
   }
@@ -130,7 +105,6 @@ router.post(
 
 /**
  * GET /api/jobs/:id
- * ▶️ Consulter le statut d’un job
  */
 router.get(
   "/:id",
@@ -142,7 +116,6 @@ router.get(
       if (!job) return res.status(404).json({ success: false, error: "JOB_NOT_FOUND" });
       res.json({ success: true, job });
     } catch (err: any) {
-      console.error("❌ Get job error:", err);
       res.status(500).json({ success: false, error: err.message });
     }
   }
@@ -150,7 +123,6 @@ router.get(
 
 /**
  * DELETE /api/jobs/:id
- * ▶️ Annuler un job en attente
  */
 router.delete(
   "/:id",
@@ -162,33 +134,98 @@ router.delete(
       if (!cancelled) return res.status(404).json({ success: false, error: "JOB_NOT_FOUND" });
 
       await prisma.auditLog.create({
-        data: {
-          userId: req.user?.id,
-          action: "JOB_CANCELLED",
-          metadata: { jobId: req.params.id },
-        },
+        data: { userId: req.user?.id, action: "JOB_CANCELLED", metadata: { jobId: req.params.id } },
       });
 
       emitEvent("job.cancelled", { jobId: req.params.id, userId: req.user?.id });
-
       res.json({ success: true, message: `Job ${req.params.id} annulé` });
     } catch (err: any) {
-      console.error("❌ Cancel job error:", err);
       res.status(500).json({ success: false, error: err.message });
     }
   }
 );
 
 /* ============================================================================
- * HEALTH CHECK
+ * EXTENSIONS : History, Retry & Admin
  * ========================================================================== */
-router.get("/health", (_req, res) =>
+
+/**
+ * GET /api/jobs/history
+ * ▶️ Historique des jobs utilisateur
+ */
+router.get(
+  "/history",
+  query("page").optional().isInt({ min: 1 }).toInt(),
+  query("pageSize").optional().isInt({ min: 1, max: 100 }).toInt(),
+  handleValidationErrors,
+  async (req, res) => {
+    const page = Number(req.query.page) || 1;
+    const pageSize = Number(req.query.pageSize) || 20;
+    const [total, list] = await Promise.all([
+      prisma.job.count({ where: { userId: req.user!.id } }),
+      prisma.job.findMany({
+        where: { userId: req.user!.id },
+        orderBy: { createdAt: "desc" },
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+    ]);
+    res.json({ success: true, total, page, pageSize, jobs: list });
+  }
+);
+
+/**
+ * POST /api/jobs/:id/retry
+ * ▶️ Relancer un job échoué
+ */
+router.post(
+  "/:id/retry",
+  param("id").isString().isLength({ min: 5 }),
+  handleValidationErrors,
+  async (req, res) => {
+    try {
+      const retried = await jobs.retryJob(req.params.id, req.user!.id);
+      if (!retried) return res.status(404).json({ success: false, error: "JOB_NOT_FOUND_OR_NOT_FAILED" });
+      emitEvent("job.retried", { jobId: req.params.id, userId: req.user!.id });
+      res.json({ success: true, message: `Job ${req.params.id} relancé` });
+    } catch (err: any) {
+      res.status(500).json({ success: false, error: err.message });
+    }
+  }
+);
+
+/**
+ * GET /api/jobs/admin/overview
+ * ▶️ Vue globale (admin only)
+ */
+router.get("/admin/overview", authorize(["ADMIN"]), async (_req, res) => {
+  const [total, running, failed] = await Promise.all([
+    prisma.job.count(),
+    prisma.job.count({ where: { status: "RUNNING" } }),
+    prisma.job.count({ where: { status: "FAILED" } }),
+  ]);
+  res.json({
+    success: true,
+    total,
+    running,
+    failed,
+    ts: Date.now(),
+  });
+});
+
+/* ============================================================================
+ * HEALTH CHECK enrichi
+ * ========================================================================== */
+router.get("/health", async (_req, res) => {
+  const total = await prisma.job.count();
   res.json({
     ok: true,
     service: "jobs",
     version: process.env.JOBS_VERSION || "1.0.0",
+    uptime: process.uptime(),
+    totalJobs: total,
     ts: Date.now(),
-  })
-);
+  });
+});
 
 export default router;
