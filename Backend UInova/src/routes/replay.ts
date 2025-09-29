@@ -22,16 +22,32 @@ const router = Router();
  * ========================================================================== */
 const counterReplays = new client.Counter({
   name: "uinova_replays_total",
-  help: "Nombre total de replays",
+  help: "Nombre total d’opérations sur les replays",
   labelNames: ["action", "status"],
 });
 
-const histogramReplayDuration = new client.Histogram({
-  name: "uinova_replay_duration_ms",
-  help: "Durée des replays en millisecondes",
-  labelNames: ["status"],
-  buckets: [100, 500, 1000, 5000, 10000, 60000, 300000],
+const histogramReplayLatency = new client.Histogram({
+  name: "uinova_replays_latency_ms",
+  help: "Latence des opérations replays en ms",
+  labelNames: ["action", "status"],
+  buckets: [50, 100, 200, 500, 1000, 5000, 10000],
 });
+
+function withMetrics(action: string, handler: any) {
+  return async (req: any, res: any, next: any) => {
+    const start = Date.now();
+    try {
+      const result = await handler(req, res, next);
+      counterReplays.inc({ action, status: "success" });
+      histogramReplayLatency.labels(action, "success").observe(Date.now() - start);
+      return result;
+    } catch (err) {
+      counterReplays.inc({ action, status: "error" });
+      histogramReplayLatency.labels(action, "error").observe(Date.now() - start);
+      throw err;
+    }
+  };
+}
 
 /* ============================================================================
  * REPLAYS – Auth Required
@@ -46,17 +62,14 @@ router.post(
   "/:projectId/start",
   param("projectId").isString().isLength({ min: 5 }).withMessage("id projet invalide"),
   handleValidationErrors,
-  async (req, res, next) => {
-    const start = Date.now();
+  withMetrics("start", async (req, res, next) => {
     const result = await startReplay(req, res, next);
 
-    counterReplays.inc({ action: "start", status: "running" });
     await auditLog.log(req.user?.id, "REPLAY_STARTED", { projectId: req.params.projectId });
     emitEvent("replay.started", { userId: req.user?.id, projectId: req.params.projectId });
 
-    histogramReplayDuration.labels("running").observe(Date.now() - start);
     return result;
-  }
+  })
 );
 
 /**
@@ -67,17 +80,14 @@ router.post(
   "/:projectId/stop",
   param("projectId").isString().isLength({ min: 5 }),
   handleValidationErrors,
-  async (req, res, next) => {
-    const start = Date.now();
+  withMetrics("stop", async (req, res, next) => {
     const result = await stopReplay(req, res, next);
 
-    counterReplays.inc({ action: "stop", status: "stopped" });
     await auditLog.log(req.user?.id, "REPLAY_STOPPED", { projectId: req.params.projectId });
     emitEvent("replay.stopped", { userId: req.user?.id, projectId: req.params.projectId });
 
-    histogramReplayDuration.labels("stopped").observe(Date.now() - start);
     return result;
-  }
+  })
 );
 
 /**
@@ -91,7 +101,7 @@ router.get(
   query("from").optional().isISO8601().withMessage("Date from invalide"),
   query("to").optional().isISO8601().withMessage("Date to invalide"),
   handleValidationErrors,
-  listReplays
+  withMetrics("list", listReplays)
 );
 
 /**
@@ -103,7 +113,7 @@ router.get(
   param("projectId").isString().isLength({ min: 5 }),
   param("replayId").isString().isLength({ min: 5 }),
   handleValidationErrors,
-  getReplay
+  withMetrics("get", getReplay)
 );
 
 /**
@@ -115,10 +125,9 @@ router.delete(
   param("projectId").isString().isLength({ min: 5 }),
   param("replayId").isString().isLength({ min: 5 }),
   handleValidationErrors,
-  async (req, res, next) => {
+  withMetrics("delete", async (req, res, next) => {
     const result = await deleteReplay(req, res, next);
 
-    counterReplays.inc({ action: "delete", status: "deleted" });
     await auditLog.log(req.user?.id, "REPLAY_DELETED", {
       projectId: req.params.projectId,
       replayId: req.params.replayId,
@@ -130,7 +139,7 @@ router.delete(
     });
 
     return result;
-  }
+  })
 );
 
 /* ============================================================================
@@ -145,7 +154,7 @@ router.get(
   query("projectId").optional().isString(),
   query("status").optional().isIn(["RUNNING", "STOPPED", "FAILED"]),
   handleValidationErrors,
-  listAllReplays
+  withMetrics("admin_list", listAllReplays)
 );
 
-export default router;
+export default router; // enrichi sans rien enlever
