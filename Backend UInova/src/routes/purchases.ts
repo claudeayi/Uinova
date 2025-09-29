@@ -33,6 +33,23 @@ const histogramPurchaseLatency = new client.Histogram({
   buckets: [50, 100, 200, 500, 1000, 2000, 5000, 10000],
 });
 
+function withMetrics(action: string, handler: any) {
+  return async (req: any, res: any, next: any) => {
+    const start = Date.now();
+    const provider = req.body?.paymentProvider || req.query?.provider || "unknown";
+    try {
+      const result = await handler(req, res, next);
+      counterPurchases.inc({ action, provider, status: "success" });
+      histogramPurchaseLatency.labels(action, provider, "success").observe(Date.now() - start);
+      return result;
+    } catch (err) {
+      counterPurchases.inc({ action, provider, status: "error" });
+      histogramPurchaseLatency.labels(action, provider, "error").observe(Date.now() - start);
+      throw err;
+    }
+  };
+}
+
 /* ============================================================================
  * PURCHASE ROUTES – Auth Required
  * ========================================================================== */
@@ -51,7 +68,7 @@ router.get(
   query("from").optional().isISO8601().toDate(),
   query("to").optional().isISO8601().toDate(),
   handleValidationErrors,
-  listPurchases
+  withMetrics("list", listPurchases)
 );
 
 /**
@@ -66,26 +83,27 @@ router.post(
     .isIn(["STRIPE", "PAYPAL", "CINETPAY", "MOCK"])
     .withMessage("Fournisseur de paiement invalide"),
   handleValidationErrors,
-  async (req, res, next) => {
-    const start = Date.now();
+  withMetrics("create", async (req, res, next) => {
     const result = await createPurchase(req, res, next);
-
     const provider = req.body.paymentProvider || "MOCK";
-    counterPurchases.inc({ action: "create", provider, status: "created" });
-    histogramPurchaseLatency.labels("create", provider, "created").observe(Date.now() - start);
 
     await auditLog.log(req.user?.id, "PURCHASE_CREATED", { itemId: req.body.itemId, provider });
     emitEvent("purchase.created", { userId: req.user?.id, itemId: req.body.itemId, provider });
 
     return result;
-  }
+  })
 );
 
 /**
  * GET /api/purchases/:id
  * ▶️ Récupérer le détail d’un achat
  */
-router.get("/:id", param("id").isString().withMessage("id invalide"), handleValidationErrors, getPurchase);
+router.get(
+  "/:id",
+  param("id").isString().withMessage("id invalide"),
+  handleValidationErrors,
+  withMetrics("get", getPurchase)
+);
 
 /**
  * DELETE /api/purchases/:id
@@ -95,27 +113,23 @@ router.delete(
   "/:id",
   param("id").isString().withMessage("id invalide"),
   handleValidationErrors,
-  async (req, res, next) => {
-    const start = Date.now();
+  withMetrics("cancel", async (req, res, next) => {
     const result = await deletePurchase(req, res, next);
-
-    counterPurchases.inc({ action: "cancel", provider: "any", status: "cancelled" });
-    histogramPurchaseLatency.labels("cancel", "any", "cancelled").observe(Date.now() - start);
 
     await auditLog.log(req.user?.id, "PURCHASE_CANCELLED", { purchaseId: req.params.id });
     emitEvent("purchase.cancelled", { purchaseId: req.params.id, userId: req.user?.id });
 
     return result;
-  }
+  })
 );
 
 /* ============================================================================
- * ADMIN ROUTES
+ * ADMIN ROUTES – ADMIN only
  * ========================================================================== */
 
 /**
  * GET /api/purchases/admin
- * ▶️ Lister tous les achats (admin only)
+ * ▶️ Lister tous les achats
  */
 router.get(
   "/admin",
@@ -126,30 +140,26 @@ router.get(
   query("page").optional().isInt({ min: 1 }),
   query("pageSize").optional().isInt({ min: 1, max: 200 }),
   handleValidationErrors,
-  adminListPurchases
+  withMetrics("admin_list", adminListPurchases)
 );
 
 /**
  * POST /api/purchases/:id/refund
- * ▶️ Rembourser un achat (admin only)
+ * ▶️ Rembourser un achat
  */
 router.post(
   "/:id/refund",
   authorize(["ADMIN"]),
   param("id").isString().withMessage("id invalide"),
   handleValidationErrors,
-  async (req, res, next) => {
-    const start = Date.now();
+  withMetrics("refund", async (req, res, next) => {
     const result = await refundPurchase(req, res, next);
-
-    counterPurchases.inc({ action: "refund", provider: "any", status: "refunded" });
-    histogramPurchaseLatency.labels("refund", "any", "refunded").observe(Date.now() - start);
 
     await auditLog.log(req.user?.id, "PURCHASE_REFUNDED", { purchaseId: req.params.id });
     emitEvent("purchase.refunded", { purchaseId: req.params.id, adminId: req.user?.id });
 
     return result;
-  }
+  })
 );
 
 export default router;
