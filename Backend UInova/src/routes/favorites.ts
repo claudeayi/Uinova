@@ -26,7 +26,7 @@ const counterFavorites = new client.Counter({
 const histogramFavorites = new client.Histogram({
   name: "uinova_favorites_latency_ms",
   help: "Latence des opérations favorites",
-  labelNames: ["action"],
+  labelNames: ["action", "status"],
   buckets: [10, 50, 100, 200, 500, 1000, 2000],
 });
 
@@ -35,10 +35,27 @@ function withMetrics(action: string, handler: any) {
     const start = Date.now();
     try {
       await handler(req, res, next);
+      const duration = Date.now() - start;
+
       counterFavorites.inc({ action, type: req.body?.type || req.query?.type || "unknown" });
-      histogramFavorites.labels(action).observe(Date.now() - start);
-    } catch (err) {
-      histogramFavorites.labels(action).observe(Date.now() - start);
+      histogramFavorites.labels(action, "success").observe(duration);
+
+      await auditLog.log(req.user?.id, "FAVORITE_METRIC", {
+        action,
+        latency: duration,
+        ip: req.ip,
+      });
+    } catch (err: any) {
+      const duration = Date.now() - start;
+      histogramFavorites.labels(action, "error").observe(duration);
+
+      await auditLog.log(req.user?.id, "FAVORITE_ERROR", {
+        action,
+        error: err.message,
+        latency: duration,
+        ip: req.ip,
+      });
+
       throw err;
     }
   };
@@ -56,10 +73,7 @@ router.use(authenticate);
  */
 router.get(
   "/",
-  query("type")
-    .optional()
-    .isIn(["project", "template"])
-    .withMessage("type doit être 'project' ou 'template'"),
+  query("type").optional().isIn(["project", "template"]),
   query("page").optional().isInt({ min: 1 }).toInt(),
   query("pageSize").optional().isInt({ min: 1, max: 100 }).toInt(),
   handleValidationErrors,
@@ -72,8 +86,8 @@ router.get(
  */
 router.post(
   "/",
-  body("itemId").isString().isLength({ min: 5, max: 100 }).withMessage("itemId invalide"),
-  body("type").isIn(["project", "template"]).withMessage("type doit être 'project' ou 'template'"),
+  body("itemId").isString().isLength({ min: 5, max: 100 }),
+  body("type").isIn(["project", "template"]),
   handleValidationErrors,
   withMetrics("add", async (req, res, next) => {
     const result = await addFavorite(req, res, next);
@@ -81,11 +95,14 @@ router.post(
     await auditLog.log(req.user?.id, "FAVORITE_ADDED", {
       itemId: req.body.itemId,
       type: req.body.type,
+      ip: req.ip,
     });
     emitEvent("favorite.added", {
       userId: req.user?.id,
       itemId: req.body.itemId,
       type: req.body.type,
+      ip: req.ip,
+      ts: Date.now(),
     });
 
     return result;
@@ -98,18 +115,56 @@ router.post(
  */
 router.delete(
   "/:id",
-  param("id").isString().isLength({ min: 5 }).withMessage("id invalide"),
+  param("id").isString().isLength({ min: 5 }),
   handleValidationErrors,
   withMetrics("remove", async (req, res, next) => {
     const result = await removeFavorite(req, res, next);
 
-    await auditLog.log(req.user?.id, "FAVORITE_REMOVED", { favoriteId: req.params.id });
+    await auditLog.log(req.user?.id, "FAVORITE_REMOVED", {
+      favoriteId: req.params.id,
+      ip: req.ip,
+    });
     emitEvent("favorite.removed", {
       userId: req.user?.id,
       favoriteId: req.params.id,
+      ip: req.ip,
+      ts: Date.now(),
     });
 
     return result;
+  })
+);
+
+/* ============================================================================
+ * 📊 Stats & Health
+ * ========================================================================== */
+
+/**
+ * GET /api/favorites/stats
+ * 📈 KPIs des favoris
+ */
+router.get("/stats", async (_req, res) => {
+  res.json({
+    ok: true,
+    service: "favorites",
+    metrics: {
+      favoritesCount: await client.register.getSingleMetricAsString("uinova_favorites_total"),
+    },
+    ts: Date.now(),
+  });
+});
+
+/**
+ * GET /api/favorites/health
+ * ✅ Health check
+ */
+router.get("/health", (_req, res) =>
+  res.json({
+    ok: true,
+    service: "favorites",
+    version: process.env.FAVORITES_VERSION || "1.0.0",
+    uptime: process.uptime(),
+    ts: Date.now(),
   })
 );
 
